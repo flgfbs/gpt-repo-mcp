@@ -424,7 +424,7 @@ export const RepoCiStatusResultSchema = z.object({
 export const RepoWriteCiRetryFailedInputSchema = z.object({
   ...OperationTaskStateShape,
   ci_status_id: CiStatusIdSchema,
-  failed_run_ids: z.array(GitHubRunIdSchema).min(1).max(20).describe("Exact failed workflow runs from the bound CI status snapshot.")
+  failed_run_ids: z.array(GitHubRunIdSchema).length(1).describe("The one exact failed workflow run from the bound CI status snapshot eligible for a transient retry.")
 }).strict();
 
 export const RepoWriteCiRetryFailedResultSchema = z.object({
@@ -453,7 +453,7 @@ export const LifecycleMergeManifestSchema = z.object({
   head_sha: LifecycleGitObjectIdSchema,
   tree_sha: LifecycleGitObjectIdSchema,
   merge_method: MergeMethodSchema,
-  delete_task_branch: z.boolean(),
+  remote_branch_retained: z.literal(true).describe("The merge gate never authorizes remote task-branch deletion."),
   required_run_ids: z.array(GitHubRunIdSchema).max(100),
   unresolved_thread_ids: z.array(GitHubNodeIdSchema).max(500),
   prepared_at: TimestampSchema,
@@ -463,7 +463,7 @@ export const LifecycleMergeManifestSchema = z.object({
 export const RepoMergeGatePrepareInputSchema = z.object({
   ...OperationTaskStateShape,
   merge_method: MergeMethodSchema,
-  delete_task_branch: z.boolean().describe("Whether the exact approval should authorize deleting the remote task branch after merge.")
+  remote_branch_retained: z.literal(true).describe("Remote task-branch retention is mandatory and cannot be overridden by the caller.")
 }).strict();
 
 const MergeGateBlockerSchema = z.object({

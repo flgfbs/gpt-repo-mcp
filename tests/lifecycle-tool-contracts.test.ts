@@ -2,9 +2,11 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import {
   RepoArtifactReadInputSchema,
+  RepoMergeGatePrepareInputSchema,
   RepoMergeGatePrepareResultSchema,
   RepoTaskOpenInputSchema,
   RepoWriteMergeInputSchema,
+  RepoWriteCiRetryFailedInputSchema,
   RepoWritePushInputSchema
 } from "../src/contracts/lifecycle.contract.js";
 import {
@@ -126,7 +128,7 @@ const validInputs = {
   repo_write_pr_resolve_thread: { ...taskState, thread_id: "PRRT_1234567890", expected_thread_updated_at: "2026-08-23T00:00:00.000Z" },
   repo_ci_status: taskState,
   repo_write_ci_retry_failed: { ...taskState, ci_status_id: "ci_status_1234567890abcdef", failed_run_ids: ["123456789"] },
-  repo_merge_gate_prepare: { ...taskState, merge_method: "squash", delete_task_branch: true },
+  repo_merge_gate_prepare: { ...taskState, merge_method: "squash", remote_branch_retained: true },
   repo_write_merge: {
     ...taskState,
     manifest_id: "merge_manifest_1234567890abcdef",
@@ -237,6 +239,18 @@ describe("lifecycle tool contracts", () => {
       expect(forbidden in RepoWritePushInputSchema.shape).toBe(false);
       expect(forbidden in RepoWriteMergeInputSchema.shape).toBe(false);
     }
+  });
+
+  test("admits at most one transient CI retry and forbids remote branch deletion", () => {
+    expect(RepoWriteCiRetryFailedInputSchema.safeParse({
+      ...validInputs.repo_write_ci_retry_failed,
+      failed_run_ids: ["123456789", "987654321"]
+    }).success).toBe(false);
+    expect(RepoMergeGatePrepareInputSchema.safeParse({
+      ...validInputs.repo_merge_gate_prepare,
+      remote_branch_retained: false
+    }).success).toBe(false);
+    expect("delete_task_branch" in RepoMergeGatePrepareInputSchema.shape).toBe(false);
   });
 
   test("requires an exact owner-CLI manifest and keeps merge preparation read-only", () => {
