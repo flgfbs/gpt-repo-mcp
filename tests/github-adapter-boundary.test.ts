@@ -159,7 +159,11 @@ describe("fixed GitHub and git boundaries", () => {
     const runner = new RecordingGitRunner();
     const boundary = new ProductionExactGitBoundary(runner);
 
-    await boundary.pushExact({ task: FIXED_TASK, expectedHeadSha: HEAD_SHA });
+    await boundary.pushExact({
+      task: FIXED_TASK,
+      expectedHeadSha: HEAD_SHA,
+      expectedRemoteUrl: "https://github.com/example/project.git"
+    });
 
     expect(runner.calls).toEqual([{
       cwd: FIXED_TASK.root,

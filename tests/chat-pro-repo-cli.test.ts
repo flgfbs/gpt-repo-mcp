@@ -216,11 +216,11 @@ describe("chat-pro-repo owner CLI", () => {
     expect(JSON.parse(inspected.stdout)).toEqual(approval);
   });
 
-  test("fails closed when the durable approval adapter is unavailable", async () => {
+  test("loads the durable approval adapter by default and fails closed for an unknown gate", async () => {
     const fixture = await cliFixture();
     const result = await fixture.run(["approve-merge", "--gate-id", `merge_manifest_${"a".repeat(64)}`]);
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("APPROVAL_STORE_UNAVAILABLE");
+    expect(result.stderr).toContain("GATE_NOT_FOUND");
   });
 
   test("starts only the fixed loopback endpoint after deterministic config validation", async () => {

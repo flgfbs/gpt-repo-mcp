@@ -90,6 +90,7 @@ function sanitizeDiagnostics(diagnostics: Record<string, unknown>): Record<strin
   copyShaDiagnostic(diagnostics, safe, "result_sha256");
   copySafeIdentifierDiagnostic(diagnostics, safe, "operation_id");
   copySafeIdentifierDiagnostic(diagnostics, safe, "phase");
+  copySafeIdentifierDiagnostic(diagnostics, safe, "failure_code");
   copySafeTextDiagnostic(diagnostics, safe, "recovery_hint");
 
   return Object.keys(safe).length > 0 ? safe : undefined;

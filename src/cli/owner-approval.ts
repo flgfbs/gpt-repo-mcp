@@ -24,7 +24,7 @@ export const OwnerMergeGateViewSchema = z.object({
   tree_sha: GitShaSchema,
   merge_method: z.enum(["merge", "squash", "rebase"]),
   required_checks: z.array(z.object({
-    name: z.string().min(1).max(256),
+    name: z.string().min(1).max(500),
     status: z.literal("success")
   }).strict()).max(64),
   unresolved_review_threads: z.literal(0),

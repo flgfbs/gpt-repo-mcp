@@ -43,7 +43,7 @@ export const FIXED_TASK: ServerOwnedTask = {
   root: "/work/task-1",
   branch: "task/change",
   remoteName: "upstream",
-  expectedRemoteUrl: "https://github.com/example/project.git",
+  expectedRemoteIdentity: "github.com/example/project",
   repository: { owner: "example", name: "project" },
   baseBranch: "main",
   mergeMethod: "squash",
@@ -159,7 +159,8 @@ export class FakeGitBoundary implements ExactGitBoundary {
     headSha: HEAD_SHA,
     treeSha: TREE_SHA,
     clean: true,
-    pushUrls: [FIXED_TASK.expectedRemoteUrl]
+    pushUrls: ["https://github.com/example/project.git"],
+    upstream: "origin/task/change"
   };
   pushCalls = 0;
   onPush?: () => void;

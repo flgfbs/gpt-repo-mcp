@@ -338,7 +338,7 @@ export class RegistryTaskLookup implements TaskLookup {
       root: task.worktree_path,
       branch: task.server_branch,
       remoteName: base.lifecycle.remote_name,
-      expectedRemoteUrl: base.lifecycle.expected_remote_identity,
+      expectedRemoteIdentity: base.lifecycle.expected_remote_identity,
       repository: { owner, name },
       baseBranch: task.base_branch,
       mergeMethod: base.lifecycle.merge_method,

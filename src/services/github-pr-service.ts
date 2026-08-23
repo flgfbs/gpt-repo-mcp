@@ -304,10 +304,15 @@ export class GitHubPrService {
       pullRequest: pullRequest ? {
         id: pullRequest.id,
         number: pullRequest.number,
+        url: pullRequest.url,
         state: pullRequest.state,
         draft: pullRequest.isDraft,
+        title: pullRequest.title,
+        headBranch: pullRequest.headRefName,
         headSha: pullRequest.headSha,
+        baseBranch: pullRequest.baseRefName,
         baseSha: pullRequest.baseSha,
+        mergeable: pullRequest.mergeable,
         titleDigest: pullRequest.titleDigest,
         bodyDigest: pullRequest.bodyDigest,
         updatedAt: pullRequest.updatedAt

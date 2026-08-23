@@ -86,7 +86,7 @@ describe("production GitHub runtime adapters", () => {
       headSha: fixture.head,
       treeSha: fixture.tree,
       clean: true,
-      pushUrls: [fixture.task.expectedRemoteUrl]
+      pushUrls: ["https://github.com/example/fixture.git"]
     };
     const provider = new TaskArtifactMergeEvidenceProvider(fixture.bundle.artifacts, git, new FakeGitHubAdapter(), sink);
     const payload = {

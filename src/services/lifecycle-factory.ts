@@ -4,8 +4,26 @@ import {
   type BaseRepositoryLookup,
   type TaskRepositoryRegistrar
 } from "../task-runtime/index.js";
+import { InstalledGhJsonRunner } from "../github/gh-json-runner.js";
+import { ProductionGitHubAdapter } from "../github/github-adapter.js";
+import { OwnerApprovalStore } from "../github/owner-approval-store.js";
+import { systemClock } from "../github/types.js";
 import type { ExternalLifecycleRuntime } from "./repository-lifecycle-runtime.js";
 import { DurableTaskMutationRuntime } from "./durable-task-mutation-runtime.js";
+import { GitRemoteService, InstalledGitRunner, ProductionExactGitBoundary } from "./git-remote-service.js";
+import { GitHubCiService } from "./github-ci-service.js";
+import { GitHubLifecycleRuntime } from "./github-lifecycle-runtime.js";
+import { GitHubMergeGateService } from "./github-merge-gate-service.js";
+import { GitHubMergeService } from "./github-merge-service.js";
+import { GitHubPostMergeService } from "./github-post-merge-service.js";
+import { GitHubPrService } from "./github-pr-service.js";
+import { GitHubReviewService } from "./github-review-service.js";
+import {
+  DurableGitHubOperationLedger,
+  RegistryTaskLookup,
+  TaskArtifactGitHubSink,
+  TaskArtifactMergeEvidenceProvider
+} from "./github-runtime-adapters.js";
 import { RepositoryLifecycleRuntime } from "./repository-lifecycle-runtime.js";
 import type { RootRegistry } from "./root-registry.js";
 
@@ -14,6 +32,16 @@ export type LifecycleRuntimeBundle = {
   tasks: TaskRuntimeService;
   artifacts: TaskArtifactStore;
   taskMutations: DurableTaskMutationRuntime;
+  github?: ProductionGitHubRuntimeBundle;
+};
+
+export type ProductionGitHubRuntimeBundle = {
+  external: GitHubLifecycleRuntime;
+  approvals: OwnerApprovalStore;
+  gates: GitHubMergeGateService;
+  taskLookup: RegistryTaskLookup;
+  githubArtifacts: TaskArtifactGitHubSink;
+  ledger: DurableGitHubOperationLedger;
 };
 
 export async function createLifecycleRuntimeBundle(
@@ -59,10 +87,82 @@ export async function createLifecycleRuntimeBundle(
   });
   await tasks.initialize();
   await tasks.rehydrateOpenTaskRepositories({ limit: 10_000 });
+  const production = external
+    ? undefined
+    : await createProductionGitHubRuntimeBundle(registry, tasks, artifacts);
+  const externalRuntime = external ?? production!.external;
   return {
     tasks,
     artifacts,
     taskMutations: new DurableTaskMutationRuntime(registry, tasks, artifacts),
-    lifecycle: new RepositoryLifecycleRuntime(registry, tasks, artifacts, external)
+    lifecycle: new RepositoryLifecycleRuntime(registry, tasks, artifacts, externalRuntime),
+    ...(production ? { github: production } : {})
+  };
+}
+
+export async function createProductionGitHubRuntimeBundle(
+  registry: RootRegistry,
+  tasks: TaskRuntimeService,
+  artifacts: TaskArtifactStore
+): Promise<ProductionGitHubRuntimeBundle> {
+  const taskLookup = new RegistryTaskLookup(registry, tasks);
+  const ledger = new DurableGitHubOperationLedger(tasks.fs, tasks.locks);
+  await ledger.initialize();
+  const githubArtifacts = new TaskArtifactGitHubSink(taskLookup, artifacts, tasks.fs, tasks.locks);
+  const git = new ProductionExactGitBoundary(new InstalledGitRunner(process.env));
+  const github = new ProductionGitHubAdapter(new InstalledGhJsonRunner(registry.runtimeRoot, process.env));
+  const remote = new GitRemoteService(taskLookup, git, github, githubArtifacts, ledger, systemClock);
+  const pullRequests = new GitHubPrService(taskLookup, git, github, githubArtifacts, ledger, systemClock);
+  const reviews = new GitHubReviewService(taskLookup, git, github, githubArtifacts, ledger, systemClock);
+  const ci = new GitHubCiService(taskLookup, git, github, githubArtifacts, ledger, systemClock);
+  const evidence = new TaskArtifactMergeEvidenceProvider(artifacts, git, github, githubArtifacts);
+  const gates = new GitHubMergeGateService(
+    taskLookup,
+    git,
+    github,
+    ci,
+    evidence,
+    githubArtifacts,
+    ledger,
+    systemClock
+  );
+  const approvals = new OwnerApprovalStore(
+    { getRuntimeRoot: async () => registry.runtimeRoot },
+    systemClock
+  );
+  const merge = new GitHubMergeService(
+    taskLookup,
+    git,
+    github,
+    gates,
+    approvals,
+    githubArtifacts,
+    ledger,
+    systemClock
+  );
+  const postMerge = new GitHubPostMergeService(
+    taskLookup,
+    git,
+    github,
+    ci,
+    githubArtifacts,
+    ledger,
+    systemClock
+  );
+  return {
+    taskLookup,
+    ledger,
+    githubArtifacts,
+    approvals,
+    gates,
+    external: new GitHubLifecycleRuntime(taskLookup, githubArtifacts, {
+      remote,
+      pullRequests,
+      reviews,
+      ci,
+      gates,
+      merge,
+      postMerge
+    })
   };
 }

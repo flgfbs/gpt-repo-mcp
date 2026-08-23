@@ -6,6 +6,7 @@ import { DEFAULT_RUNTIME_ROOT } from "../config/schema.js";
 import { loadConfig, readConfigDocument, resolveConfigPath } from "../config/store.js";
 import { validateConfigDocument } from "../config/validation.js";
 import { OwnerCliError, type OwnerCliIo } from "./cli-types.js";
+import { createDefaultOwnerApprovalCliStore } from "./durable-owner-approval-store.js";
 import { runOwnerDoctor, type OwnerDoctorChecks } from "./owner-doctor.js";
 import {
   approveMerge,
@@ -49,6 +50,7 @@ const USAGE = [
 
 export type OwnerCliDependencies = {
   approvals?: OwnerApprovalCliStore;
+  createApprovalStore?: (configPath: string) => Promise<OwnerApprovalCliStore>;
   createTaskReader?: (runtimeRoot: string) => OwnerTaskStateReader;
   doctorChecks?: Partial<OwnerDoctorChecks>;
   startServer?: (input: { configPath: string; host: "127.0.0.1"; port: 8789 }) => Promise<void>;
@@ -114,11 +116,15 @@ export async function runChatProRepoCli(
     }
     if (args[0] === "approve-merge") {
       const gateId = parseSingleOption(args.slice(1), "--gate-id");
-      return await approveMerge(gateId, requireApprovalStore(dependencies), io, dependencies.now);
+      const approvals = dependencies.approvals
+        ?? await (dependencies.createApprovalStore ?? createDefaultOwnerApprovalCliStore)(configPath);
+      return await approveMerge(gateId, approvals, io, dependencies.now);
     }
     if (args[0] === "approval" && args[1] === "inspect") {
       const options = parseApprovalInspectArgs(args.slice(2));
-      return await inspectApproval(options, requireApprovalStore(dependencies), io);
+      const approvals = dependencies.approvals
+        ?? await (dependencies.createApprovalStore ?? createDefaultOwnerApprovalCliStore)(configPath);
+      return await inspectApproval(options, approvals, io);
     }
     if (args[0] === "doctor" && args.length === 1) {
       return await runOwnerDoctor(configPath, io, dependencies.doctorChecks);
@@ -220,16 +226,6 @@ function parseNamedOptions(args: string[], allowed: Set<string>): Map<string, st
     values.set(name, value);
   }
   return values;
-}
-
-function requireApprovalStore(dependencies: OwnerCliDependencies): OwnerApprovalCliStore {
-  if (!dependencies.approvals) {
-    throw new OwnerCliError(
-      "APPROVAL_STORE_UNAVAILABLE",
-      "Owner approval lifecycle adapter is not configured; no approval was created or inspected."
-    );
-  }
-  return dependencies.approvals;
 }
 
 async function startServer(input: { configPath: string; host: "127.0.0.1"; port: 8789 }): Promise<void> {

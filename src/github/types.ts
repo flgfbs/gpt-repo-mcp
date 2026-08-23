@@ -55,7 +55,7 @@ export type ServerOwnedTask = {
   root: string;
   branch: string;
   remoteName: string;
-  expectedRemoteUrl: string;
+  expectedRemoteIdentity: string;
   repository: GitHubRepositoryRef;
   baseBranch: string;
   mergeMethod: MergeMethod;
@@ -143,6 +143,7 @@ export type LocalGitSnapshot = {
   treeSha: string;
   clean: boolean;
   pushUrls: string[];
+  upstream?: string;
 };
 
 export interface ExactGitBoundary {
@@ -151,6 +152,7 @@ export interface ExactGitBoundary {
   pushExact(input: {
     task: ServerOwnedTask;
     expectedHeadSha: string;
+    expectedRemoteUrl: string;
   }): Promise<void>;
 }
 

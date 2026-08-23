@@ -19,6 +19,7 @@ import {
 } from "../github/types.js";
 import { storeGitHubEvidence, type StoredGitHubEvidence } from "../github/evidence.js";
 import { GitHubOperationController } from "../github/operation-controller.js";
+import { normalizeRemoteIdentity } from "./remote-identity.js";
 
 export type GitProcessResult = {
   exitCode?: number;
@@ -104,19 +105,22 @@ export class ProductionExactGitBoundary implements ExactGitBoundary {
     assertTaskRoot(task.root);
     assertSafeBranch(task.branch);
     assertRemoteName(task.remoteName);
-    const [branch, headSha, treeSha, status, pushUrls] = await Promise.all([
-      this.mustRun(task.root, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
+    const branch = (await this.mustRun(task.root, ["symbolic-ref", "--quiet", "--short", "HEAD"])).trim();
+    assertSafeBranch(branch);
+    const [headSha, treeSha, status, pushUrls, upstream] = await Promise.all([
       this.mustRun(task.root, ["rev-parse", "HEAD"]),
       this.mustRun(task.root, ["rev-parse", "HEAD^{tree}"]),
       this.mustRun(task.root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
-      this.mustRun(task.root, ["remote", "get-url", "--push", "--all", task.remoteName])
+      this.mustRun(task.root, ["remote", "get-url", "--push", "--all", task.remoteName]),
+      this.mustRun(task.root, ["for-each-ref", "--format=%(upstream:short)", `refs/heads/${branch}`])
     ]);
     return {
-      branch: assertSafeBranch(branch.trim()),
+      branch,
       headSha: assertSha(headSha.trim(), "local head sha"),
       treeSha: assertSha(treeSha.trim(), "local tree sha"),
       clean: status.length === 0,
-      pushUrls: pushUrls.split("\n").map((value) => value.trim()).filter(Boolean)
+      pushUrls: pushUrls.split("\n").map((value) => value.trim()).filter(Boolean),
+      ...(upstream.trim() ? { upstream: assertSafeUpstream(upstream.trim()) } : {})
     };
   }
 
@@ -131,11 +135,11 @@ export class ProductionExactGitBoundary implements ExactGitBoundary {
     throw new GitHubBoundaryError("GIT_ANCESTRY_FAILED", "Git could not prove task branch ancestry.");
   }
 
-  async pushExact(input: { task: ServerOwnedTask; expectedHeadSha: string }): Promise<void> {
+  async pushExact(input: { task: ServerOwnedTask; expectedHeadSha: string; expectedRemoteUrl: string }): Promise<void> {
     assertTaskRoot(input.task.root);
     const sha = assertSha(input.expectedHeadSha, "push head sha");
     const branch = assertSafeBranch(input.task.branch);
-    assertCanonicalGitHubUrl(input.task.expectedRemoteUrl, input.task.repository);
+    assertSafeGitHubRemoteUrl(input.expectedRemoteUrl, input.task.expectedRemoteIdentity, input.task.repository);
     const result = await this.runner.run(input.task.root, [
       "push",
       "--porcelain",
@@ -148,7 +152,7 @@ export class ProductionExactGitBoundary implements ExactGitBoundary {
       "--no-signed",
       "--recurse-submodules=no",
       "--no-verify",
-      input.task.expectedRemoteUrl,
+      input.expectedRemoteUrl,
       `${sha}:refs/heads/${branch}`
     ]);
     assertBoundedGitResult(result, true);
@@ -283,6 +287,12 @@ export class GitRemoteService {
         localTreeSha: local.treeSha,
         remoteHeadSha: remote?.sha ?? null,
         remoteTreeSha: remote?.treeSha ?? null,
+        taskBranchName: task.branch,
+        defaultBranchName: repository.defaultBranch,
+        localUpstream: local.upstream ?? null,
+        remoteName: task.remoteName,
+        normalizedRemoteIdentity: task.expectedRemoteIdentity,
+        configuredRepositoryIdentity: repository.nameWithOwner,
         defaultBranchHeadSha: defaultBranch.sha,
         defaultBranchTreeSha: defaultBranch.treeSha,
         aligned,
@@ -352,7 +362,7 @@ export class GitRemoteService {
         branch: task.branch,
         expectedHeadSha,
         expectedTreeSha,
-        remoteUrlDigest: shaForRemoteIdentity(task.expectedRemoteUrl)
+        remoteIdentityDigest: shaForRemoteIdentity(task.expectedRemoteIdentity)
       }
     });
     if (admission.disposition === "STORED") return { disposition: "STORED", operation: admission.record };
@@ -405,7 +415,7 @@ export class GitRemoteService {
     }
 
     try {
-      await this.git.pushExact({ task, expectedHeadSha });
+      await this.git.pushExact({ task, expectedHeadSha, expectedRemoteUrl: local.pushUrls[0]! });
     } catch {
       return await this.reconcilePushFailure(task, operation, remoteBefore, expectedHeadSha, expectedTreeSha);
     }
@@ -542,10 +552,10 @@ function errorCode(error: unknown): string {
 
 function assertLocalTaskBinding(task: ServerOwnedTask, local: LocalGitSnapshot): void {
   if (local.branch !== task.branch) throw new GitHubBoundaryError("TASK_BRANCH_DRIFT", "Current branch is not the server-owned task branch.");
-  if (local.pushUrls.length !== 1 || local.pushUrls[0] !== task.expectedRemoteUrl) {
+  if (local.pushUrls.length !== 1) {
     throw new GitHubBoundaryError("REMOTE_IDENTITY_MISMATCH", "Configured push URL does not match the exact task binding.");
   }
-  assertCanonicalGitHubUrl(task.expectedRemoteUrl, task.repository);
+  assertSafeGitHubRemoteUrl(local.pushUrls[0]!, task.expectedRemoteIdentity, task.repository);
 }
 
 function assertRepositoryIdentity(task: ServerOwnedTask, actual: string): void {
@@ -554,25 +564,42 @@ function assertRepositoryIdentity(task: ServerOwnedTask, actual: string): void {
   }
 }
 
-function assertCanonicalGitHubUrl(value: string, repository: ServerOwnedTask["repository"]): void {
+function assertSafeGitHubRemoteUrl(
+  value: string,
+  expectedIdentity: string,
+  repository: ServerOwnedTask["repository"]
+): void {
+  const expected = `github.com/${repositorySlug(repository)}`;
+  if (
+    expectedIdentity.toLowerCase() !== expected.toLowerCase()
+    || normalizeRemoteIdentity(value).toLowerCase() !== expected.toLowerCase()
+  ) {
+    throw new GitHubBoundaryError("REMOTE_IDENTITY_MISMATCH", "Task remote does not match the owner-registered canonical identity.");
+  }
+  if (/^(?:git@)?github\.com:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/.test(value)) return;
   let parsed: URL;
   try {
     parsed = new URL(value);
   } catch {
     throw new GitHubBoundaryError("REMOTE_URL_INVALID", "Task remote URL is invalid.");
   }
-  const expectedPath = `/${repositorySlug(repository)}.git`;
+  const safeHttps = parsed.protocol === "https:" && parsed.username === "" && parsed.password === "";
+  const safeSsh = parsed.protocol === "ssh:" && (parsed.username === "" || parsed.username === "git") && parsed.password === "";
   if (
-    parsed.protocol !== "https:"
+    (!safeHttps && !safeSsh)
     || parsed.hostname.toLowerCase() !== "github.com"
-    || parsed.username !== ""
-    || parsed.password !== ""
     || parsed.search !== ""
     || parsed.hash !== ""
-    || parsed.pathname.toLowerCase() !== expectedPath.toLowerCase()
   ) {
-    throw new GitHubBoundaryError("REMOTE_URL_UNSAFE", "Task remote URL must be the exact credential-free GitHub HTTPS URL.");
+    throw new GitHubBoundaryError("REMOTE_URL_UNSAFE", "Task remote URL must be a credential-free GitHub HTTPS or SSH URL.");
   }
+}
+
+function assertSafeUpstream(value: string): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,299}$/.test(value) || value.includes("..") || value.includes("//")) {
+    throw new GitHubBoundaryError("UPSTREAM_REF_INVALID", "Local upstream is not a safe ref name.");
+  }
+  return value;
 }
 
 function assertRemoteName(value: string): void {
