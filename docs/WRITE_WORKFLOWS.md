@@ -115,9 +115,10 @@ validation, push, PR, review, CI, and merge-gate evidence.
 
 ## 9. Prepare And Approve The Exact Merge Gate
 
-Call `repo_merge_gate_prepare` with the expected task HEAD/tree, merge method
-(`merge`, `squash`, or `rebase`), and exact remote task-branch deletion choice.
-It is read-only and returns blockers or an expiring manifest.
+Call `repo_merge_gate_prepare` with the expected task HEAD/tree. The server
+binds the configured merge method (`merge`, `squash`, or `rebase`) and mandatory
+remote task-branch retention. It is read-only and returns blockers or an
+expiring manifest.
 
 When eligible, it prints exactly:
 
@@ -143,7 +144,7 @@ binding and consumes the approval once. Its effect is `merged` or a verified
 `already_merged` result for the same binding.
 
 Always finish with `repo_post_merge_readback`. It confirms the PR, merged head,
-merge commit, base ref, task ref, and branch-deletion result. An incomplete
+merge commit, base ref, task ref, and task-branch retention. An incomplete
 read-back is reported as incomplete, not silently upgraded to success.
 
 ## 11. Close And Clean The Task

@@ -52,8 +52,8 @@ chat-pro-repo approve-merge --gate-id <opaque-id>
 The CLI displays the bound details and writes one mode-0600 approval after
 confirmation. `repo_write_merge` rejects a missing, expired, consumed,
 mismatched, or state-stale approval. Prepare and inspect a new gate after any
-HEAD/tree, PR, review, CI, method, branch-deletion, digest, or expiration
-change.
+HEAD/tree, PR, review, CI, method, remote-branch-retention, digest, or
+expiration change.
 
 ## Interrupted Action
 

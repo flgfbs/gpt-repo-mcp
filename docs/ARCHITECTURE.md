@@ -102,8 +102,8 @@ silently replay.
 
 Merge preparation is read-only. It creates an expiring manifest binding the
 repository, task, pull request, base and task branches, exact HEAD and tree,
-merge method, branch-deletion choice, CI runs, review threads, timestamps, and
-manifest digest.
+merge method, mandatory remote-task-branch retention, CI runs, review threads,
+timestamps, and manifest digest.
 
 The owner CLI is the only approval writer:
 

@@ -77,8 +77,9 @@ branch, pull-request number, URL, Git command, or GitHub command.
 ## Exact-Head Merge
 
 `repo_merge_gate_prepare` is read-only. It re-reads pull-request, review, CI,
-branch, HEAD, tree, merge method, and branch-deletion state and returns either
-blockers or an expiring content-bound manifest. When eligible it prints:
+branch, HEAD, tree, the configured merge method, and mandatory remote-branch
+retention state and returns either blockers or an expiring content-bound
+manifest. When eligible it prints:
 
 ```bash
 chat-pro-repo approve-merge --gate-id <opaque-id>

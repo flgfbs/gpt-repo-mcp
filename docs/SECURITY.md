@@ -83,8 +83,9 @@ project runners, never caller-supplied shell text.
 Draft pull requests remain Draft through the create/update tool.
 
 `repo_merge_gate_prepare` performs a read-only fresh observation. An eligible
-gate binds the pull request, branches, HEAD, tree, merge method, delete-branch
-choice, CI, review state, digest, and expiry. The owner then runs:
+gate binds the pull request, branches, HEAD, tree, configured merge method,
+mandatory remote-task-branch retention, CI, review state, digest, and expiry.
+The owner then runs:
 
 ```bash
 chat-pro-repo approve-merge --gate-id <opaque-id>

@@ -129,9 +129,9 @@ chat-pro-repo approve-merge --gate-id <opaque-id>
 ```
 
 Run that command in the owner terminal. Verify the displayed repository, task,
-pull request, exact HEAD/tree, method, branch-deletion choice, review/CI state,
-digest, and expiration before confirming. The resulting approval is mode 0600,
-expires with the gate, and can be consumed once.
+pull request, exact HEAD/tree, method, mandatory remote-task-branch retention,
+review/CI state, digest, and expiration before confirming. The resulting
+approval is mode 0600, expires with the gate, and can be consumed once.
 
 ## Rollback And Uninstall
 
