@@ -66,7 +66,7 @@ describe("GitHub lifecycle public runtime", () => {
         key: "check:github-actions:test",
         required: { kind: "check_run", name: "test", appSlug: "github-actions" },
         status: "failure",
-        sourceId: 10,
+        sourceIds: [10, 11],
         conclusion: "timed_out"
       }],
       workflowRuns: [{
@@ -111,6 +111,13 @@ describe("GitHub lifecycle public runtime", () => {
       event: "push",
       jobs: [{ job_id: "9101", failure_summary: ["step 1: test (timed_out)"] }]
     });
+    expect(result.required_checks).toEqual([{
+      key: "check:github-actions:test",
+      kind: "check_run",
+      status: "failure",
+      conclusion: "timed_out"
+    }]);
+    expect(result.warnings).toEqual(["CI_REQUIRED_CHECK_MULTIPLE_SOURCES_AGGREGATED"]);
   });
 
   it("reports an unknown contacted effect and never attempts evidence replay", async () => {

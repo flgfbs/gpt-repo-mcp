@@ -293,6 +293,7 @@ export type RequiredCheckObservation = {
   required: RequiredCheck;
   status: "missing" | "pending" | "success" | "failure";
   sourceId?: number;
+  sourceIds?: number[];
   conclusion?: string;
 };
 

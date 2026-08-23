@@ -37,6 +37,49 @@ const exactInput = (operationId: string) => ({
 });
 
 describe("GitHub lifecycle services", () => {
+  it("aggregates equivalent required check runs from multiple GitHub Actions suites", async () => {
+    const fixture = await createLifecycleFixture();
+    const first = fixture.github.checkRuns.checkRuns[0]!;
+    fixture.github.checkRuns = {
+      totalCount: 2,
+      checkRuns: [
+        { ...structuredClone(first), id: 11 },
+        structuredClone(first)
+      ]
+    };
+
+    const result = await fixture.ci.ciStatus(exactInput("ci-status-duplicate-success"));
+
+    if (result.disposition !== "EXECUTED") throw new Error("unexpected stored CI status");
+    expect(result.evidence.overall).toBe("success");
+    expect(result.evidence.requiredChecks).toEqual([{
+      key: "check:github-actions:test",
+      required: { kind: "check_run", name: "test", appSlug: "github-actions" },
+      status: "success",
+      sourceIds: [10, 11],
+      conclusion: "success"
+    }]);
+  });
+
+  it("fails closed when duplicate required check runs disagree", async () => {
+    const fixture = await createLifecycleFixture();
+    const first = fixture.github.checkRuns.checkRuns[0]!;
+    fixture.github.checkRuns = {
+      totalCount: 2,
+      checkRuns: [
+        { ...structuredClone(first), id: 11, conclusion: "failure" },
+        structuredClone(first)
+      ]
+    };
+
+    await expect(fixture.ci.ciStatus(exactInput("ci-status-duplicate-conflict"))).rejects.toMatchObject({
+      code: "CI_REQUIRED_CHECK_AMBIGUOUS"
+    });
+    expect(phases(fixture.ledger, "ci-status-duplicate-conflict")).toEqual([
+      "CREATED", "ADMITTED", "EXTERNAL_PRECONTACT", "EXTERNAL_CONTACTED", "FAILED_KNOWN_AFTER_CONTACT"
+    ]);
+  });
+
   it.each(["merge", "squash", "rebase"] as const)(
     "prepares an OPEN Draft exact-head gate, merges with %s, and confirms retained-branch readback",
     async (mergeMethod) => {

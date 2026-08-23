@@ -215,6 +215,11 @@ export class GitHubLifecycleRuntime implements ExternalLifecycleRuntime {
     return this.guard(async () => {
       const loaded = await this.load(input.task_id, await this.services.ci.ciStatus(input));
       const value = loaded.evidence;
+      const requiredCheckEvidence = readArray(value, "requiredChecks");
+      const multipleSourceCheck = requiredCheckEvidence.some((entry) => {
+        const check = asRecord(entry, "required check");
+        return Array.isArray(check.sourceIds) && check.sourceIds.length > 1;
+      });
       return Lifecycle.RepoCiStatusResultSchema.parse({
         ok: true,
         operation_id: input.operation_id,
@@ -223,7 +228,7 @@ export class GitHubLifecycleRuntime implements ExternalLifecycleRuntime {
         ci_status_id: readString(operationResult(loaded.operation), "ciStatusId"),
         head_sha: readString(value, "headSha"),
         overall: readString(value, "overall"),
-        required_checks: readArray(value, "requiredChecks").map((entry) => {
+        required_checks: requiredCheckEvidence.map((entry) => {
           const check = asRecord(entry, "required check");
           const required = readRecord(check, "required");
           const sourceId = nullableNumber(check.sourceId, "sourceId");
@@ -239,7 +244,7 @@ export class GitHubLifecycleRuntime implements ExternalLifecycleRuntime {
         runs: readArray(value, "workflowRuns").map(publicWorkflowRun),
         observed_at: readString(value, "observedAt"),
         artifact: loaded.artifact,
-        warnings: []
+        warnings: multipleSourceCheck ? ["CI_REQUIRED_CHECK_MULTIPLE_SOURCES_AGGREGATED"] : []
       });
     });
   }

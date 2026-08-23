@@ -354,16 +354,25 @@ function normalizeRequiredChecks(
 ): RequiredCheckObservation[] {
   return task.requiredChecks.map((required): RequiredCheckObservation => {
     if (required.kind === "check_run") {
-      const matches = checkRuns.filter((check) => check.name === required.name && check.appSlug === required.appSlug);
-      if (matches.length > 1) throw new GitHubBoundaryError("CI_REQUIRED_CHECK_AMBIGUOUS", "A required check-run identity matched more than once.");
-      const match = matches[0];
-      if (!match) return { key: `check:${required.appSlug}:${required.name}`, required, status: "missing" };
-      const status = match.status !== "completed" ? "pending" : match.conclusion === "success" ? "success" : "failure";
+      const matches = checkRuns
+        .filter((check) => check.name === required.name && check.appSlug === required.appSlug)
+        .sort((left, right) => left.id - right.id);
+      if (matches.length === 0) return { key: `check:${required.appSlug}:${required.name}`, required, status: "missing" };
+      const providerStates = new Set(matches.map((check) => `${check.status}\0${check.conclusion ?? ""}`));
+      if (providerStates.size > 1) {
+        throw new GitHubBoundaryError(
+          "CI_REQUIRED_CHECK_AMBIGUOUS",
+          "A required check-run identity matched conflicting provider observations."
+        );
+      }
+      const match = matches[0]!;
+      const status = checkRunStatus(match);
       return {
         key: `check:${required.appSlug}:${required.name}`,
         required,
         status,
-        sourceId: match.id,
+        sourceIds: matches.map((candidate) => candidate.id),
+        ...(matches.length === 1 ? { sourceId: match.id } : {}),
         ...(match.conclusion ? { conclusion: match.conclusion } : {})
       };
     }
@@ -379,6 +388,11 @@ function normalizeRequiredChecks(
       conclusion: match.state
     };
   });
+}
+
+function checkRunStatus(check: CheckRun): RequiredCheckObservation["status"] {
+  if (check.status !== "completed") return "pending";
+  return check.conclusion === "success" ? "success" : "failure";
 }
 
 function overallCiStatus(
@@ -467,6 +481,7 @@ function requiredCheckJson(check: RequiredCheckObservation): JsonValue {
     required,
     status: check.status,
     sourceId: check.sourceId ?? null,
+    sourceIds: check.sourceIds ?? (check.sourceId === undefined ? [] : [check.sourceId]),
     conclusion: check.conclusion ?? null
   };
 }
@@ -539,13 +554,31 @@ function parseRequiredCheckObservation(value: JsonValue): RequiredCheckObservati
       ? { kind: "commit_status" as const, context: value.required.context }
       : undefined;
   if (!required) throw new GitHubBoundaryError("CI_SNAPSHOT_INVALID", "Stored required-check identity is invalid.");
+  const sourceIds = parseSourceIds(value.sourceIds);
   return {
     key: value.key,
     required,
     status,
     ...(typeof value.sourceId === "number" ? { sourceId: value.sourceId } : {}),
+    ...(sourceIds === undefined ? {} : { sourceIds }),
     ...(typeof value.conclusion === "string" ? { conclusion: value.conclusion } : {})
   };
+}
+
+function parseSourceIds(value: JsonValue | undefined): number[] | undefined {
+  if (value === undefined) return undefined;
+  const sourceIds = Array.isArray(value)
+    ? value.filter((entry): entry is number => typeof entry === "number" && Number.isSafeInteger(entry) && entry > 0)
+    : [];
+  if (
+    !Array.isArray(value)
+    || sourceIds.length !== value.length
+    || new Set(sourceIds).size !== sourceIds.length
+    || sourceIds.some((sourceId, index) => index > 0 && sourceIds[index - 1]! >= sourceId)
+  ) {
+    throw new GitHubBoundaryError("CI_SNAPSHOT_INVALID", "Stored required-check source ids are invalid.");
+  }
+  return sourceIds;
 }
 
 function parseWorkflowRun(value: JsonValue): WorkflowRun {
