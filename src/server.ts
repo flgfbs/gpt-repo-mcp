@@ -42,7 +42,8 @@ const lifecycleBundle = await createLifecycleRuntimeBundle(registry);
 const context: RuntimeContext = {
   registry,
   codeIntelligence,
-  lifecycle: lifecycleBundle.lifecycle
+  lifecycle: lifecycleBundle.lifecycle,
+  taskMutations: lifecycleBundle.taskMutations
 };
 
 const app = express();

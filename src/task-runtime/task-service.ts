@@ -1,5 +1,6 @@
 import { canonicalSha256, hashedDiskKey } from "./canonical-json.js";
 import {
+  GitObjectIdSchema,
   TaskCleanupInputSchema,
   TaskCloseInputSchema,
   TaskIdSchema,
@@ -90,6 +91,13 @@ export type TaskRegistrationRehydrationResult = {
   skipped_task_ids: string[];
 };
 
+export type ExactTaskMutationState = {
+  task: TaskState;
+  head: string;
+  tree: string;
+  clean: boolean;
+};
+
 const NO_REPLAY_PHASES = new Set<OperationPhase>([
   "EXTERNAL_CONTACTED",
   "EXTERNAL_PRECONTACT",
@@ -171,6 +179,50 @@ export class TaskRuntimeService {
       });
     }
     return { registered, skipped_task_ids: skippedTaskIds };
+  }
+
+  async runWithExactTaskState<T>(input: {
+    task_id: string;
+    expected_head: string;
+    expected_tree: string;
+  }, action: (before: ExactTaskMutationState) => Promise<T>): Promise<{
+    result: T;
+    before: ExactTaskMutationState;
+    after: ExactTaskMutationState;
+  }> {
+    await this.initialize();
+    const taskId = TaskIdSchema.parse(input.task_id);
+    const expectedHead = GitObjectIdSchema.parse(input.expected_head);
+    const expectedTree = GitObjectIdSchema.parse(input.expected_tree);
+    return this.locks.withLock(`task:${taskId}`, async () => {
+      let task = await this.states.requireTask(taskId);
+      if (task.lifecycle !== "OPEN" || task.registration_state !== "REGISTERED" || task.close_disposition !== null) {
+        throw new TaskRuntimeError("TASK_NOT_OPEN", "Task mutations require an open, registered task worktree.", {
+          lifecycle: task.lifecycle,
+          registration_state: task.registration_state
+        });
+      }
+      const beforeStatus = await this.observeExactTask(task);
+      if (beforeStatus.head !== expectedHead || beforeStatus.tree !== expectedTree) {
+        throw new TaskRuntimeError("GIT_BINDING_MISMATCH", "Task mutation expected HEAD or tree is stale.", {
+          expected_head: expectedHead,
+          expected_tree: expectedTree,
+          observed_head: beforeStatus.head,
+          observed_tree: beforeStatus.tree
+        });
+      }
+      const before = { task, ...beforeStatus };
+      let result: T;
+      try {
+        result = await action(before);
+      } catch (error) {
+        await this.refreshTaskGitBinding(task).catch(() => undefined);
+        throw error;
+      }
+      task = await this.refreshTaskGitBinding(task);
+      const afterStatus = await this.observeExactTask(task);
+      return { result, before, after: { task, ...afterStatus } };
+    });
   }
 
   async close(rawInput: TaskCloseInput): Promise<{ repo_id: string; task: TaskState; operation: OperationState }> {
@@ -483,6 +535,20 @@ export class TaskRuntimeService {
       });
     }
     return status;
+  }
+
+  private async observeExactTask(task: TaskState): Promise<Omit<ExactTaskMutationState, "task">> {
+    const { git, binding } = await this.bindingForTask(task);
+    const observation = await git.inspect(binding);
+    if (observation.disposition !== "EXACT") throw uncertainOpen(observation);
+    const status = await git.status(binding);
+    return { head: status.head, tree: status.tree, clean: status.clean };
+  }
+
+  private async refreshTaskGitBinding(task: TaskState): Promise<TaskState> {
+    const observed = await this.observeExactTask(task);
+    if (task.worktree_head === observed.head && task.worktree_tree === observed.tree) return task;
+    return this.writeTaskUpdate(task, { worktree_head: observed.head, worktree_tree: observed.tree });
   }
 
   private async bindingForTask(task: TaskState): Promise<{ git: GitTaskWorktreeService; binding: GitTaskBinding }> {

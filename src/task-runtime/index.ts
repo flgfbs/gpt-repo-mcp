@@ -4,6 +4,7 @@ export * from "./contracts.js";
 export * from "./cross-process-lock.js";
 export * from "./errors.js";
 export * from "./git-worktree-service.js";
+export * from "./mutation-store.js";
 export * from "./secure-runtime-fs.js";
 export * from "./semantic-worker-contracts.js";
 export * from "./state-store.js";

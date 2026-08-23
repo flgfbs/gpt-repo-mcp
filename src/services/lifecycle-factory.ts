@@ -5,6 +5,7 @@ import {
   type TaskRepositoryRegistrar
 } from "../task-runtime/index.js";
 import type { ExternalLifecycleRuntime } from "./repository-lifecycle-runtime.js";
+import { DurableTaskMutationRuntime } from "./durable-task-mutation-runtime.js";
 import { RepositoryLifecycleRuntime } from "./repository-lifecycle-runtime.js";
 import type { RootRegistry } from "./root-registry.js";
 
@@ -12,6 +13,7 @@ export type LifecycleRuntimeBundle = {
   lifecycle: RepositoryLifecycleRuntime;
   tasks: TaskRuntimeService;
   artifacts: TaskArtifactStore;
+  taskMutations: DurableTaskMutationRuntime;
 };
 
 export async function createLifecycleRuntimeBundle(
@@ -60,6 +62,7 @@ export async function createLifecycleRuntimeBundle(
   return {
     tasks,
     artifacts,
+    taskMutations: new DurableTaskMutationRuntime(registry, tasks),
     lifecycle: new RepositoryLifecycleRuntime(registry, tasks, artifacts, external)
   };
 }
