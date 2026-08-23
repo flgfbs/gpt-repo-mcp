@@ -55,7 +55,9 @@ import {
   RepoWritePrResolveThreadInputSchema,
   RepoWritePrResolveThreadResultSchema,
   RepoWritePushInputSchema,
-  RepoWritePushResultSchema
+  RepoWritePushResultSchema,
+  LifecycleGitObjectIdSchema,
+  LifecycleOperationIdSchema
 } from "../contracts/lifecycle.contract.js";
 import { LastWriteInputSchema, LastWriteResultSchema } from "../contracts/operation-receipt.contract.js";
 import { OperationLedgerInputSchema, OperationLedgerResultSchema } from "../contracts/operation-ledger.contract.js";
@@ -77,6 +79,20 @@ export type ToolContract = {
   input: z.ZodObject<z.ZodRawShape>;
   output: z.ZodObject<z.ZodRawShape>;
 };
+
+function taskAwareMutationInput(schema: z.ZodObject<z.ZodRawShape>): z.ZodObject<z.ZodRawShape> {
+  const commonShape = {
+    operation_id: LifecycleOperationIdSchema.optional().describe("Required for task-scoped mutation; omitted only for backward-compatible base-repository calls."),
+    expected_tree_sha: LifecycleGitObjectIdSchema.optional().describe("Required for task-scoped mutation and checked against the exact current task tree.")
+  };
+  if ("expected_head_sha" in schema.shape) {
+    return schema.safeExtend(commonShape);
+  }
+  return schema.safeExtend({
+    ...commonShape,
+    expected_head_sha: LifecycleGitObjectIdSchema.optional().describe("Required for task-scoped mutation and checked against the exact current task HEAD.")
+  });
+}
 
 export const toolContracts = {
   repo_list_roots: {
@@ -120,7 +136,7 @@ export const toolContracts = {
     output: SymbolContextResultSchema
   },
   repo_code_index: {
-    input: CodeIndexInputSchema,
+    input: taskAwareMutationInput(CodeIndexInputSchema),
     output: CodeIndexResultSchema
   },
   repo_failure_diagnose: {
@@ -148,31 +164,31 @@ export const toolContracts = {
     output: GitReviewResultSchema
   },
   repo_git_restore_paths: {
-    input: GitRestorePathsInputSchema,
+    input: taskAwareMutationInput(GitRestorePathsInputSchema),
     output: GitRestorePathsResultSchema
   },
   repo_write_stage: {
-    input: GitStageInputSchema,
+    input: taskAwareMutationInput(GitStageInputSchema),
     output: GitStageResultSchema
   },
   repo_write_unstage: {
-    input: GitUnstageInputSchema,
+    input: taskAwareMutationInput(GitUnstageInputSchema),
     output: GitUnstageResultSchema
   },
   repo_write_commit: {
-    input: GitCommitInputSchema,
+    input: taskAwareMutationInput(GitCommitInputSchema),
     output: GitCommitResultSchema
   },
   repo_write_stage_commit: {
-    input: GitStageCommitInputSchema,
+    input: taskAwareMutationInput(GitStageCommitInputSchema),
     output: GitStageCommitResultSchema
   },
   repo_write_recover: {
-    input: GitRecoverInputSchema,
+    input: taskAwareMutationInput(GitRecoverInputSchema),
     output: GitRecoverResultSchema
   },
   repo_cleanup_paths: {
-    input: CleanupPathsInputSchema,
+    input: taskAwareMutationInput(CleanupPathsInputSchema),
     output: CleanupPathsResultSchema
   },
   repo_project_brief: {
@@ -196,7 +212,7 @@ export const toolContracts = {
     output: DelegationPreparedResultV3Schema
   },
   repo_write_codex_task: {
-    input: DelegationTaskV3WriteToolInputSchema,
+    input: taskAwareMutationInput(DelegationTaskV3WriteToolInputSchema),
     output: DelegationWriteResultV3Schema
   },
   repo_agent_runs: {
@@ -204,7 +220,7 @@ export const toolContracts = {
     output: AgentRunsResultSchema
   },
   repo_write_agent_reply: {
-    input: AgentReplyInputSchema,
+    input: taskAwareMutationInput(AgentReplyInputSchema),
     output: AgentReplyResultSchema
   },
   repo_codex_review: {
@@ -212,19 +228,19 @@ export const toolContracts = {
     output: CodexReviewResultSchema
   },
   repo_write_codex_review: {
-    input: CodexReviewWriteInputSchema,
+    input: taskAwareMutationInput(CodexReviewWriteInputSchema),
     output: CodexReviewWriteResultSchema
   },
   repo_write_integration_review: {
-    input: IntegrationReviewWriteInputSchema,
+    input: taskAwareMutationInput(IntegrationReviewWriteInputSchema),
     output: IntegrationReviewWriteResultSchema
   },
   repo_prepare_patchset: {
-    input: PatchsetPrepareInputSchema,
+    input: taskAwareMutationInput(PatchsetPrepareInputSchema),
     output: PatchsetPrepareResultSchema
   },
   repo_apply_patchset: {
-    input: PatchsetApplyInputSchema,
+    input: taskAwareMutationInput(PatchsetApplyInputSchema),
     output: PatchsetApplyResultSchema
   },
   repo_review_patchset: {
@@ -232,19 +248,19 @@ export const toolContracts = {
     output: PatchsetReviewResultSchema
   },
   repo_rollback_patchset: {
-    input: PatchsetRollbackInputSchema,
+    input: taskAwareMutationInput(PatchsetRollbackInputSchema),
     output: PatchsetRollbackResultSchema
   },
   repo_validate: {
-    input: ValidateInputSchema,
+    input: taskAwareMutationInput(ValidateInputSchema),
     output: ValidateResultSchema
   },
   repo_start_work_session: {
-    input: StartWorkSessionInputSchema,
+    input: taskAwareMutationInput(StartWorkSessionInputSchema),
     output: StartWorkSessionResultSchema
   },
   repo_update_work_session: {
-    input: UpdateWorkSessionInputSchema,
+    input: taskAwareMutationInput(UpdateWorkSessionInputSchema),
     output: UpdateWorkSessionResultSchema
   },
   repo_current_work_session: {
@@ -252,15 +268,15 @@ export const toolContracts = {
     output: CurrentWorkSessionResultSchema
   },
   repo_write_file: {
-    input: WriteFileInputSchema,
+    input: taskAwareMutationInput(WriteFileInputSchema),
     output: WriteFileResultSchema
   },
   repo_write_changes: {
-    input: WriteChangesInputSchema,
+    input: taskAwareMutationInput(WriteChangesInputSchema),
     output: WriteChangesResultSchema
   },
   repo_write_handoff: {
-    input: HandoffInputSchema,
+    input: taskAwareMutationInput(HandoffInputSchema),
     output: HandoffResultSchema
   },
   repo_task_open: {
