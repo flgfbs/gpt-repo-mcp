@@ -11,6 +11,7 @@ import {
   GitHubBoundaryError,
   assertSafeExternalText,
   sha256,
+  sha256Json,
   type Clock,
   type ContentAddressedArtifactSink,
   type DurableOperationLedger,
@@ -410,7 +411,7 @@ export class GitHubReviewService {
       || validation.headSha !== expectedHeadSha
       || validation.treeSha !== expectedTreeSha
     ) {
-      throw new GitHubBoundaryError("REVIEW_RESOLUTION_VALIDATION_MISSING", "Review resolution requires passed validation on the exact corrected head and tree.");
+      throw new GitHubBoundaryError("REVIEW_RESOLUTION_VALIDATION_MISSING", "Review resolution requires passed validation on the exact current head and tree.");
     }
     if (operations.some((operation) => operation.phase === "UNKNOWN_AFTER_CONTACT")) {
       throw new GitHubBoundaryError("UNKNOWN_EXTERNAL_EFFECT", "Review resolution is blocked by an unresolved unknown external effect.");
@@ -418,21 +419,97 @@ export class GitHubReviewService {
     const snapshots = operations
       .filter((operation) => operation.semantic === "repo_pr_review_threads" && operation.phase === "EXTERNAL_SUCCEEDED")
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    const snapshotEvidence: Array<{
+      operation: GitHubOperationRecord;
+      value: { [key: string]: JsonValue };
+    }> = [];
     for (const operation of snapshots) {
       const result = jsonRecord(operation.result);
       const digest = typeof result?.artifactDigest === "string" ? result.artifactDigest : undefined;
       if (!digest) continue;
       const value = await this.artifacts.getJson({ namespace: "github-review-evidence", digest });
       const snapshot = jsonRecord(value);
+      if (!snapshot) continue;
+      snapshotEvidence.push({ operation, value: snapshot });
       if (
-        snapshot
-        && typeof snapshot.headSha === "string"
+        typeof snapshot.headSha === "string"
         && snapshot.headSha !== expectedHeadSha
         && Array.isArray(snapshot.threads)
         && snapshot.threads.some((entry) => jsonRecord(entry)?.id === thread.id)
       ) return;
     }
-    throw new GitHubBoundaryError("REVIEW_CORRECTION_EVIDENCE_MISSING", "Review resolution requires a durable prior thread snapshot followed by a new exact corrected head.");
+
+    const replies = operations
+      .filter((operation) => operation.semantic === "repo_write_pr_reply" && operation.phase === "EXTERNAL_SUCCEEDED")
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    let replyNeedsFreshValidation = false;
+    for (const operation of replies) {
+      const result = jsonRecord(operation.result);
+      const digest = typeof result?.artifactDigest === "string" ? result.artifactDigest : undefined;
+      if (!digest) continue;
+      const replyValue = await this.artifacts.getJson({ namespace: "github-review-evidence", digest });
+      const reply = jsonRecord(replyValue);
+      const replyComment = jsonRecord(reply?.comment);
+      if (
+        !reply
+        || !replyComment
+        || reply.semantic !== "repo_write_pr_reply"
+        || reply.repoId !== task.repoId
+        || reply.taskId !== task.taskId
+        || reply.pullRequestNumber !== thread.pullRequestNumber
+        || reply.headSha !== expectedHeadSha
+        || reply.threadId !== thread.id
+        || result?.pullRequestNumber !== thread.pullRequestNumber
+        || result.threadId !== thread.id
+        || result.commentId !== replyComment.id
+        || operation.subjectDigest !== sha256Json({ threadId: thread.id })
+        || typeof replyComment.body !== "string"
+        || operation.bindingDigest !== sha256Json({
+          expectedHeadSha,
+          expectedTreeSha,
+          threadId: thread.id,
+          bodyDigest: sha256(replyComment.body)
+        })
+        || !thread.comments.some((comment) => matchesReviewCommentEvidence(comment, replyComment))
+      ) continue;
+
+      const hasPriorSameHeadSnapshot = snapshotEvidence.some(({ operation: snapshotOperation, value: snapshot }) => (
+        snapshotOperation.updatedAt.localeCompare(operation.createdAt) < 0
+        && snapshot.semantic === "repo_pr_review_threads"
+        && snapshot.repoId === task.repoId
+        && snapshot.taskId === task.taskId
+        && snapshot.pullRequestNumber === thread.pullRequestNumber
+        && snapshot.headSha === expectedHeadSha
+        && Array.isArray(snapshot.threads)
+        && snapshot.threads.some((entry) => {
+          const observedThread = jsonRecord(entry);
+          return observedThread?.id === thread.id
+            && observedThread.pullRequestId === thread.pullRequestId
+            && observedThread.pullRequestNumber === thread.pullRequestNumber
+            && observedThread.headSha === expectedHeadSha
+            && observedThread.resolved === false
+            && observedThread.outdated === false
+            && Array.isArray(observedThread.comments)
+            && !observedThread.comments.some((comment) => jsonRecord(comment)?.id === replyComment.id);
+        })
+      ));
+      if (!hasPriorSameHeadSnapshot) continue;
+      if (!validation.createdAt || validation.createdAt.localeCompare(operation.updatedAt) <= 0) {
+        replyNeedsFreshValidation = true;
+        continue;
+      }
+      return;
+    }
+    if (replyNeedsFreshValidation) {
+      throw new GitHubBoundaryError(
+        "REVIEW_CONFIRMATION_VALIDATION_STALE",
+        "Same-head review confirmation requires fresh exact validation completed after the durable reply."
+      );
+    }
+    throw new GitHubBoundaryError(
+      "REVIEW_CORRECTION_EVIDENCE_MISSING",
+      "Review resolution requires either a durable prior thread snapshot followed by a corrected head, or a durable same-head reply confirmed by fresh exact validation."
+    );
   }
 }
 
@@ -502,6 +579,18 @@ function reviewCommentEvidence(comment: ReviewComment) {
     updatedAt: comment.updatedAt,
     url: comment.url
   } as const;
+}
+
+function matchesReviewCommentEvidence(
+  comment: ReviewComment,
+  evidence: { [key: string]: JsonValue }
+): boolean {
+  return evidence.id === comment.id
+    && evidence.author === comment.author
+    && evidence.body === comment.body
+    && evidence.createdAt === comment.createdAt
+    && evidence.updatedAt === comment.updatedAt
+    && evidence.url === comment.url;
 }
 
 function resolveOperationResult(

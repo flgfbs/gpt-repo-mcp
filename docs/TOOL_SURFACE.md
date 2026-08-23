@@ -258,6 +258,8 @@ it Draft. Requires `ship`.
 ### `repo_write_pr_resolve_thread`
 
 58. Idempotently resolve an exact review thread at its expected update time.
+Requires passed exact validation and either corrected-head evidence or a durable
+same-head reply followed by fresh exact validation.
 
 ### `repo_ci_status`
 

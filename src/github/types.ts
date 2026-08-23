@@ -394,6 +394,7 @@ export type ValidationEvidence = {
   treeSha: string;
   validationId: string;
   digest: string;
+  createdAt?: string;
 };
 
 export type IndependentReviewEvidence = {

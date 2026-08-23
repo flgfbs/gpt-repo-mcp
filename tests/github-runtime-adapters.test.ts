@@ -153,7 +153,8 @@ describe("production GitHub runtime adapters", () => {
       headSha: fixture.head,
       treeSha: fixture.tree,
       validationId: "validation-exact",
-      digest: artifact.content_sha256
+      digest: artifact.content_sha256,
+      createdAt: artifact.created_at
     });
     expect(await provider.getIndependentReviewEvidence(fixture.task)).toMatchObject({
       status: "passed",

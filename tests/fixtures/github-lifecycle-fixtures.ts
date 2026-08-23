@@ -435,7 +435,8 @@ export class FixedMergeEvidenceProvider implements MergeEvidenceProvider {
     headSha: HEAD_SHA,
     treeSha: TREE_SHA,
     validationId: "validation-1",
-    digest: "a".repeat(64)
+    digest: "a".repeat(64),
+    createdAt: "2026-08-23T00:00:00.000Z"
   };
   review: IndependentReviewEvidence = {
     status: "passed",

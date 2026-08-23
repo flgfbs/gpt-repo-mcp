@@ -106,7 +106,90 @@ describe("GitHub PR and review services", () => {
     expect(fixture.github.calls.filter((call) => call === "resolveReviewThread")).toHaveLength(1);
   });
 
-  it("refuses resolution without a new corrected head and rejects an outdated thread", async () => {
+  it("resolves a same-head confirmation only after a durable reply and fresh validation", async () => {
+    const fixture = createFixture(false);
+    fixture.github.reviewThreads = [makeReviewThread()];
+    await fixture.review.prReviewThreads({ ...input("review-status-confirmation"), limit: 25 });
+
+    fixture.clock.advance(1_000);
+    await fixture.review.writePrReply({
+      ...input("review-reply-confirmation"),
+      thread_id: "thread_1",
+      body: "The final code and tests confirm the requested invariant."
+    });
+
+    fixture.clock.advance(1_000);
+    fixture.evidence.validation = {
+      status: "passed",
+      headSha: HEAD_SHA,
+      treeSha: TREE_SHA,
+      validationId: "validation-after-confirmation",
+      digest: "d".repeat(64),
+      createdAt: fixture.clock.now().toISOString()
+    };
+    const resolved = await fixture.review.writePrResolveThread({
+      ...input("review-resolve-confirmation"),
+      thread_id: "thread_1",
+      expected_thread_updated_at: "2026-08-23T00:00:00.000Z"
+    });
+
+    expect(resolved).toMatchObject({
+      disposition: "EXECUTED",
+      thread: { id: "thread_1", isResolved: true },
+      changed: true,
+      operation: { phase: "EXTERNAL_SUCCEEDED" }
+    });
+    expect(fixture.github.calls.filter((call) => call === "replyToReviewThread")).toHaveLength(1);
+    expect(fixture.github.calls.filter((call) => call === "resolveReviewThread")).toHaveLength(1);
+  });
+
+  it("refuses a same-head confirmation when validation predates the durable reply", async () => {
+    const fixture = createFixture(false);
+    fixture.github.reviewThreads = [makeReviewThread()];
+    await fixture.review.prReviewThreads({ ...input("review-status-stale-validation"), limit: 25 });
+    fixture.clock.advance(1_000);
+    await fixture.review.writePrReply({
+      ...input("review-reply-stale-validation"),
+      thread_id: "thread_1",
+      body: "The final code and tests confirm the requested invariant."
+    });
+
+    await expect(fixture.review.writePrResolveThread({
+      ...input("review-resolve-stale-validation"),
+      thread_id: "thread_1",
+      expected_thread_updated_at: "2026-08-23T00:00:00.000Z"
+    })).rejects.toMatchObject({ code: "REVIEW_CONFIRMATION_VALIDATION_STALE" });
+    expect(fixture.github.calls.filter((call) => call === "resolveReviewThread")).toHaveLength(0);
+  });
+
+  it("refuses a same-head confirmation without a durable pre-reply thread snapshot", async () => {
+    const fixture = createFixture(false);
+    fixture.github.reviewThreads = [makeReviewThread()];
+    fixture.clock.advance(1_000);
+    await fixture.review.writePrReply({
+      ...input("review-reply-without-snapshot"),
+      thread_id: "thread_1",
+      body: "The final code and tests confirm the requested invariant."
+    });
+    fixture.clock.advance(1_000);
+    fixture.evidence.validation = {
+      status: "passed",
+      headSha: HEAD_SHA,
+      treeSha: TREE_SHA,
+      validationId: "validation-after-unobserved-reply",
+      digest: "e".repeat(64),
+      createdAt: fixture.clock.now().toISOString()
+    };
+
+    await expect(fixture.review.writePrResolveThread({
+      ...input("review-resolve-without-snapshot"),
+      thread_id: "thread_1",
+      expected_thread_updated_at: "2026-08-23T00:00:00.000Z"
+    })).rejects.toMatchObject({ code: "REVIEW_CORRECTION_EVIDENCE_MISSING" });
+    expect(fixture.github.calls.filter((call) => call === "resolveReviewThread")).toHaveLength(0);
+  });
+
+  it("refuses resolution without corrected-head or same-head reply evidence and rejects an outdated thread", async () => {
     const unchanged = createFixture(false);
     unchanged.github.reviewThreads = [makeReviewThread()];
     await unchanged.review.prReviewThreads({ ...input("review-status-unchanged"), limit: 25 });
@@ -159,7 +242,8 @@ function createFixture(advanceAfterObservation = true) {
       headSha: correctedHead,
       treeSha: correctedTree,
       validationId: "validation-corrected",
-      digest: "c".repeat(64)
+      digest: "c".repeat(64),
+      createdAt: clock.now().toISOString()
     };
     return result;
   };

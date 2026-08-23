@@ -389,7 +389,8 @@ export class TaskArtifactMergeEvidenceProvider implements MergeEvidenceProvider 
           headSha: parsed.headSha,
           treeSha: parsed.treeSha,
           validationId: parsed.validationId,
-          digest: candidate.content_sha256
+          digest: candidate.content_sha256,
+          createdAt: candidate.created_at
         };
       }
     }

@@ -97,14 +97,19 @@ previous state-bound evidence stale and requires a new observation/push.
 ## 7. Handle Review
 
 1. Read bounded threads with `repo_pr_review_threads`.
-2. Correct the task worktree and repeat local validation/review.
-3. Push the new exact HEAD.
+2. Correct the task worktree and repeat local validation/review, or preserve the
+   exact HEAD when the thread only requests confirmation of already-final code.
+3. Push the new exact HEAD when code changed.
 4. Reply with `repo_write_pr_reply` when a response is appropriate.
 5. Resolve with `repo_write_pr_resolve_thread` only at the exact observed thread
-   update time and after the finding is addressed.
+   update time. The server requires either a prior snapshot followed by a new
+   corrected HEAD, or a prior same-HEAD snapshot, an exact durable reply present
+   in the current thread, and fresh exact validation completed after that reply.
 
 Replies and resolutions use operation replay protection. Thread ids come from
-the bound pull request, not arbitrary caller-selected PR coordinates.
+the bound pull request, not arbitrary caller-selected PR coordinates. A reply
+alone never authorizes resolution, and an unresolved unknown external effect
+blocks both evidence paths.
 
 ## 8. Handle CI
 
