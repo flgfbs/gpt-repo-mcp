@@ -125,20 +125,39 @@ const CommitStatusesSchema = z.object({
 
 const WorkflowRunListSchema = z.array(z.object({
   databaseId: z.number().int().positive(),
-  headSha: z.string(),
-  attempt: z.number().int().positive(),
-  status: z.string(),
-  conclusion: z.string().nullable().optional(),
-  workflowName: z.string()
+  headSha: z.string()
 }));
 
 const WorkflowRunSchema = z.object({
   id: z.number().int().positive(),
   head_sha: z.string(),
   run_attempt: z.number().int().positive(),
-  status: z.string(),
+  status: z.enum(["queued", "in_progress", "completed", "waiting", "pending", "requested"]),
   conclusion: z.string().nullable().optional(),
-  name: z.string()
+  name: z.string().min(1).max(500),
+  event: z.string().min(1).max(200),
+  created_at: z.string().datetime(),
+  updated_at: z.string().datetime(),
+  html_url: z.string().url()
+});
+
+const WorkflowJobsSchema = z.object({
+  total_count: z.number().int().nonnegative(),
+  jobs: z.array(z.object({
+    id: z.number().int().positive(),
+    name: z.string().min(1).max(500),
+    status: z.enum(["queued", "in_progress", "completed", "waiting", "pending", "requested"]),
+    conclusion: z.string().nullable().optional(),
+    started_at: z.string().datetime().nullable().optional(),
+    completed_at: z.string().datetime().nullable().optional(),
+    html_url: z.string().url(),
+    steps: z.array(z.object({
+      number: z.number().int().positive(),
+      name: z.string().min(1).max(500),
+      status: z.string().min(1).max(100),
+      conclusion: z.string().nullable().optional()
+    })).max(1_000).default([])
+  })).max(100)
 });
 
 const MergeResultSchema = z.object({
@@ -475,16 +494,23 @@ export class ProductionGitHubAdapter implements GitHubAdapter {
       "--repo", fullyQualifiedRepository(repository),
       "--commit", sha,
       "--limit", "100",
-      "--json", "attempt,conclusion,databaseId,headSha,status,workflowName"
+      "--json", "databaseId,headSha"
     ], undefined, false), false);
-    return parsed.map((run) => ({
-      id: run.databaseId,
-      headSha: assertSha(run.headSha, "workflow run head sha"),
-      attempt: run.attempt,
-      status: run.status,
-      ...(run.conclusion ? { conclusion: run.conclusion } : {}),
-      workflowName: run.workflowName
-    }));
+    if (new Set(parsed.map((run) => run.databaseId)).size !== parsed.length) {
+      throw new GitHubBoundaryError("CI_RUN_DUPLICATE", "Workflow run listing returned duplicate ids.");
+    }
+    const runs: WorkflowRun[] = [];
+    for (const listed of parsed) {
+      if (assertSha(listed.headSha, "listed workflow run head sha") !== sha) {
+        throw new GitHubBoundaryError("CI_RUN_HEAD_MISMATCH", "A listed workflow run is not bound to the exact CI head.");
+      }
+      const run = await this.getWorkflowRun(repository, listed.databaseId);
+      if (run.headSha !== sha) {
+        throw new GitHubBoundaryError("CI_RUN_HEAD_MISMATCH", "A workflow run is not bound to the exact CI head.");
+      }
+      runs.push(run);
+    }
+    return runs;
   }
 
   async getWorkflowRun(repository: GitHubRepositoryRef, runId: number): Promise<WorkflowRun> {
@@ -492,13 +518,51 @@ export class ProductionGitHubAdapter implements GitHubAdapter {
     const parsed = parseResponse(WorkflowRunSchema, await this.callJson(apiArgs(
       "GET", `repos/${repositorySlug(repository)}/actions/runs/${runId}`, false
     ), undefined, false), false);
+    const jobs = [];
+    let expectedTotal: number | undefined;
+    for (let page = 1; page <= 5; page += 1) {
+      const jobPage = parseResponse(WorkflowJobsSchema, await this.callJson(apiArgs(
+        "GET", `repos/${repositorySlug(repository)}/actions/runs/${runId}/jobs?per_page=100&page=${page}`, false
+      ), undefined, false), false);
+      if (expectedTotal === undefined) expectedTotal = jobPage.total_count;
+      if (jobPage.total_count !== expectedTotal || expectedTotal > 500) {
+        throw new GitHubBoundaryError("CI_JOB_SET_DRIFT", "Workflow jobs did not remain within the fixed 500-job snapshot bound.");
+      }
+      jobs.push(...jobPage.jobs.map((job) => ({
+        id: job.id,
+        name: job.name,
+        status: job.status,
+        ...(job.conclusion ? { conclusion: job.conclusion } : {}),
+        ...(job.started_at ? { startedAt: job.started_at } : {}),
+        ...(job.completed_at ? { completedAt: job.completed_at } : {}),
+        url: job.html_url,
+        failureSummary: job.steps
+          .filter((step) => step.conclusion !== null && step.conclusion !== undefined
+            && !["success", "neutral", "skipped"].includes(step.conclusion))
+          .slice(0, 20)
+          .map((step) => `step ${step.number}: ${step.name} (${step.conclusion})`)
+      })));
+      if (jobs.length >= expectedTotal) break;
+      if (jobPage.jobs.length === 0) {
+        throw new GitHubBoundaryError("CI_JOB_PAGINATION_INCOMPLETE", "Workflow job pagination ended before total_count.");
+      }
+      if (page === 5) throw new GitHubBoundaryError("CI_JOB_LIMIT_EXCEEDED", "Workflow job evidence exceeds the fixed page bound.");
+    }
+    if (jobs.length !== expectedTotal || new Set(jobs.map((job) => job.id)).size !== jobs.length) {
+      throw new GitHubBoundaryError("CI_JOB_COUNT_MISMATCH", "Workflow job evidence is incomplete or contains duplicate ids.");
+    }
     return {
       id: parsed.id,
       headSha: assertSha(parsed.head_sha, "workflow run head sha"),
       attempt: parsed.run_attempt,
       status: parsed.status,
       ...(parsed.conclusion ? { conclusion: parsed.conclusion } : {}),
-      workflowName: parsed.name
+      workflowName: parsed.name,
+      event: parsed.event,
+      createdAt: parsed.created_at,
+      updatedAt: parsed.updated_at,
+      url: parsed.html_url,
+      jobs
     };
   }
 

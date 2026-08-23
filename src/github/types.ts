@@ -259,9 +259,25 @@ export type WorkflowRun = {
   id: number;
   headSha: string;
   attempt: number;
-  status: string;
+  status: "queued" | "in_progress" | "completed" | "waiting" | "pending" | "requested";
   conclusion?: string;
   workflowName: string;
+  event: string;
+  createdAt: string;
+  updatedAt: string;
+  url: string;
+  jobs: WorkflowJob[];
+};
+
+export type WorkflowJob = {
+  id: number;
+  name: string;
+  status: "queued" | "in_progress" | "completed" | "waiting" | "pending" | "requested";
+  conclusion?: string;
+  startedAt?: string;
+  completedAt?: string;
+  url: string;
+  failureSummary: string[];
 };
 
 export type RequiredCheckObservation = {

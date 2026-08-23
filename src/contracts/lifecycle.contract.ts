@@ -406,9 +406,22 @@ const CiRunSchema = z.object({
   workflow_name: z.string().min(1).max(500),
   head_sha: LifecycleGitObjectIdSchema,
   attempt: z.number().int().positive(),
-  status: z.enum(["queued", "in_progress", "completed"]),
+  status: z.enum(["queued", "in_progress", "completed", "waiting", "pending", "requested"]),
   conclusion: z.enum(["success", "failure", "neutral", "cancelled", "skipped", "timed_out", "action_required", "stale", "startup_failure"]).nullable(),
   url: z.string().url(),
+  event: z.string().min(1).max(200),
+  created_at: TimestampSchema,
+  updated_at: TimestampSchema,
+  jobs: z.array(z.object({
+    job_id: GitHubRunIdSchema,
+    name: z.string().min(1).max(500),
+    status: z.enum(["queued", "in_progress", "completed", "waiting", "pending", "requested"]),
+    conclusion: z.string().min(1).max(100).nullable(),
+    started_at: TimestampSchema.optional(),
+    completed_at: TimestampSchema.optional(),
+    url: z.string().url(),
+    failure_summary: z.array(z.string().min(1).max(600)).max(20)
+  }).strict()).max(500),
   checks: z.array(CiCheckSchema).max(500)
 }).strict();
 
@@ -569,12 +582,24 @@ export const RepoPostMergeReadbackResultSchema = z.object({
   repo_id: LifecycleRepoIdSchema,
   task_id: LifecycleTaskIdSchema,
   pull_request_number: PullRequestNumberSchema,
-  pull_request_state: z.literal("merged"),
+  pull_request_state: z.enum(["merged", "not_confirmed"]),
+  pull_request_confirmed: z.boolean(),
   merged_head_sha: LifecycleGitObjectIdSchema,
   merge_commit_sha: LifecycleGitObjectIdSchema,
+  expected_base_sha: LifecycleGitObjectIdSchema,
   base_branch: RemoteRefSchema,
   task_branch: RemoteRefSchema,
+  base_advanced: z.boolean(),
+  base_contains_merge_commit: z.boolean(),
+  task_branch_retained: z.boolean(),
+  main_ci_status_id: CiStatusIdSchema.nullable(),
+  main_ci_overall: z.enum(["pending", "success", "failure", "no_runs"]).nullable(),
+  main_required_checks: z.array(z.object({
+    key: z.string().min(1).max(500),
+    status: z.enum(["missing", "pending", "success", "failure"])
+  }).strict()).max(100),
   readback_state: z.enum(["confirmed", "incomplete"]),
+  task_disposition: z.enum(["closure_ready", "recovery_required"]),
   observed_at: TimestampSchema,
   artifact: LifecycleArtifactRefSchema,
   warnings: WarningsSchema

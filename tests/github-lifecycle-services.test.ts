@@ -108,13 +108,20 @@ describe("GitHub lifecycle services", () => {
     expect(readback).toMatchObject({
       disposition: "EXECUTED",
       mergeOperationId: "merge-operation-1",
+      pullRequestConfirmed: true,
       mergedHeadSha: HEAD_SHA,
       mergeCommitSha: MERGE_SHA,
+      expectedBaseSha: BASE_SHA,
       baseHeadSha: MERGE_SHA,
+      baseHeadTreeSha: TREE_SHA,
       taskBranchHeadSha: HEAD_SHA,
+      taskBranchTreeSha: TREE_SHA,
       taskBranchRetained: true,
+      baseAdvanced: true,
       baseContainsMergeCommit: true,
+      mainCi: { overall: "success", headSha: MERGE_SHA },
       readbackState: "confirmed",
+      taskDisposition: "closure_ready",
       operation: { phase: "EXTERNAL_SUCCEEDED" }
     });
     expect(phases(fixture.ledger, "readback-operation-1")).toEqual([
@@ -132,7 +139,21 @@ describe("GitHub lifecycle services", () => {
       attempt: 1,
       status: "completed",
       conclusion: "timed_out",
-      workflowName: "CI"
+      workflowName: "CI",
+      event: "push",
+      createdAt: "2026-08-23T00:00:00.000Z",
+      updatedAt: "2026-08-23T00:00:30.000Z",
+      url: "https://github.com/example/project/actions/runs/9001",
+      jobs: [{
+        id: 9101,
+        name: "test",
+        status: "completed",
+        conclusion: "timed_out",
+        startedAt: "2026-08-23T00:00:01.000Z",
+        completedAt: "2026-08-23T00:00:29.000Z",
+        url: "https://github.com/example/project/actions/runs/9001/job/9101",
+        failureSummary: ["step 1: test (timed_out)"]
+      }]
     }];
     const status = await fixture.ci.ciStatus(exactInput("ci-status-operation"));
     if (status.disposition !== "EXECUTED") throw new Error("unexpected stored CI status");
@@ -230,7 +251,7 @@ async function createLifecycleFixture(mergeMethod: "merge" | "squash" | "rebase"
     { createOpaqueId: () => "ABCDEFGHIJKLMNOPQRSTUVWX" }
   );
   const merge = new GitHubMergeService(tasks, git, github, gate, approvals, artifacts, ledger, clock);
-  const postMerge = new GitHubPostMergeService(tasks, git, github, artifacts, ledger, clock);
+  const postMerge = new GitHubPostMergeService(tasks, git, github, ci, artifacts, ledger, clock);
   return { tasks, git, github, artifacts, ledger, clock, evidence, ci, gate, approvals, merge, postMerge };
 }
 

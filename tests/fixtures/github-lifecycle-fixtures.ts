@@ -218,7 +218,21 @@ export class FakeGitHubAdapter implements GitHubAdapter {
     attempt: 1,
     status: "completed",
     conclusion: "success",
-    workflowName: "CI"
+    workflowName: "CI",
+    event: "push",
+    createdAt: "2026-08-23T00:00:00.000Z",
+    updatedAt: "2026-08-23T00:00:30.000Z",
+    url: "https://github.com/example/project/actions/runs/9001",
+    jobs: [{
+      id: 9101,
+      name: "test",
+      status: "completed",
+      conclusion: "success",
+      startedAt: "2026-08-23T00:00:01.000Z",
+      completedAt: "2026-08-23T00:00:29.000Z",
+      url: "https://github.com/example/project/actions/runs/9001/job/9101",
+      failureSummary: []
+    }]
   }];
   nextError = new Map<keyof GitHubAdapter, Error>();
 
@@ -345,6 +359,7 @@ export class FakeGitHubAdapter implements GitHubAdapter {
     if (!run) throw new GitHubBoundaryError("RUN_NOT_FOUND", "Run not found.", "KNOWN");
     run.attempt += 1;
     run.status = "queued";
+    run.updatedAt = "2026-08-23T00:01:00.000Z";
     delete run.conclusion;
   }
 
@@ -358,6 +373,9 @@ export class FakeGitHubAdapter implements GitHubAdapter {
     };
     this.refs.set(`refs/heads/${FIXED_TASK.baseBranch}`, MERGE_SHA);
     this.refTrees.set(`refs/heads/${FIXED_TASK.baseBranch}`, TREE_SHA);
+    this.statuses.sha = MERGE_SHA;
+    for (const check of this.checkRuns.checkRuns) check.headSha = MERGE_SHA;
+    for (const run of this.workflowRuns) run.headSha = MERGE_SHA;
     return { merged: true, message: "MERGED", sha: MERGE_SHA };
   }
 

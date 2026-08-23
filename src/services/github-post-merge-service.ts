@@ -8,6 +8,8 @@ import {
   type Clock,
   type ContentAddressedArtifactSink,
   type DurableOperationLedger,
+  type ExactCiEvidence,
+  type ExactCiEvidenceReader,
   type ExactGitBoundary,
   type GitHubAdapter,
   type GitHubOperationRecord,
@@ -21,13 +23,20 @@ export type PostMergeReadbackResult =
       operation: GitHubOperationRecord;
       mergeOperationId: string;
       pullRequestNumber: number;
+      pullRequestConfirmed: boolean;
       mergedHeadSha: string;
       mergeCommitSha: string;
+      expectedBaseSha: string;
+      baseHeadTreeSha?: string;
       baseHeadSha?: string;
+      taskBranchTreeSha?: string;
       taskBranchHeadSha?: string;
       taskBranchRetained: boolean;
+      baseAdvanced: boolean;
       baseContainsMergeCommit: boolean;
+      mainCi?: ExactCiEvidence;
       readbackState: "confirmed" | "incomplete";
+      taskDisposition: "closure_ready" | "recovery_required";
       observedAt: string;
       evidence: StoredGitHubEvidence;
     }
@@ -37,6 +46,7 @@ type StoredMergeResult = {
   pullRequestNumber: number;
   mergedHeadSha: string;
   mergeCommitSha: string;
+  baseSha: string;
   mergedAt: string;
   mergeMethod: "merge" | "squash" | "rebase";
 };
@@ -48,6 +58,7 @@ export class GitHubPostMergeService {
     private readonly tasks: TaskLookup,
     private readonly git: ExactGitBoundary,
     private readonly github: GitHubAdapter,
+    private readonly ci: ExactCiEvidenceReader,
     private readonly artifacts: ContentAddressedArtifactSink,
     private readonly ledger: DurableOperationLedger,
     private readonly clock: Clock
@@ -113,9 +124,18 @@ export class GitHubPostMergeService {
         baseContainsMergeCommit = comparison.status === "ahead" || comparison.status === "identical";
       }
       const taskBranchRetained = taskRef?.sha === merge.mergedHeadSha;
-      const readbackState = pullRequestConfirmed && baseContainsMergeCommit && taskBranchRetained
+      const baseAdvanced = baseRef !== undefined && baseRef.sha !== merge.baseSha;
+      const exactTaskBranchRetained = taskBranchRetained && taskRef?.treeSha === input.expected_tree_sha;
+      const mainCi = baseRef
+        ? await this.ci.getExactCiEvidence(task, baseRef.sha)
+        : undefined;
+      const mainCiConfirmed = mainCi?.overall === "success"
+        && mainCi.requiredChecks.every((check) => check.status === "success");
+      const readbackState = pullRequestConfirmed && baseAdvanced && baseContainsMergeCommit
+        && exactTaskBranchRetained && mainCiConfirmed
         ? "confirmed"
         : "incomplete";
+      const taskDisposition = readbackState === "confirmed" ? "closure_ready" : "recovery_required";
       const observedAt = this.clock.now().toISOString();
       const evidence = await storeGitHubEvidence(this.artifacts, "github-post-merge-evidence", {
         semantic: "repo_post_merge_readback",
@@ -127,24 +147,42 @@ export class GitHubPostMergeService {
         mergedHeadSha: merge.mergedHeadSha,
         mergeCommitSha: merge.mergeCommitSha,
         pullRequestConfirmed,
+        expectedBaseBeforeMergeSha: merge.baseSha,
         baseHeadSha: baseRef?.sha ?? null,
+        baseHeadTreeSha: baseRef?.treeSha ?? null,
         taskBranchHeadSha: taskRef?.sha ?? null,
+        taskBranchTreeSha: taskRef?.treeSha ?? null,
+        baseAdvanced,
         baseContainsMergeCommit,
-        taskBranchRetained,
+        taskBranchRetained: exactTaskBranchRetained,
+        mainCiStatusId: mainCi?.ciStatusId ?? null,
+        mainCiOverall: mainCi?.overall ?? null,
+        mainCiEvidenceDigest: mainCi?.digest ?? null,
+        mainRequiredChecks: mainCi?.requiredChecks.map((check) => ({ key: check.key, status: check.status })) ?? [],
         readbackState,
+        taskDisposition,
         observedAt
       });
       operation = await this.operations.transition(operation, "EXTERNAL_SUCCEEDED", {
         result: {
           mergeOperationId: input.merge_operation_id,
           pullRequestNumber: merge.pullRequestNumber,
+          pullRequestConfirmed,
           mergedHeadSha: merge.mergedHeadSha,
           mergeCommitSha: merge.mergeCommitSha,
+          expectedBaseSha: merge.baseSha,
           baseHeadSha: baseRef?.sha ?? null,
+          baseHeadTreeSha: baseRef?.treeSha ?? null,
           taskBranchHeadSha: taskRef?.sha ?? null,
+          taskBranchTreeSha: taskRef?.treeSha ?? null,
+          baseAdvanced,
           baseContainsMergeCommit,
-          taskBranchRetained,
+          taskBranchRetained: exactTaskBranchRetained,
+          mainCiStatusId: mainCi?.ciStatusId ?? null,
+          mainCiOverall: mainCi?.overall ?? null,
+          mainCiEvidenceDigest: mainCi?.digest ?? null,
           readbackState,
+          taskDisposition,
           artifactId: evidence.artifactId,
           artifactDigest: evidence.digest,
           observedAt
@@ -155,13 +193,18 @@ export class GitHubPostMergeService {
         operation,
         mergeOperationId: input.merge_operation_id,
         pullRequestNumber: merge.pullRequestNumber,
+        pullRequestConfirmed,
         mergedHeadSha: merge.mergedHeadSha,
         mergeCommitSha: merge.mergeCommitSha,
-        ...(baseRef ? { baseHeadSha: baseRef.sha } : {}),
-        ...(taskRef ? { taskBranchHeadSha: taskRef.sha } : {}),
-        taskBranchRetained,
+        expectedBaseSha: merge.baseSha,
+        ...(baseRef ? { baseHeadSha: baseRef.sha, baseHeadTreeSha: baseRef.treeSha } : {}),
+        ...(taskRef ? { taskBranchHeadSha: taskRef.sha, taskBranchTreeSha: taskRef.treeSha } : {}),
+        taskBranchRetained: exactTaskBranchRetained,
+        baseAdvanced,
         baseContainsMergeCommit,
+        ...(mainCi ? { mainCi } : {}),
         readbackState,
+        taskDisposition,
         observedAt,
         evidence
       };
@@ -180,6 +223,7 @@ function parseStoredMergeResult(value: JsonValue | undefined): StoredMergeResult
     || value.pullRequestNumber <= 0
     || typeof value.mergedHeadSha !== "string"
     || typeof value.mergeCommitSha !== "string"
+    || typeof value.baseSha !== "string"
     || typeof value.mergedAt !== "string"
     || (value.mergeMethod !== "merge" && value.mergeMethod !== "squash" && value.mergeMethod !== "rebase")
   ) {
@@ -189,6 +233,7 @@ function parseStoredMergeResult(value: JsonValue | undefined): StoredMergeResult
     pullRequestNumber: value.pullRequestNumber,
     mergedHeadSha: assertSha(value.mergedHeadSha, "stored merged head sha"),
     mergeCommitSha: assertSha(value.mergeCommitSha, "stored merge commit sha"),
+    baseSha: assertSha(value.baseSha, "stored pre-merge base sha"),
     mergedAt: value.mergedAt,
     mergeMethod: value.mergeMethod
   };

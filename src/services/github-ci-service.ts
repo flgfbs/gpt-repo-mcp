@@ -463,7 +463,21 @@ function workflowRunJson(run: WorkflowRun): JsonValue {
     attempt: run.attempt,
     status: run.status,
     conclusion: run.conclusion ?? null,
-    workflowName: run.workflowName
+    workflowName: run.workflowName,
+    event: run.event,
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt,
+    url: run.url,
+    jobs: run.jobs.map((job) => ({
+      id: job.id,
+      name: job.name,
+      status: job.status,
+      conclusion: job.conclusion ?? null,
+      startedAt: job.startedAt ?? null,
+      completedAt: job.completedAt ?? null,
+      url: job.url,
+      failureSummary: job.failureSummary
+    }))
   };
 }
 
@@ -520,13 +534,20 @@ function parseRequiredCheckObservation(value: JsonValue): RequiredCheckObservati
 }
 
 function parseWorkflowRun(value: JsonValue): WorkflowRun {
+  const validStatuses = new Set(["queued", "in_progress", "completed", "waiting", "pending", "requested"]);
   if (
     !isRecord(value)
     || typeof value.id !== "number"
     || typeof value.headSha !== "string"
     || typeof value.attempt !== "number"
     || typeof value.status !== "string"
+    || !validStatuses.has(value.status)
     || typeof value.workflowName !== "string"
+    || typeof value.event !== "string"
+    || typeof value.createdAt !== "string"
+    || typeof value.updatedAt !== "string"
+    || typeof value.url !== "string"
+    || !Array.isArray(value.jobs)
   ) {
     throw new GitHubBoundaryError("CI_SNAPSHOT_INVALID", "Stored workflow-run evidence is invalid.");
   }
@@ -534,9 +555,36 @@ function parseWorkflowRun(value: JsonValue): WorkflowRun {
     id: value.id,
     headSha: assertSha(value.headSha, "stored workflow run head sha"),
     attempt: value.attempt,
-    status: value.status,
+    status: value.status as WorkflowRun["status"],
     ...(typeof value.conclusion === "string" ? { conclusion: value.conclusion } : {}),
-    workflowName: value.workflowName
+    workflowName: value.workflowName,
+    event: value.event,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+    url: value.url,
+    jobs: value.jobs.map((job) => {
+      if (
+        !isRecord(job)
+        || typeof job.id !== "number"
+        || typeof job.name !== "string"
+        || typeof job.status !== "string"
+        || typeof job.url !== "string"
+        || !Array.isArray(job.failureSummary)
+        || !job.failureSummary.every((entry) => typeof entry === "string")
+      ) {
+        throw new GitHubBoundaryError("CI_SNAPSHOT_INVALID", "Stored workflow-job evidence is invalid.");
+      }
+      return {
+        id: job.id,
+        name: job.name,
+        status: job.status as WorkflowRun["jobs"][number]["status"],
+        ...(typeof job.conclusion === "string" ? { conclusion: job.conclusion } : {}),
+        ...(typeof job.startedAt === "string" ? { startedAt: job.startedAt } : {}),
+        ...(typeof job.completedAt === "string" ? { completedAt: job.completedAt } : {}),
+        url: job.url,
+        failureSummary: job.failureSummary
+      };
+    })
   };
 }
 

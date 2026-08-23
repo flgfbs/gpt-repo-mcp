@@ -215,6 +215,7 @@ export class GitHubMergeService {
       approvalConsumed: true,
       pullRequestNumber: manifest.pullRequestNumber,
       mergeMethod: manifest.mergeMethod,
+      baseSha: manifest.baseSha,
       mergedHeadSha: manifest.headSha,
       mergeCommitSha,
       mergedAt: pullRequest.mergedAt,
