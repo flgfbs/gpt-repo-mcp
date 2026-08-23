@@ -19,11 +19,11 @@ describe("MCP contract", () => {
   test("initialize exposes compact safety-complete server instructions", async () => {
     const { client, close } = await connectFixtureServer();
     try {
-      expect(client.getServerVersion()).toMatchObject({ name: "gpt-repo-mcp", version: "0.1.0" });
+      expect(client.getServerVersion()).toMatchObject({ name: "chat-pro-repository-mcp", version: "0.1.0" });
       expect(client.getServerCapabilities()).toMatchObject({ tools: {} });
       expect(client.getInstructions()).toBe(SERVER_INSTRUCTIONS);
       expect(Buffer.byteLength(SERVER_INSTRUCTIONS, "utf8")).toBeLessThan(6_000);
-      expect(SERVER_INSTRUCTIONS).toContain("Tools with local side effects require the relevant repository write or operations policy");
+      expect(SERVER_INSTRUCTIONS).toContain("Tools with local or external side effects require the exact repository, task, and operation policy");
       for (const toolName of MUTATING_TOOL_NAMES) expect(SERVER_INSTRUCTIONS).toContain(toolName);
       for (const clause of [
         "repo_code_index is a non-destructive idempotent provider/index mutation",

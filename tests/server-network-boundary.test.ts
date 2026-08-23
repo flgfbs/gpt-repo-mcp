@@ -21,13 +21,13 @@ describe("server network boundary", () => {
     expect(server.output()).toContain(`http://127.0.0.1:${server.port}/mcp`);
   });
 
-  test("rejects an external bind unless it is explicitly authorized", async () => {
-    const server = await startServer({ GPT_REPO_HOST: "0.0.0.0" });
+  test("rejects an external bind with no override", async () => {
+    const server = await startServer({ CHAT_PRO_REPOSITORY_MCP_HOST: "0.0.0.0" });
     const exited = await waitForExit(server.child, 4_000);
 
     expect(exited).toBe(true);
     expect(server.child.exitCode).not.toBe(0);
-    expect(server.output()).toContain("GPT_REPO_ALLOW_EXTERNAL_BIND=true");
+    expect(server.output()).toContain("loopback-only");
   });
 
   test("rejects browser requests from a non-loopback origin and host", async () => {
@@ -42,18 +42,8 @@ describe("server network boundary", () => {
     expect(response).toMatchObject({ status: 403, body: "Forbidden origin" });
   });
 
-  test("allows an explicitly authorized external bind", async () => {
-    const server = await startServer({
-      GPT_REPO_ALLOW_EXTERNAL_BIND: "true",
-      GPT_REPO_HOST: "0.0.0.0"
-    });
-
-    await waitForHealth(server);
-    expect(server.output()).toContain(`http://0.0.0.0:${server.port}/mcp`);
-  });
-
   test("bounds MCP sessions and releases capacity on DELETE", async () => {
-    const server = await startServer({ GPT_REPO_MAX_SESSIONS: "1" });
+    const server = await startServer({ CHAT_PRO_REPOSITORY_MCP_MAX_SESSIONS: "1" });
     await waitForHealth(server);
 
     const first = await initializeSession(server.port);
@@ -129,7 +119,7 @@ async function startServer(extraEnv: Record<string, string> = {}) {
     cwd: process.cwd(),
     env: {
       ...process.env,
-      GPT_REPO_CONFIG: configPath,
+      CHAT_PRO_REPOSITORY_MCP_CONFIG: configPath,
       PORT: String(port),
       ...extraEnv
     },
