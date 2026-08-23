@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { sha256Json, type JsonValue, type WorkflowRun } from "../src/github/types.js";
 import { OwnerApprovalStore } from "../src/github/owner-approval-store.js";
 import { GitHubCiService } from "../src/services/github-ci-service.js";
 import { GitHubMergeGateService } from "../src/services/github-merge-gate-service.js";
@@ -78,6 +79,72 @@ describe("GitHub lifecycle services", () => {
     expect(phases(fixture.ledger, "ci-status-duplicate-conflict")).toEqual([
       "CREATED", "ADMITTED", "EXTERNAL_PRECONTACT", "EXTERNAL_CONTACTED", "FAILED_KNOWN_AFTER_CONTACT"
     ]);
+  });
+
+  it("fails closed when duplicate required check runs have different raw statuses", async () => {
+    const fixture = await createLifecycleFixture();
+    const first = fixture.github.checkRuns.checkRuns[0]!;
+    const pending = { ...structuredClone(first), id: 11, status: "in_progress" as const };
+    delete pending.conclusion;
+    fixture.github.checkRuns = {
+      totalCount: 2,
+      checkRuns: [pending, structuredClone(first)]
+    };
+
+    await expect(fixture.ci.ciStatus(exactInput("ci-status-duplicate-pending"))).rejects.toMatchObject({
+      code: "CI_REQUIRED_CHECK_AMBIGUOUS"
+    });
+    expect(phases(fixture.ledger, "ci-status-duplicate-pending")).toEqual([
+      "CREATED", "ADMITTED", "EXTERNAL_PRECONTACT", "EXTERNAL_CONTACTED", "FAILED_KNOWN_AFTER_CONTACT"
+    ]);
+  });
+
+  it.each([
+    { label: "non-array", sourceId: null, sourceIds: 5 },
+    { label: "non-positive", sourceId: null, sourceIds: [0] },
+    { label: "non-integer", sourceId: null, sourceIds: [1.5] },
+    { label: "non-number", sourceId: null, sourceIds: ["10"] },
+    { label: "duplicate", sourceId: null, sourceIds: [10, 10] },
+    { label: "descending", sourceId: null, sourceIds: [11, 10] },
+    { label: "invalid-singular", sourceId: 0, sourceIds: undefined },
+    { label: "inconsistent-singular", sourceId: 5, sourceIds: [1, 2, 3] }
+  ] satisfies Array<{
+    label: string;
+    sourceId: JsonValue | undefined;
+    sourceIds: JsonValue | undefined;
+  }>)("rejects invalid stored required-check source identity: $label", async ({ sourceId, sourceIds }) => {
+    const fixture = await createLifecycleFixture();
+    const ciStatusId = await storeCiSnapshot(fixture, { sourceId, sourceIds, status: "failure" });
+
+    await expect(fixture.ci.writeCiRetryFailed({
+      ...exactInput("ci-retry-invalid-sources"),
+      ci_status_id: ciStatusId,
+      failed_run_ids: ["9001"]
+    })).rejects.toMatchObject({ code: "CI_SNAPSHOT_INVALID" });
+    expect(fixture.github.calls.filter((call) => call === "retryFailedJobs")).toHaveLength(0);
+  });
+
+  it.each([
+    { label: "legacy singular", sourceId: 10, sourceIds: undefined, status: "failure" as const },
+    { label: "empty missing", sourceId: null, sourceIds: [], status: "missing" as const },
+    { label: "aggregate", sourceId: null, sourceIds: [10, 11], status: "failure" as const }
+  ] satisfies Array<{
+    label: string;
+    sourceId: JsonValue | undefined;
+    sourceIds: JsonValue | undefined;
+    status: "failure" | "missing";
+  }>)("loads a valid stored required-check source identity: $label", async ({ sourceId, sourceIds, status }) => {
+    const fixture = await createLifecycleFixture();
+    const ciStatusId = await storeCiSnapshot(fixture, { sourceId, sourceIds, status });
+
+    const result = await fixture.ci.writeCiRetryFailed({
+      ...exactInput("ci-retry-valid-sources"),
+      ci_status_id: ciStatusId,
+      failed_run_ids: ["9001"]
+    });
+
+    expect(result).toMatchObject({ disposition: "EXECUTED", ciStatusId });
+    expect(fixture.github.calls.filter((call) => call === "retryFailedJobs")).toHaveLength(1);
   });
 
   it.each(["merge", "squash", "rebase"] as const)(
@@ -354,4 +421,66 @@ async function createLifecycleFixture(mergeMethod: "merge" | "squash" | "rebase"
 
 function phases(ledger: MemoryOperationLedger, operationId: string): string[] {
   return ledger.history.filter((entry) => entry.operationId === operationId).map((entry) => entry.phase);
+}
+
+async function storeCiSnapshot(
+  fixture: Awaited<ReturnType<typeof createLifecycleFixture>>,
+  input: {
+    sourceId: JsonValue | undefined;
+    sourceIds: JsonValue | undefined;
+    status: "failure" | "missing";
+  }
+): Promise<string> {
+  const run: WorkflowRun = {
+    id: 9001,
+    headSha: HEAD_SHA,
+    attempt: 1,
+    status: "completed",
+    conclusion: "timed_out",
+    workflowName: "CI",
+    event: "push",
+    createdAt: "2026-08-23T00:00:00.000Z",
+    updatedAt: "2026-08-23T00:00:30.000Z",
+    url: "https://github.com/example/project/actions/runs/9001",
+    jobs: []
+  };
+  fixture.github.workflowRuns = [structuredClone(run)];
+  const requiredCheck: Record<string, JsonValue> = {
+    key: "check:github-actions:test",
+    required: { kind: "check_run", name: "test", appSlug: "github-actions" },
+    status: input.status,
+    conclusion: input.status === "failure" ? "timed_out" : null
+  };
+  if (input.sourceId !== undefined) requiredCheck.sourceId = input.sourceId;
+  if (input.sourceIds !== undefined) requiredCheck.sourceIds = input.sourceIds;
+  const snapshot: JsonValue = {
+    semantic: "repo_ci_status",
+    repoId: FIXED_TASK.repoId,
+    taskId: FIXED_TASK.taskId,
+    headSha: HEAD_SHA,
+    overall: "failure",
+    requiredChecks: [requiredCheck],
+    workflowRuns: [{
+      id: run.id,
+      headSha: run.headSha,
+      attempt: run.attempt,
+      status: run.status,
+      conclusion: run.conclusion ?? null,
+      workflowName: run.workflowName,
+      event: run.event,
+      createdAt: run.createdAt,
+      updatedAt: run.updatedAt,
+      url: run.url,
+      jobs: []
+    }],
+    observedAt: "2026-08-23T00:00:31.000Z"
+  };
+  const digest = sha256Json(snapshot);
+  await fixture.artifacts.putJson({
+    namespace: "github-ci-evidence",
+    digest,
+    value: snapshot,
+    mode: 0o600
+  });
+  return `ci_status_${digest}`;
 }

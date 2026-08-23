@@ -215,11 +215,13 @@ export class GitHubLifecycleRuntime implements ExternalLifecycleRuntime {
     return this.guard(async () => {
       const loaded = await this.load(input.task_id, await this.services.ci.ciStatus(input));
       const value = loaded.evidence;
-      const requiredCheckEvidence = readArray(value, "requiredChecks");
-      const multipleSourceCheck = requiredCheckEvidence.some((entry) => {
+      const requiredCheckEvidence = readArray(value, "requiredChecks").map((entry) => {
         const check = asRecord(entry, "required check");
-        return Array.isArray(check.sourceIds) && check.sourceIds.length > 1;
+        const sourceId = nullableSourceId(check.sourceId, "sourceId");
+        const sourceIds = requiredCheckSourceIds(check.sourceIds, sourceId);
+        return { check, sourceId, sourceIds };
       });
+      const multipleSourceCheck = requiredCheckEvidence.some(({ sourceIds }) => (sourceIds?.length ?? 0) > 1);
       return Lifecycle.RepoCiStatusResultSchema.parse({
         ok: true,
         operation_id: input.operation_id,
@@ -228,10 +230,8 @@ export class GitHubLifecycleRuntime implements ExternalLifecycleRuntime {
         ci_status_id: readString(operationResult(loaded.operation), "ciStatusId"),
         head_sha: readString(value, "headSha"),
         overall: readString(value, "overall"),
-        required_checks: requiredCheckEvidence.map((entry) => {
-          const check = asRecord(entry, "required check");
+        required_checks: requiredCheckEvidence.map(({ check, sourceId }) => {
           const required = readRecord(check, "required");
-          const sourceId = nullableNumber(check.sourceId, "sourceId");
           const conclusion = nullableString(check.conclusion, "conclusion");
           return {
             key: readString(check, "key"),
@@ -648,4 +648,31 @@ function nullableNumber(value: JsonValue | undefined, field: string): number | u
     throw new GitHubBoundaryError("EVIDENCE_SCHEMA_INVALID", `${field} is not a nullable safe integer.`);
   }
   return value;
+}
+
+function nullableSourceId(value: JsonValue | undefined, field: string): number | undefined {
+  const sourceId = nullableNumber(value, field);
+  if (sourceId !== undefined && sourceId <= 0) {
+    throw new GitHubBoundaryError("EVIDENCE_SCHEMA_INVALID", `${field} is not a positive safe integer.`);
+  }
+  return sourceId;
+}
+
+function requiredCheckSourceIds(value: JsonValue | undefined, sourceId: number | undefined): number[] | undefined {
+  if (value === undefined) return undefined;
+  const sourceIds = Array.isArray(value)
+    ? value.filter((entry): entry is number => typeof entry === "number" && Number.isSafeInteger(entry) && entry > 0)
+    : [];
+  if (
+    !Array.isArray(value)
+    || sourceIds.length !== value.length
+    || new Set(sourceIds).size !== sourceIds.length
+    || sourceIds.some((candidate, index) => index > 0 && sourceIds[index - 1]! >= candidate)
+    || (sourceIds.length === 0 && sourceId !== undefined)
+    || (sourceIds.length === 1 && sourceId !== sourceIds[0])
+    || (sourceIds.length > 1 && sourceId !== undefined)
+  ) {
+    throw new GitHubBoundaryError("EVIDENCE_SCHEMA_INVALID", "Required-check source identity is invalid.");
+  }
+  return sourceIds;
 }

@@ -554,15 +554,25 @@ function parseRequiredCheckObservation(value: JsonValue): RequiredCheckObservati
       ? { kind: "commit_status" as const, context: value.required.context }
       : undefined;
   if (!required) throw new GitHubBoundaryError("CI_SNAPSHOT_INVALID", "Stored required-check identity is invalid.");
+  const sourceId = parseSourceId(value.sourceId);
   const sourceIds = parseSourceIds(value.sourceIds);
+  assertSourceIdentity(sourceId, sourceIds);
   return {
     key: value.key,
     required,
     status,
-    ...(typeof value.sourceId === "number" ? { sourceId: value.sourceId } : {}),
+    ...(sourceId === undefined ? {} : { sourceId }),
     ...(sourceIds === undefined ? {} : { sourceIds }),
     ...(typeof value.conclusion === "string" ? { conclusion: value.conclusion } : {})
   };
+}
+
+function parseSourceId(value: JsonValue | undefined): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new GitHubBoundaryError("CI_SNAPSHOT_INVALID", "Stored required-check source id is invalid.");
+  }
+  return value;
 }
 
 function parseSourceIds(value: JsonValue | undefined): number[] | undefined {
@@ -579,6 +589,17 @@ function parseSourceIds(value: JsonValue | undefined): number[] | undefined {
     throw new GitHubBoundaryError("CI_SNAPSHOT_INVALID", "Stored required-check source ids are invalid.");
   }
   return sourceIds;
+}
+
+function assertSourceIdentity(sourceId: number | undefined, sourceIds: number[] | undefined): void {
+  if (sourceIds === undefined) return;
+  if (
+    (sourceIds.length === 0 && sourceId !== undefined)
+    || (sourceIds.length === 1 && sourceId !== sourceIds[0])
+    || (sourceIds.length > 1 && sourceId !== undefined)
+  ) {
+    throw new GitHubBoundaryError("CI_SNAPSHOT_INVALID", "Stored required-check source identity is inconsistent.");
+  }
 }
 
 function parseWorkflowRun(value: JsonValue): WorkflowRun {

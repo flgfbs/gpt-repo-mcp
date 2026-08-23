@@ -55,7 +55,7 @@ describe("GitHub lifecycle public runtime", () => {
     expect(stored.normalized_remote_identity).toBe("github.com/example/project");
   });
 
-  it("surfaces exact workflow run and job evidence while preserving the CI status digest", async () => {
+  it("surfaces and replays aggregated exact CI evidence while preserving its digest", async () => {
     const evidence = {
       semantic: "repo_ci_status",
       repoId: FIXED_TASK.repoId,
@@ -98,12 +98,16 @@ describe("GitHub lifecycle public runtime", () => {
       artifactId: ARTIFACT_ID,
       artifactDigest: CI_DIGEST
     });
-    const runtime = runtimeWith({
-      ciStatus: vi.fn(async () => ({ disposition: "EXECUTED" as const, operation }))
-    }, evidence);
+    const ciStatus = vi.fn()
+      .mockResolvedValueOnce({ disposition: "EXECUTED" as const, operation })
+      .mockResolvedValueOnce({ disposition: "STORED" as const, operation });
+    const runtime = runtimeWith({ ciStatus }, evidence);
 
     const result = await runtime.ciStatus(exactInput("ci-operation-1"));
+    const stored = await runtime.ciStatus(exactInput("ci-operation-1"));
 
+    expect(stored).toEqual(result);
+    expect(ciStatus).toHaveBeenCalledTimes(2);
     expect(result.ci_status_id).toBe(`ci_status_${CI_DIGEST}`);
     expect(result.artifact.sha256).toBe(ARTIFACT_SHA);
     expect(result.runs[0]).toMatchObject({
@@ -118,6 +122,77 @@ describe("GitHub lifecycle public runtime", () => {
       conclusion: "timed_out"
     }]);
     expect(result.warnings).toEqual(["CI_REQUIRED_CHECK_MULTIPLE_SOURCES_AGGREGATED"]);
+  });
+
+  it("preserves the singular public source id without an aggregation warning", async () => {
+    const evidence = {
+      semantic: "repo_ci_status",
+      repoId: FIXED_TASK.repoId,
+      taskId: FIXED_TASK.taskId,
+      headSha: HEAD_SHA,
+      overall: "success",
+      requiredChecks: [{
+        key: "check:github-actions:test",
+        required: { kind: "check_run", name: "test", appSlug: "github-actions" },
+        status: "success",
+        sourceId: 10,
+        sourceIds: [10],
+        conclusion: "success"
+      }],
+      workflowRuns: [],
+      observedAt: "2026-08-23T00:00:31.000Z"
+    } satisfies JsonValue;
+    const operation = record("repo_ci_status", "EXTERNAL_SUCCEEDED", {
+      ciStatusId: `ci_status_${CI_DIGEST}`,
+      artifactId: ARTIFACT_ID,
+      artifactDigest: CI_DIGEST
+    });
+    const runtime = runtimeWith({
+      ciStatus: vi.fn(async () => ({ disposition: "EXECUTED" as const, operation }))
+    }, evidence);
+
+    const result = await runtime.ciStatus(exactInput("ci-operation-single-source"));
+
+    expect(result.required_checks).toEqual([{
+      key: "check:github-actions:test",
+      kind: "check_run",
+      status: "success",
+      source_id: "10",
+      conclusion: "success"
+    }]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("rejects malformed aggregated source ids before public projection", async () => {
+    const evidence = {
+      semantic: "repo_ci_status",
+      repoId: FIXED_TASK.repoId,
+      taskId: FIXED_TASK.taskId,
+      headSha: HEAD_SHA,
+      overall: "success",
+      requiredChecks: [{
+        key: "check:github-actions:test",
+        required: { kind: "check_run", name: "test", appSlug: "github-actions" },
+        status: "success",
+        sourceIds: [11, 10],
+        conclusion: "success"
+      }],
+      workflowRuns: [],
+      observedAt: "2026-08-23T00:00:31.000Z"
+    } satisfies JsonValue;
+    const operation = record("repo_ci_status", "EXTERNAL_SUCCEEDED", {
+      ciStatusId: `ci_status_${CI_DIGEST}`,
+      artifactId: ARTIFACT_ID,
+      artifactDigest: CI_DIGEST
+    });
+    const runtime = runtimeWith({
+      ciStatus: vi.fn(async () => ({ disposition: "EXECUTED" as const, operation }))
+    }, evidence);
+
+    await expect(runtime.ciStatus(exactInput("ci-operation-malformed-sources"))).rejects.toMatchObject({
+      code: "TASK_OPERATION_BLOCKED",
+      diagnostics: { failure_code: "EVIDENCE_SCHEMA_INVALID" }
+    });
   });
 
   it("reports an unknown contacted effect and never attempts evidence replay", async () => {
