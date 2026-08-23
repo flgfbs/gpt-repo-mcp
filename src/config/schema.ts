@@ -1,9 +1,21 @@
 import { z } from "zod";
-import { isAbsolute } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join } from "node:path";
 import { DEFAULT_OPERATIONS_POLICY, SHIP_VALIDATION_TEST_PATH_GLOBS } from "../policies/operations-defaults.js";
 import { DEFAULT_WRITE_POLICY } from "../policies/write-defaults.js";
 
 const PositiveIntSchema = z.number().int().positive();
+
+export const DEFAULT_RUNTIME_ROOT = join(
+  homedir(),
+  "Library",
+  "Application Support",
+  "ChatProRepositoryMCP"
+);
+
+export const RepositoryAuthoritySchema = z.enum(["read", "write", "ship"]);
+export const TaskAuthoritySchema = z.enum(["inspect", "implement", "ship"]);
+export const MergeMethodSchema = z.enum(["merge", "squash", "rebase"]);
 
 export const CodeIntelligenceConfigSchema = z.object({
   provider: z.literal("codebase_memory"),
@@ -24,13 +36,33 @@ const ValidationMakeProfileSchema = z.object({
   target: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,80}$/)
 }).strict();
 
+const ValidationExecProfileSchema = z.object({
+  runner: z.literal("exec"),
+  executable: z.string().min(1).max(1_024).refine(isAbsolute, "validation executable must be an absolute path"),
+  args: z.array(z.string().max(1_024)).max(64).default([]),
+  cwd: z.string().min(1).max(512).regex(/^(?!\/|.*(?:^|\/)\.\.(?:\/|$)|.*\\).+$/).optional(),
+  timeout_ms: PositiveIntSchema.max(3_600_000).optional(),
+  env: z.record(
+    z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/),
+    z.string().max(2_048)
+  ).optional()
+}).strict();
+
+export const ValidationProfileCommandSchema = z.union([
+  ValidationMakeProfileSchema,
+  ValidationExecProfileSchema
+]);
+export type ValidationProfileCommand = z.output<typeof ValidationProfileCommandSchema>;
+
 const ValidationProfilesSchema = z.object({
-  test: ValidationMakeProfileSchema.optional(),
-  build: ValidationMakeProfileSchema.optional(),
-  lint: ValidationMakeProfileSchema.optional(),
-  typecheck: ValidationMakeProfileSchema.optional(),
-  smoke: ValidationMakeProfileSchema.optional(),
-  all: ValidationMakeProfileSchema.optional()
+  test: ValidationProfileCommandSchema.optional(),
+  build: ValidationProfileCommandSchema.optional(),
+  lint: ValidationProfileCommandSchema.optional(),
+  typecheck: ValidationProfileCommandSchema.optional(),
+  smoke: ValidationProfileCommandSchema.optional(),
+  all: ValidationProfileCommandSchema.optional(),
+  codegen: ValidationProfileCommandSchema.optional(),
+  migration_preview: ValidationProfileCommandSchema.optional()
 }).strict();
 
 const OperationsPolicyConfigObjectSchema = z.object({
@@ -50,13 +82,38 @@ export const OperationsPolicyConfigSchema = z.preprocess(
   OperationsPolicyConfigObjectSchema
 );
 
+export const LifecyclePolicyConfigSchema = z.object({
+  authority: RepositoryAuthoritySchema,
+  remote_name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).default("origin"),
+  expected_remote_identity: z.string().min(1).max(1_024),
+  allowed_base_branches: z.array(
+    z.string().regex(/^(?!\/|.*(?:\.\.|@\{|\\|\s))[A-Za-z0-9._/-]{1,200}$/)
+  ).min(1).max(16),
+  worktree_root: z.string().min(1).refine(isAbsolute, "lifecycle.worktree_root must be an absolute path"),
+  github_repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+  merge_method: MergeMethodSchema,
+  required_checks: z.array(z.string().min(1).max(256)).max(64).default([]),
+  require_clean_base: z.boolean().default(true),
+  max_concurrent_tasks: PositiveIntSchema.max(64).default(8),
+  cleanup: z.object({
+    remove_worktree: z.boolean().default(true),
+    delete_local_branch: z.boolean().default(true),
+    require_terminal_task: z.boolean().default(true)
+  }).strict().default({
+    remove_worktree: true,
+    delete_local_branch: true,
+    require_terminal_task: true
+  })
+}).strict();
+
 export const RepoConfigSchema = z.object({
   repo_id: z.string().min(1),
   display_name: z.string().min(1),
   root: z.string().min(1),
   allow_non_git: z.boolean().optional(),
   writes: WritePolicyConfigSchema.default(DEFAULT_WRITE_POLICY),
-  operations: OperationsPolicyConfigSchema.default(DEFAULT_OPERATIONS_POLICY)
+  operations: OperationsPolicyConfigSchema.default(DEFAULT_OPERATIONS_POLICY),
+  lifecycle: LifecyclePolicyConfigSchema.optional()
 }).strict();
 
 export const LimitsConfigSchema = z.object({
@@ -76,7 +133,8 @@ export const LimitsConfigSchema = z.object({
 export const RepoReaderConfigSchema = z.object({
   repos: z.array(RepoConfigSchema).default([]),
   limits: LimitsConfigSchema.default({}),
-  code_intelligence: CodeIntelligenceConfigSchema.optional()
+  code_intelligence: CodeIntelligenceConfigSchema.optional(),
+  runtime_root: z.string().min(1).refine(isAbsolute, "runtime_root must be an absolute path").default(DEFAULT_RUNTIME_ROOT)
 }).strict();
 
 export type WritePolicyConfigDocument = z.input<typeof WritePolicyConfigSchema>;
@@ -88,12 +146,16 @@ export type RepoConfig = {
   allow_non_git?: boolean;
   writes?: WritePolicyConfigDocument;
   operations?: OperationsPolicyConfigDocument;
+  lifecycle?: z.input<typeof LifecyclePolicyConfigSchema>;
 };
 export type RepoReaderConfig = {
   repos: RepoConfig[];
   limits: z.input<typeof LimitsConfigSchema>;
   code_intelligence?: z.input<typeof CodeIntelligenceConfigSchema>;
+  runtime_root?: string;
 };
+export type ParsedRepoConfig = z.output<typeof RepoConfigSchema>;
+export type ParsedRepoReaderConfig = z.output<typeof RepoReaderConfigSchema>;
 
 function migrateLegacyShipValidation(value: unknown): unknown {
   if (!isRecord(value) || Object.prototype.hasOwnProperty.call(value, "validation_enabled")) {

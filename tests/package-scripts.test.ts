@@ -15,22 +15,21 @@ describe("package startup scripts", () => {
       scripts?: Record<string, string>;
     };
 
-    expect(pkg.bin?.["gpt-repo"]).toBe("dist/cli/connect-gpt.js");
-    expect(pkg.bin?.["connect-gpt"]).toBe("dist/cli/connect-gpt.js");
+    expect(pkg.bin).toEqual({ "chat-pro-repo": "dist/cli/chat-pro-repo.js" });
     expect(pkg.engines?.node).toBe(">=20");
     expect(pkg.keywords).toEqual(
       expect.arrayContaining(["mcp", "chatgpt", "developer-tools", "repository", "local-first"])
     );
-    expect(pkg.scripts?.mcp).toBe("GPT_REPO_CONFIG=./config.local.json PORT=8787 npm run dev");
-    expect(pkg.scripts?.tunnel).toContain("--log=stdout");
-    expect(pkg.scripts?.connect).toBe("node scripts/connect-dev.mjs");
-    expect(pkg.scripts?.["connect:cloudflare"]).toBe("PORT=8788 node scripts/connect-cloudflare.mjs");
-    expect(pkg.scripts?.["connect:secure"]).toBe("node scripts/connect-secure.mjs");
+    expect(pkg.scripts?.mcp).toBe("CHAT_PRO_REPOSITORY_MCP_CONFIG=./config.local.json PORT=8789 npm run dev");
+    expect(pkg.scripts?.tunnel).toBeUndefined();
+    expect(pkg.scripts?.connect).toBeUndefined();
+    expect(pkg.scripts?.["connect:cloudflare"]).toBeUndefined();
+    expect(pkg.scripts?.["connect:secure"]).toBeUndefined();
     expect(pkg.scripts?.["security:scan"]).toBe("node scripts/oss-security-scan.mjs");
-    expect(pkg.scripts?.add).toBe("node dist/cli/connect-gpt.js add");
-    expect(pkg.scripts?.remove).toBe("node dist/cli/connect-gpt.js remove");
-    expect(pkg.scripts?.list).toBe("node dist/cli/connect-gpt.js list");
-    expect(pkg.scripts?.["check:config"]).toBe("node dist/cli/connect-gpt.js check");
+    expect(pkg.scripts?.add).toBe("node dist/cli/chat-pro-repo.js repo add");
+    expect(pkg.scripts?.remove).toBe("node dist/cli/chat-pro-repo.js repo remove");
+    expect(pkg.scripts?.list).toBe("node dist/cli/chat-pro-repo.js repo list");
+    expect(pkg.scripts?.["check:config"]).toBe("node dist/cli/chat-pro-repo.js config validate");
   });
 
   test("includes connect runner script and ngrok URL hints", async () => {

@@ -1,5 +1,8 @@
 import { DEFAULT_OPERATIONS_POLICY } from "../policies/operations-defaults.js";
 import { RepoReaderError } from "../runtime/errors.js";
+import type { ValidationProfileCommand } from "../config/schema.js";
+
+type ValidationProfileName = "test" | "build" | "lint" | "typecheck" | "smoke" | "all" | "codegen" | "migration_preview";
 
 export type OperationsPolicyConfig = {
   enabled?: boolean;
@@ -7,7 +10,7 @@ export type OperationsPolicyConfig = {
   git_commit_enabled?: boolean;
   validation_enabled?: boolean;
   validation_test_path_globs?: string[];
-  validation_profiles?: Partial<Record<"test" | "build" | "lint" | "typecheck" | "smoke" | "all", { runner: "make"; target: string }>>;
+  validation_profiles?: Partial<Record<ValidationProfileName, ValidationProfileCommand>>;
   max_paths_per_operation?: number;
   cleanup_enabled?: boolean;
   cleanup_allowed_globs?: string[];
@@ -19,7 +22,7 @@ export type EffectiveOperationsPolicy = {
   git_commit_enabled: boolean;
   validation_enabled: boolean;
   validation_test_path_globs: string[];
-  validation_profiles: Partial<Record<"test" | "build" | "lint" | "typecheck" | "smoke" | "all", { runner: "make"; target: string }>>;
+  validation_profiles: Partial<Record<ValidationProfileName, ValidationProfileCommand>>;
   max_paths_per_operation: number;
   cleanup_enabled: boolean;
   cleanup_allowed_globs: string[];

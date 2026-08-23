@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { RepoInputSchema } from "./repo.contract.js";
 
-export const ValidationProfileSchema = z.enum(["test", "build", "lint", "typecheck", "smoke", "all"]);
+export const ValidationProfileSchema = z.enum(["test", "build", "lint", "typecheck", "smoke", "all", "codegen", "migration_preview"]);
 export const ValidationCommandStatusSchema = z.enum(["passed", "failed", "skipped"]);
 export const NodeRuntimeSourceSchema = z.enum(["package.json#volta.node", ".node-version", ".nvmrc", "package.json#engines.node"]);
 export const ValidationRuntimeSchema = z.object({
@@ -22,6 +22,7 @@ export const ValidateCommandResultSchema = z.object({
   script: z.string().min(1).describe("Selected validation runner name, such as an npm script name or pytest."),
   command: z.string().min(1).describe("Display-only command summary such as npm run test or .venv/bin/python -m pytest."),
   runtime: ValidationRuntimeSchema.optional().describe("Repo-selected Node.js runtime used for this npm validation command."),
+  executable_sha256: z.string().regex(/^[a-f0-9]{64}$/).optional().describe("SHA-256 identity of a repository-configured executable validated immediately before invocation."),
   status: ValidationCommandStatusSchema.describe("Validation command result status."),
   exit_code: z.number().int().optional().describe("Process exit code when the validation runner completed with an exit code."),
   duration_ms: z.number().int().nonnegative().optional().describe("Elapsed command duration in milliseconds when the command executed."),
