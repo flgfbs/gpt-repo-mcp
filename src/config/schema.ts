@@ -16,6 +16,20 @@ export const DEFAULT_RUNTIME_ROOT = join(
 export const RepositoryAuthoritySchema = z.enum(["read", "write", "ship"]);
 export const TaskAuthoritySchema = z.enum(["inspect", "implement", "ship"]);
 export const MergeMethodSchema = z.enum(["merge", "squash", "rebase"]);
+export const TransientCiConclusionSchema = z.enum(["timed_out", "startup_failure", "stale"]);
+
+export const RequiredCheckConfigSchema = z.union([
+  z.string().min(1).max(256),
+  z.object({
+    kind: z.literal("check_run"),
+    name: z.string().min(1).max(256),
+    app_slug: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/)
+  }).strict(),
+  z.object({
+    kind: z.literal("commit_status"),
+    context: z.string().min(1).max(256)
+  }).strict()
+]);
 
 export const CodeIntelligenceConfigSchema = z.object({
   provider: z.literal("codebase_memory"),
@@ -92,7 +106,9 @@ export const LifecyclePolicyConfigSchema = z.object({
   worktree_root: z.string().min(1).refine(isAbsolute, "lifecycle.worktree_root must be an absolute path"),
   github_repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
   merge_method: MergeMethodSchema,
-  required_checks: z.array(z.string().min(1).max(256)).max(64).default([]),
+  required_checks: z.array(RequiredCheckConfigSchema).max(64).default([]),
+  transient_ci_conclusions: z.array(TransientCiConclusionSchema).max(3).default(["timed_out", "startup_failure", "stale"]),
+  independent_review_required: z.boolean().default(false),
   require_clean_base: z.boolean().default(true),
   max_concurrent_tasks: PositiveIntSchema.max(64).default(8),
   cleanup: z.object({
