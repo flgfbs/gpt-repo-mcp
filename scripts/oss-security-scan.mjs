@@ -387,7 +387,7 @@ function collectEmails(text, location, output) {
   }
 }
 
-async function installedLicenseRecords(candidate) {
+export async function installedLicenseRecords(candidate) {
   const nodeModules = join(candidate, "node_modules");
   if (!(await stat(nodeModules)).isDirectory()) {
     throw new Error("Candidate node_modules is missing. Run npm ci --ignore-scripts before the security scan.");
@@ -397,7 +397,7 @@ async function installedLicenseRecords(candidate) {
 
   async function scanModules(directory) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
-      if (!entry.isDirectory() || entry.name === ".bin") continue;
+      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
       if (entry.name.startsWith("@")) {
         for (const scoped of await readdir(join(directory, entry.name), { withFileTypes: true })) {
           if (scoped.isDirectory()) await scanPackage(join(directory, entry.name, scoped.name));

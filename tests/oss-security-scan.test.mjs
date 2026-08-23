@@ -1,8 +1,12 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   classifyAudit,
   classifyEmailOccurrences,
-  classifyLicenseRecords
+  classifyLicenseRecords,
+  installedLicenseRecords
 } from "../scripts/oss-security-scan.mjs";
 
 describe("OSS security scan policy", () => {
@@ -90,6 +94,26 @@ describe("OSS security scan policy", () => {
       license_counts: { Custom: 1, MIT: 1 },
       unapproved: [{ name: "review", version: "2.0.0", license: "Custom" }]
     });
+  });
+
+  test("ignores package-manager caches while inventorying installed licenses", async () => {
+    const root = await mkdtemp(join(tmpdir(), "security-license-inventory-"));
+    try {
+      await mkdir(join(root, "node_modules", ".vite", "deps"), { recursive: true });
+      await mkdir(join(root, "node_modules", "fixture-package"), { recursive: true });
+      await writeFile(join(root, "node_modules", "fixture-package", "package.json"), JSON.stringify({
+        name: "fixture-package",
+        version: "1.0.0",
+        license: "MIT"
+      }));
+      await expect(installedLicenseRecords(root)).resolves.toEqual([{
+        name: "fixture-package",
+        version: "1.0.0",
+        license: "MIT"
+      }]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("separates production, known development, and unknown advisories", () => {
