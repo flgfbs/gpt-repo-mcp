@@ -113,9 +113,9 @@ export async function createProductionGitHubRuntimeBundle(
   const github = new ProductionGitHubAdapter(new InstalledGhJsonRunner(registry.runtimeRoot, process.env));
   const remote = new GitRemoteService(taskLookup, git, github, githubArtifacts, ledger, systemClock);
   const pullRequests = new GitHubPrService(taskLookup, git, github, githubArtifacts, ledger, systemClock);
-  const reviews = new GitHubReviewService(taskLookup, git, github, githubArtifacts, ledger, systemClock);
   const ci = new GitHubCiService(taskLookup, git, github, githubArtifacts, ledger, systemClock);
   const evidence = new TaskArtifactMergeEvidenceProvider(artifacts, git, github, githubArtifacts);
+  const reviews = new GitHubReviewService(taskLookup, git, github, evidence, githubArtifacts, ledger, systemClock);
   const gates = new GitHubMergeGateService(
     taskLookup,
     git,

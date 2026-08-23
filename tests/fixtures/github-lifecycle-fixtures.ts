@@ -270,13 +270,18 @@ export class FakeGitHubAdapter implements GitHubAdapter {
     baseBranch: string;
   }): Promise<PullRequestSnapshot> {
     this.called("createDraftPullRequest");
+    const headSha = this.refs.get(`refs/heads/${input.headBranch}`);
+    const baseSha = this.refs.get(`refs/heads/${input.baseBranch}`);
+    if (!headSha || !baseSha) throw new GitHubBoundaryError("PR_REF_MISSING", "Draft PR refs are unavailable.");
     this.pullRequest = makePullRequest({
       title: input.title,
       titleDigest: sha256(input.title),
       bodyDigest: sha256(input.body),
       operationMarkers: markers(input.body),
       headRefName: input.headBranch,
+      headSha,
       baseRefName: input.baseBranch,
+      baseSha,
       isDraft: true
     });
     return structuredClone(this.pullRequest);

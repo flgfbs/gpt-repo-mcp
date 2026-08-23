@@ -17,6 +17,8 @@ import {
   type ExactGitBoundary,
   type GitHubAdapter,
   type GitHubOperationRecord,
+  type JsonValue,
+  type MergeEvidenceProvider,
   type PullRequestSnapshot,
   type ReviewComment,
   type ReviewReplyReceipt,
@@ -73,8 +75,9 @@ export class GitHubReviewService {
     private readonly tasks: TaskLookup,
     private readonly git: ExactGitBoundary,
     private readonly github: GitHubAdapter,
+    private readonly evidenceProvider: MergeEvidenceProvider,
     private readonly artifacts: ContentAddressedArtifactSink,
-    ledger: DurableOperationLedger,
+    private readonly ledger: DurableOperationLedger,
     private readonly clock: Clock
   ) {
     this.operations = new GitHubOperationController(ledger, clock);
@@ -281,6 +284,7 @@ export class GitHubReviewService {
         throw new GitHubBoundaryError("REVIEW_THREAD_VERSION_DRIFT", "Review thread changed after the caller observed it.");
       }
       if (before.isOutdated) throw new GitHubBoundaryError("REVIEW_THREAD_OUTDATED", "Outdated review threads cannot be mutated.");
+      await this.assertResolutionEvidence(task, before, input.expected_head_sha, input.expected_tree_sha);
     } catch (error) {
       operation = await this.operations.transition(operation, "FAILED_KNOWN_AFTER_CONTACT", { failureCode: errorCode(error) });
       throw operationError(error, operation);
@@ -390,6 +394,50 @@ export class GitHubReviewService {
       observedAt: this.clock.now().toISOString()
     });
   }
+
+  private async assertResolutionEvidence(
+    task: ServerOwnedTask,
+    thread: ReviewThread,
+    expectedHeadSha: string,
+    expectedTreeSha: string
+  ): Promise<void> {
+    const [validation, operations] = await Promise.all([
+      this.evidenceProvider.getValidationEvidence(task),
+      this.ledger.listForTask({ repoId: task.repoId, taskId: task.taskId })
+    ]);
+    if (
+      validation.status !== "passed"
+      || validation.headSha !== expectedHeadSha
+      || validation.treeSha !== expectedTreeSha
+    ) {
+      throw new GitHubBoundaryError("REVIEW_RESOLUTION_VALIDATION_MISSING", "Review resolution requires passed validation on the exact corrected head and tree.");
+    }
+    if (operations.some((operation) => operation.phase === "UNKNOWN_AFTER_CONTACT")) {
+      throw new GitHubBoundaryError("UNKNOWN_EXTERNAL_EFFECT", "Review resolution is blocked by an unresolved unknown external effect.");
+    }
+    const snapshots = operations
+      .filter((operation) => operation.semantic === "repo_pr_review_threads" && operation.phase === "EXTERNAL_SUCCEEDED")
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    for (const operation of snapshots) {
+      const result = jsonRecord(operation.result);
+      const digest = typeof result?.artifactDigest === "string" ? result.artifactDigest : undefined;
+      if (!digest) continue;
+      const value = await this.artifacts.getJson({ namespace: "github-review-evidence", digest });
+      const snapshot = jsonRecord(value);
+      if (
+        snapshot
+        && typeof snapshot.headSha === "string"
+        && snapshot.headSha !== expectedHeadSha
+        && Array.isArray(snapshot.threads)
+        && snapshot.threads.some((entry) => jsonRecord(entry)?.id === thread.id)
+      ) return;
+    }
+    throw new GitHubBoundaryError("REVIEW_CORRECTION_EVIDENCE_MISSING", "Review resolution requires a durable prior thread snapshot followed by a new exact corrected head.");
+  }
+}
+
+function jsonRecord(value: JsonValue | undefined): { [key: string]: JsonValue } | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value : undefined;
 }
 
 function assertReviewPage(pullRequest: PullRequestSnapshot, page: {

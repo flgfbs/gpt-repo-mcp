@@ -4,6 +4,7 @@ import { GitHubReviewService } from "../src/services/github-review-service.js";
 import {
   FIXED_TASK,
   FixedClock,
+  FixedMergeEvidenceProvider,
   FixedTaskLookup,
   FakeGitBoundary,
   FakeGitHubAdapter,
@@ -75,6 +76,8 @@ describe("GitHub PR and review services", () => {
 
     const reply = await fixture.review.writePrReply({
       ...input("review-reply-1"),
+      expected_head_sha: fixture.correctedHead,
+      expected_tree_sha: fixture.correctedTree,
       thread_id: "thread_1",
       body: "Addressed in the exact head."
     });
@@ -88,6 +91,8 @@ describe("GitHub PR and review services", () => {
 
     const resolved = await fixture.review.writePrResolveThread({
       ...input("review-resolve-1"),
+      expected_head_sha: fixture.correctedHead,
+      expected_tree_sha: fixture.correctedTree,
       thread_id: "thread_1",
       expected_thread_updated_at: "2026-08-23T00:00:00.000Z"
     });
@@ -100,18 +105,65 @@ describe("GitHub PR and review services", () => {
     expect(fixture.github.calls.filter((call) => call === "replyToReviewThread")).toHaveLength(1);
     expect(fixture.github.calls.filter((call) => call === "resolveReviewThread")).toHaveLength(1);
   });
+
+  it("refuses resolution without a new corrected head and rejects an outdated thread", async () => {
+    const unchanged = createFixture(false);
+    unchanged.github.reviewThreads = [makeReviewThread()];
+    await unchanged.review.prReviewThreads({ ...input("review-status-unchanged"), limit: 25 });
+    await expect(unchanged.review.writePrResolveThread({
+      ...input("review-resolve-unchanged"),
+      thread_id: "thread_1",
+      expected_thread_updated_at: "2026-08-23T00:00:00.000Z"
+    })).rejects.toMatchObject({ code: "REVIEW_CORRECTION_EVIDENCE_MISSING" });
+    expect(unchanged.github.calls.filter((call) => call === "resolveReviewThread")).toHaveLength(0);
+
+    const outdated = createFixture();
+    outdated.github.reviewThreads = [makeReviewThread()];
+    outdated.github.reviewThreads[0]!.isOutdated = true;
+    await outdated.review.prReviewThreads({ ...input("review-status-outdated"), limit: 25 });
+    await expect(outdated.review.writePrResolveThread({
+      ...input("review-resolve-outdated"),
+      expected_head_sha: outdated.correctedHead,
+      expected_tree_sha: outdated.correctedTree,
+      thread_id: "thread_1",
+      expected_thread_updated_at: "2026-08-23T00:00:00.000Z"
+    })).rejects.toMatchObject({ code: "REVIEW_THREAD_OUTDATED" });
+    expect(outdated.github.calls.filter((call) => call === "resolveReviewThread")).toHaveLength(0);
+  });
 });
 
-function createFixture() {
+function createFixture(advanceAfterObservation = true) {
   const tasks = new FixedTaskLookup();
   const git = new FakeGitBoundary();
   const github = new FakeGitHubAdapter();
   const artifacts = new MemoryArtifactSink();
   const ledger = new MemoryOperationLedger();
   const clock = new FixedClock();
+  const evidence = new FixedMergeEvidenceProvider();
   const pr = new GitHubPrService(tasks, git, github, artifacts, ledger, clock);
-  const review = new GitHubReviewService(tasks, git, github, artifacts, ledger, clock);
-  return { tasks, git, github, artifacts, ledger, clock, pr, review };
+  const review = new GitHubReviewService(tasks, git, github, evidence, artifacts, ledger, clock);
+  const correctedHead = "6".repeat(40);
+  const correctedTree = "7".repeat(40);
+  const originalReviewThreads = review.prReviewThreads.bind(review);
+  review.prReviewThreads = async (request) => {
+    const result = await originalReviewThreads(request);
+    if (!advanceAfterObservation) return result;
+    git.snapshot.headSha = correctedHead;
+    git.snapshot.treeSha = correctedTree;
+    github.refs.set(`refs/heads/${FIXED_TASK.branch}`, correctedHead);
+    github.refTrees.set(`refs/heads/${FIXED_TASK.branch}`, correctedTree);
+    github.pullRequest.headSha = correctedHead;
+    for (const thread of github.reviewThreads) thread.headSha = correctedHead;
+    evidence.validation = {
+      status: "passed",
+      headSha: correctedHead,
+      treeSha: correctedTree,
+      validationId: "validation-corrected",
+      digest: "c".repeat(64)
+    };
+    return result;
+  };
+  return { tasks, git, github, artifacts, ledger, clock, evidence, pr, review, correctedHead, correctedTree };
 }
 
 function phases(ledger: MemoryOperationLedger, operationId: string): string[] {
