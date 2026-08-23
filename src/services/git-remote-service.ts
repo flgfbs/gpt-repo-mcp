@@ -277,7 +277,7 @@ export class GitRemoteService {
       ]);
       if (!defaultBranch) throw new GitHubBoundaryError("DEFAULT_BRANCH_MISSING", "GitHub default branch ref is missing.");
       const aligned = remote?.sha === local.headSha && remote.treeSha === local.treeSha;
-      const relationship = await remoteRelationship(this.github, task, remote, local.headSha);
+      const relationship = await remoteRelationship(this.git, this.github, task, remote, local.headSha);
       const evidence = await storeGitHubEvidence(this.artifacts, "github-remote-evidence", {
         semantic: "repo_remote_status",
         repoId: task.repoId,
@@ -639,6 +639,7 @@ function shaForRemoteIdentity(value: string): string {
 }
 
 async function remoteRelationship(
+  git: ExactGitBoundary,
   github: GitHubAdapter,
   task: ServerOwnedTask,
   remote: GitHubRefSnapshot | undefined,
@@ -646,9 +647,16 @@ async function remoteRelationship(
 ): Promise<"absent" | "equal" | "ahead" | "behind" | "diverged"> {
   if (!remote) return "absent";
   if (remote.sha === localHeadSha) return "equal";
+  try {
+    if (await git.isAncestor(task, remote.sha, localHeadSha)) return "ahead";
+    if (await git.isAncestor(task, localHeadSha, remote.sha)) return "behind";
+    return "diverged";
+  } catch (error) {
+    if (!(error instanceof GitHubBoundaryError) || error.code !== "GIT_ANCESTRY_FAILED") throw error;
+  }
   const comparison = await github.compare(task.repository, remote.sha, localHeadSha);
-  if (comparison.status === "ahead") return "behind";
-  if (comparison.status === "behind") return "ahead";
+  if (comparison.status === "ahead") return "ahead";
+  if (comparison.status === "behind") return "behind";
   if (comparison.status === "identical") return "equal";
   return "diverged";
 }

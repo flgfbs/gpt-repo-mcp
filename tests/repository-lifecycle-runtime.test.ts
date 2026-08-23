@@ -135,6 +135,38 @@ describe("repository lifecycle runtime", () => {
       branch_slug: "policy-second"
     })).rejects.toMatchObject({ code: "OPERATION_BLOCKED" });
   });
+
+  test("keeps task status available after the public artifact window is full", async () => {
+    const fixture = await fixtureRegistry();
+    const bundle = await createLifecycleRuntimeBundle(fixture.registry);
+    const opened = await bundle.lifecycle.taskOpen({
+      operation_id: "operation-open-artifact-window",
+      repo_id: "owner",
+      task_id: "task-artifact-window",
+      base_branch: "main",
+      base_commit_sha: fixture.commit,
+      base_tree_sha: fixture.tree,
+      authority: "inspect",
+      goal: "Exercise bounded task-status artifact discovery.",
+      branch_slug: "artifact-window"
+    });
+    for (let index = 0; index < 200; index += 1) {
+      await bundle.artifacts.put({
+        task_id: "task-artifact-window",
+        kind: "review_evidence",
+        media_type: "text/plain",
+        logical_path: `evidence/status-${index}.txt`,
+        content: `status evidence ${index}`
+      });
+    }
+
+    const status = await bundle.lifecycle.taskStatus({
+      repo_id: opened.task.repo_id,
+      task_id: "task-artifact-window"
+    });
+    expect(status.artifacts).toHaveLength(200);
+    expect(status.warnings).toContain("ARTIFACTS_TRUNCATED");
+  }, 30_000);
 });
 
 async function fixtureRegistry(options: { authority?: "read" | "write" | "ship"; maxConcurrentTasks?: number } = {}) {

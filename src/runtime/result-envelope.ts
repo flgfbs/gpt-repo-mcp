@@ -26,7 +26,11 @@ export type ErrorEnvelope = {
 };
 
 export function redactSensitiveText(value: string): string {
-  return redactSecretValues(value)
+  return redactHostPaths(redactSecretValues(value));
+}
+
+export function redactHostPaths(value: string): string {
+  return value
     .replace(/(?:\/Users|\/home|\/private|\/var|\/tmp)\/[^\s"'`]+/g, "[REDACTED_PATH]")
     .replace(/[A-Za-z]:\\[^\s"'`]+/g, "[REDACTED_PATH]");
 }

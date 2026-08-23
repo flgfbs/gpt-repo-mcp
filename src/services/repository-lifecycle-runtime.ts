@@ -118,8 +118,16 @@ export class RepositoryLifecycleRuntime implements LifecycleRuntime {
   async taskStatus(input: RepoTaskStatusInput): Promise<RepoTaskStatusResult> {
     const status = await this.tasks.status(input.task_id);
     assertTaskRepo(input.repo_id, status.task);
-    const artifacts = (await this.artifacts.listMetadata(input.task_id, { limit: 200 })).map(artifactReference);
+    const artifactMetadata = await this.artifacts.listMetadata(input.task_id, { limit: 201 });
+    const artifacts = artifactMetadata.slice(0, 200).map(artifactReference);
     const operations = await this.tasks.states.listOperationsForTask(input.task_id);
+    const warnings = [
+      ...(status.task.lifecycle === "RECOVERY_REQUIRED" ? ["TASK_RECOVERY_REQUIRED"] : []),
+      ...(status.observed_worktree.disposition === "EXACT" || status.observed_worktree.disposition === "ABSENT"
+        ? []
+        : [`WORKTREE_${status.observed_worktree.disposition}`]),
+      ...(artifactMetadata.length > 200 ? ["ARTIFACTS_TRUNCATED"] : [])
+    ];
     return RepoTaskStatusResultSchema.parse({
       ok: true,
       task: taskBinding(status.task, status.git_status ?? undefined),
@@ -129,9 +137,7 @@ export class RepositoryLifecycleRuntime implements LifecycleRuntime {
         : {}),
       cleanup_eligible: ["CLOSED", "CLEANUP_BLOCKED"].includes(status.task.lifecycle)
         && status.git_status?.clean !== false,
-      warnings: status.observed_worktree.disposition === "EXACT" || status.observed_worktree.disposition === "ABSENT"
-        ? []
-        : [`WORKTREE_${status.observed_worktree.disposition}`]
+      warnings
     });
   }
 
@@ -319,7 +325,7 @@ export class RepositoryLifecycleRuntime implements LifecycleRuntime {
   ): Promise<TaskArtifactMetadata> {
     const logicalPath = `receipts/${operationId}.${kind}.json`;
     return this.tasks.locks.withLock(`artifact-logical:${task.task_id}:${logicalPath}`, async () => {
-      const existing = (await this.artifacts.listMetadata(task.task_id, { limit: 1_000 }))
+      const existing = (await this.artifacts.listMetadata(task.task_id, { limit: 10_000 }))
         .find((candidate) => candidate.logical_path === logicalPath);
       if (existing) return existing;
       return this.artifacts.put({
@@ -338,7 +344,7 @@ export class RepositoryLifecycleRuntime implements LifecycleRuntime {
     kind: "task_manifest" | "operation_receipt"
   ): Promise<TaskArtifactMetadata | undefined> {
     const logicalPath = `receipts/${operationId}.${kind}.json`;
-    return (await this.artifacts.listMetadata(task.task_id, { limit: 1_000 }))
+    return (await this.artifacts.listMetadata(task.task_id, { limit: 10_000 }))
       .find((candidate) => candidate.logical_path === logicalPath);
   }
 

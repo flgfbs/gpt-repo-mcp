@@ -73,6 +73,64 @@ describe("task runtime lifecycle with real Git worktrees", () => {
     expect((await restarted.status(input.task_id)).observed_worktree.disposition).toBe("EXACT");
   });
 
+  test("quarantines a damaged open task while rehydrating unaffected task repositories", async () => {
+    const fixture = await gitFixture();
+    const runtime = service(fixture, new MemoryRegistrar());
+    const damaged = await runtime.open(openInput(fixture, "task-damaged", "operation-open-damaged"));
+    const healthy = await runtime.open(openInput(fixture, "task-healthy", "operation-open-healthy"));
+    await rm(damaged.task.worktree_path, { recursive: true, force: false });
+
+    const registrar = new MemoryRegistrar();
+    const restarted = service(fixture, registrar);
+    const rehydrated = await restarted.rehydrateOpenTaskRepositories();
+    expect(rehydrated.registered).toEqual([expect.objectContaining({ task_id: "task-healthy" })]);
+    expect(rehydrated.recovery_required_task_ids).toEqual(["task-damaged"]);
+    expect(registrar.registrations.has(healthy.repo_id)).toBe(true);
+    expect(registrar.registrations.has(damaged.repo_id)).toBe(false);
+    expect((await restarted.status("task-damaged"))).toMatchObject({
+      task: { lifecycle: "RECOVERY_REQUIRED", registration_state: "UNKNOWN" },
+      observed_worktree: { disposition: "PARTIAL" },
+      git_status: null
+    });
+  });
+
+  test("starts with a missing base registration and rehydrates the recovery task after configuration repair", async () => {
+    const fixture = await gitFixture();
+    const opened = await service(fixture, new MemoryRegistrar())
+      .open(openInput(fixture, "task-base-repair", "operation-open-base-repair"));
+    const unavailable = new TaskRuntimeService({
+      runtimeRoot: fixture.runtimeRoot,
+      baseRepositories: { async getBaseRepository() { throw new Error("base repository is not configured"); } },
+      registrar: new MemoryRegistrar(),
+      lock: { timeoutMs: 5_000, pollMs: 5 }
+    });
+
+    expect(await unavailable.rehydrateOpenTaskRepositories()).toMatchObject({
+      registered: [],
+      recovery_required_task_ids: ["task-base-repair"]
+    });
+    expect(await unavailable.status("task-base-repair")).toMatchObject({
+      repo_id: opened.repo_id,
+      task: { lifecycle: "RECOVERY_REQUIRED", registration_state: "UNKNOWN" },
+      observed_worktree: { disposition: "UNKNOWN" },
+      git_status: null
+    });
+
+    const repairedRegistrar = new MemoryRegistrar();
+    const repaired = service(fixture, repairedRegistrar);
+    expect(await repaired.rehydrateOpenTaskRepositories()).toMatchObject({
+      registered: [expect.objectContaining({ task_id: "task-base-repair" })],
+      recovery_required_task_ids: []
+    });
+    expect((await repaired.status("task-base-repair")).task).toMatchObject({
+      lifecycle: "OPEN",
+      worktree_state: "PRESENT",
+      branch_state: "PRESENT",
+      registration_state: "REGISTERED"
+    });
+    expect(repairedRegistrar.registrations.has(opened.repo_id)).toBe(true);
+  });
+
   test("serializes concurrent opens and rejects operation-id conflicts", async () => {
     const fixture = await gitFixture();
     const registrar = new MemoryRegistrar();

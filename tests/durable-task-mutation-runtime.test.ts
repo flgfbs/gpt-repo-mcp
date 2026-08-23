@@ -116,7 +116,8 @@ describe("durable task mutation runtime", () => {
 
   test("stores complete validation output as an opaque task artifact bound to exact Git state", async () => {
     const fixture = await setup();
-    const fullOutput = `full-output-${"x".repeat(8_000)}`;
+    const hostPath = "/Users/example/private-worktree/report.json";
+    const fullOutput = `full-output-${"x".repeat(8_000)}\nsource=${hostPath}`;
     const structuredContent = attachValidationArtifactCapture({
       ok: true,
       repo_id: fixture.taskRepoId,
@@ -175,7 +176,8 @@ describe("durable task mutation runtime", () => {
       resulting_head_sha: fixture.head,
       resulting_tree_sha: fixture.tree
     });
-    expect(payload.validation.commands[0].stdout).toBe(fullOutput);
+    expect(payload.validation.commands[0].stdout).toBe(fullOutput.replace(hostPath, "[REDACTED_PATH]"));
+    expect(JSON.stringify(payload)).not.toContain(hostPath);
   });
 });
 

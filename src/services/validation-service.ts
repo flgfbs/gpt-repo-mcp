@@ -6,7 +6,7 @@ import ignore from "ignore";
 import { ValidateInputSchema, type ValidateInput, type ValidateResult, type ValidationProfile } from "../contracts/validation.contract.js";
 import { RepoReaderError } from "../runtime/errors.js";
 import { atomicWriteJson } from "../runtime/fs-helpers.js";
-import { redactSensitiveText } from "../runtime/result-envelope.js";
+import { redactHostPaths, redactSensitiveText } from "../runtime/result-envelope.js";
 import { OperationsPolicy } from "./operations-policy.js";
 import { validateRepoPath } from "./path-sandbox.js";
 import { IgnoreEngine } from "./ignore-engine.js";
@@ -103,8 +103,8 @@ export class ValidationService {
         ...(execution.signal === undefined ? {} : { signal: execution.signal }),
         timed_out: execution.timedOut,
         duration_ms: execution.result.duration_ms ?? 0,
-        stdout: execution.capture.stdout,
-        stderr: execution.capture.stderr
+        stdout: redactHostPaths(execution.capture.stdout),
+        stderr: redactHostPaths(execution.capture.stderr)
       });
     }
     const failed = results.filter((result) => result.status === "failed").length;

@@ -192,6 +192,60 @@ describe("GitHub lifecycle services", () => {
     })).rejects.toMatchObject({ code: "ONE_CI_RUN_REQUIRED" });
   });
 
+  it("serializes concurrent retry operations for the same exact workflow run", async () => {
+    const fixture = await createLifecycleFixture();
+    fixture.github.checkRuns.checkRuns[0]!.conclusion = "timed_out";
+    fixture.github.workflowRuns = [{
+      id: 9001,
+      headSha: HEAD_SHA,
+      attempt: 1,
+      status: "completed",
+      conclusion: "timed_out",
+      workflowName: "CI",
+      event: "push",
+      createdAt: "2026-08-23T00:00:00.000Z",
+      updatedAt: "2026-08-23T00:00:30.000Z",
+      url: "https://github.com/example/project/actions/runs/9001",
+      jobs: [{
+        id: 9101,
+        name: "test",
+        status: "completed",
+        conclusion: "timed_out",
+        startedAt: "2026-08-23T00:00:01.000Z",
+        completedAt: "2026-08-23T00:00:29.000Z",
+        url: "https://github.com/example/project/actions/runs/9001/job/9101",
+        failureSummary: ["step 1: test (timed_out)"]
+      }]
+    }];
+    const status = await fixture.ci.ciStatus(exactInput("ci-status-concurrent"));
+    if (status.disposition !== "EXECUTED") throw new Error("unexpected stored CI status");
+
+    let enteredRetry!: () => void;
+    let releaseRetry!: () => void;
+    const entered = new Promise<void>((resolve) => { enteredRetry = resolve; });
+    const release = new Promise<void>((resolve) => { releaseRetry = resolve; });
+    fixture.github.beforeRetryFailedJobs = async () => {
+      enteredRetry();
+      await release;
+    };
+    const first = fixture.ci.writeCiRetryFailed({
+      ...exactInput("ci-retry-concurrent-1"),
+      ci_status_id: status.evidence.ciStatusId,
+      failed_run_ids: ["9001"]
+    });
+    await entered;
+    const second = fixture.ci.writeCiRetryFailed({
+      ...exactInput("ci-retry-concurrent-2"),
+      ci_status_id: status.evidence.ciStatusId,
+      failed_run_ids: ["9001"]
+    });
+    releaseRetry();
+
+    await expect(first).resolves.toMatchObject({ disposition: "EXECUTED", retriedRunIds: ["9001"] });
+    await expect(second).rejects.toMatchObject({ code: "CI_RETRY_ALREADY_CONSUMED" });
+    expect(fixture.github.calls.filter((call) => call === "retryFailedJobs")).toHaveLength(1);
+  });
+
   it("marks a Ready-only partial merge UNKNOWN_AFTER_CONTACT and never replays it", async () => {
     const fixture = await createLifecycleFixture();
     const prepared = await fixture.gate.mergeGatePrepare(exactInput("gate-operation-2"));

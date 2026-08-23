@@ -12,6 +12,7 @@ import { hasCode, validateManagedRelativePath } from "./secure-runtime-fs.js";
 import { TaskStateStore } from "./state-store.js";
 
 const artifactIgnoreEngine = new IgnoreEngine();
+const MAX_TASK_ARTIFACTS = 10_000;
 
 export const TaskArtifactIdSchema = z.string().regex(/^artifact_[A-Za-z0-9_-]{16,160}$/);
 export const TaskArtifactKindSchema = z.enum([
@@ -196,7 +197,7 @@ export class TaskArtifactStore {
       const directory = artifactDirectory(taskId);
       let entries;
       try {
-        entries = await this.states.fs.listDirectory(directory, limit);
+        entries = await this.states.fs.listDirectory(directory, MAX_TASK_ARTIFACTS);
       } catch (error) {
         if (hasCode(error, "ENOENT")) return [];
         throw error;
@@ -213,7 +214,9 @@ export class TaskArtifactStore {
         if (`${hashedDiskKey("artifact", artifact.artifact_id)}.json` !== entry.name) throw invalidArtifact();
         metadata.push(artifact);
       }
-      return metadata.sort((left, right) => left.created_at.localeCompare(right.created_at) || left.artifact_id.localeCompare(right.artifact_id));
+      return metadata
+        .sort((left, right) => left.created_at.localeCompare(right.created_at) || left.artifact_id.localeCompare(right.artifact_id))
+        .slice(0, limit);
     });
   }
 

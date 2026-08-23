@@ -163,13 +163,28 @@ export class GitHubCiService implements ExactCiEvidenceReader {
     if (!/^[1-9][0-9]{0,19}$/.test(runIdText)) throw new GitHubBoundaryError("INVALID_RUN_ID", "Workflow run id is invalid.");
     const numericRunId = Number(runIdText);
     if (!Number.isSafeInteger(numericRunId)) throw new GitHubBoundaryError("INVALID_RUN_ID", "Workflow run id exceeds the safe integer boundary.");
+    const subject = { headSha: input.expected_head_sha, runId: runIdText };
+    return this.ledger.withSubjectLock({
+      repoId: input.repo_id,
+      taskId: input.task_id,
+      semantic: "repo_write_ci_retry_failed",
+      subjectDigest: sha256Json(subject)
+    }, async () => this.writeCiRetryFailedLocked(input, runIdText, numericRunId, subject));
+  }
+
+  private async writeCiRetryFailedLocked(
+    input: ExactTaskInput & { ci_status_id: string; failed_run_ids: string[] },
+    runIdText: string,
+    numericRunId: number,
+    subject: { headSha: string; runId: string }
+  ): Promise<CiRetryResult> {
     const { task } = await bindExactTask({ tasks: this.tasks, git: this.git, request: input, requireClean: true });
     const admission = await this.operations.admit({
       operationId: input.operation_id,
       semantic: "repo_write_ci_retry_failed",
       repoId: task.repoId,
       taskId: task.taskId,
-      subject: { headSha: input.expected_head_sha, runId: runIdText },
+      subject,
       binding: {
         expectedHeadSha: input.expected_head_sha,
         expectedTreeSha: input.expected_tree_sha,

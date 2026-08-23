@@ -1,6 +1,6 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { RepoReaderError } from "../runtime/errors.js";
-import { createErrorEnvelope } from "../runtime/result-envelope.js";
+import { createErrorEnvelope, redactHostPaths } from "../runtime/result-envelope.js";
 import {
   TaskArtifactStore,
   TaskMutationStore,
@@ -12,7 +12,10 @@ import {
 import type { ToolName } from "../tools/contracts.js";
 import type { RootRegistry } from "./root-registry.js";
 import type { TaskMutationRuntime } from "./task-mutation-runtime.js";
-import { readValidationArtifactCapture } from "./validation-artifact-capture.js";
+import {
+  readValidationArtifactCapture,
+  type ValidationArtifactCapture
+} from "./validation-artifact-capture.js";
 
 const MAX_RESULT_DIGEST_BYTES = 1024 * 1024;
 
@@ -124,7 +127,7 @@ export class DurableTaskMutationRuntime implements TaskMutationRuntime {
         expected_tree_sha: execution.before.tree,
         resulting_head_sha: execution.after.head,
         resulting_tree_sha: execution.after.tree,
-        validation: capture
+        validation: sanitizeValidationCapture(capture)
       })}\n`
     });
     if (!result.structuredContent || typeof result.structuredContent !== "object") {
@@ -168,6 +171,17 @@ export class DurableTaskMutationRuntime implements TaskMutationRuntime {
       record
     );
   }
+}
+
+function sanitizeValidationCapture(capture: ValidationArtifactCapture): ValidationArtifactCapture {
+  return {
+    ...capture,
+    commands: capture.commands.map((command) => ({
+      ...command,
+      stdout: redactHostPaths(command.stdout),
+      stderr: redactHostPaths(command.stderr)
+    }))
+  };
 }
 
 function requireMutationBinding(input: Record<string, unknown>): {

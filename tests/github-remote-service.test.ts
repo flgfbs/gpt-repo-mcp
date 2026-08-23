@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { GitHubBoundaryError } from "../src/github/types.js";
 import { GitRemoteService } from "../src/services/git-remote-service.js";
 import {
+  BASE_SHA,
   FIXED_TASK,
   FixedClock,
   FixedTaskLookup,
@@ -48,6 +49,37 @@ describe("GitRemoteService", () => {
     const duplicate = await fixture.service.remoteStatus(input("remote-status-1"));
     expect(duplicate).toMatchObject({ disposition: "STORED", operation: { phase: "EXTERNAL_SUCCEEDED" } });
     expect(fixture.github.calls).toHaveLength(contacts);
+  });
+
+  it("classifies a local-only descendant as ahead without asking GitHub to resolve the unknown local head", async () => {
+    const fixture = createFixture();
+    fixture.github.refs.set(`refs/heads/${FIXED_TASK.branch}`, BASE_SHA);
+    fixture.github.refTrees.set(`refs/heads/${FIXED_TASK.branch}`, "3".repeat(40));
+    fixture.git.ancestorResolver = (ancestorSha, descendantSha) => (
+      ancestorSha === BASE_SHA && descendantSha === HEAD_SHA
+    );
+
+    const result = await fixture.service.remoteStatus(input("remote-status-local-ahead"));
+    expect(result).toMatchObject({
+      disposition: "EXECUTED",
+      relationship: "ahead",
+      remoteHeadSha: BASE_SHA
+    });
+    expect(fixture.git.ancestryCalls).toEqual([{ ancestorSha: BASE_SHA, descendantSha: HEAD_SHA }]);
+    expect(fixture.github.calls).not.toContain("compare");
+  });
+
+  it("uses the provider comparison only when local Git cannot resolve the remote object", async () => {
+    const fixture = createFixture();
+    fixture.github.refs.set(`refs/heads/${FIXED_TASK.branch}`, BASE_SHA);
+    fixture.github.refTrees.set(`refs/heads/${FIXED_TASK.branch}`, "3".repeat(40));
+    fixture.git.isAncestor = async () => {
+      throw new GitHubBoundaryError("GIT_ANCESTRY_FAILED", "Remote object is not available locally.");
+    };
+
+    const result = await fixture.service.remoteStatus(input("remote-status-provider-compare"));
+    expect(result).toMatchObject({ disposition: "EXECUTED", relationship: "ahead" });
+    expect(fixture.github.calls.filter((call) => call === "compare")).toHaveLength(1);
   });
 
   it("pushes a missing task ref once and proves the exact head and tree by readback", async () => {

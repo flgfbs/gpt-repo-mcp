@@ -81,6 +81,23 @@ describe("task-scoped content-addressed artifacts", () => {
       .rejects.toMatchObject({ code: "ARTIFACT_NOT_FOUND" });
   });
 
+  test("returns a bounded metadata prefix without treating additional valid artifacts as corruption", async () => {
+    const { artifacts, store } = await fixture();
+    await store.writeTask(taskInput("task-bounded-list"));
+    for (const index of [1, 2, 3]) {
+      await artifacts.put({
+        task_id: "task-bounded-list",
+        kind: "review_evidence",
+        media_type: "text/plain",
+        logical_path: `evidence/${index}.txt`,
+        content: `evidence ${index}`
+      });
+    }
+    const bounded = await artifacts.listMetadata("task-bounded-list", { limit: 2 });
+    expect(bounded).toHaveLength(2);
+    expect(new Set(bounded.map((entry) => entry.logical_path)).size).toBe(2);
+  });
+
   test("blocks secret candidates, invalid media, and unsafe logical paths", async () => {
     const { artifacts, store } = await fixture();
     await store.writeTask(taskInput("task-safe"));

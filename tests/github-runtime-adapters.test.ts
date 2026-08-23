@@ -53,6 +53,40 @@ describe("production GitHub runtime adapters", () => {
       .toMatchObject([{ operationId: record.operationId, phase: "ADMITTED" }]);
   });
 
+  test("serializes a subject lock across durable ledger instances", async () => {
+    const fixture = await setup();
+    const firstLedger = new DurableGitHubOperationLedger(fixture.bundle.tasks.fs, fixture.bundle.tasks.locks);
+    const secondLedger = new DurableGitHubOperationLedger(fixture.bundle.tasks.fs, fixture.bundle.tasks.locks);
+    const subject = {
+      repoId: fixture.task.repoId,
+      taskId: fixture.task.taskId,
+      semantic: "repo_write_ci_retry_failed" as const,
+      subjectDigest: "3".repeat(64)
+    };
+    let firstEntered!: () => void;
+    let releaseFirst!: () => void;
+    const entered = new Promise<void>((resolve) => { firstEntered = resolve; });
+    const release = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const order: string[] = [];
+    const first = firstLedger.withSubjectLock(subject, async () => {
+      order.push("first-enter");
+      firstEntered();
+      await release;
+      order.push("first-exit");
+    });
+    await entered;
+    const second = secondLedger.withSubjectLock(subject, async () => {
+      order.push("second-enter");
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    const enteredBeforeRelease = order.includes("second-enter");
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(enteredBeforeRelease).toBe(false);
+    expect(order).toEqual(["first-enter", "first-exit", "second-enter"]);
+  });
+
   test("stores GitHub JSON in the task CAS and resolves it only through a digest index", async () => {
     const fixture = await setup();
     const lookup = new RegistryTaskLookup(fixture.registry, fixture.bundle.tasks);

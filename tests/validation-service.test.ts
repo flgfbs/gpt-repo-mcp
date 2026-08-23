@@ -228,6 +228,18 @@ describe("ValidationService", () => {
     expect(JSON.stringify(result)).not.toContain("validation-artifact-capture");
   });
 
+  test("redacts host absolute paths from the full validation capture", async () => {
+    const hostPath = "/Users/example/private-worktree/result.json";
+    const root = await fixtureRepo({
+      scripts: { smoke: `node -e "console.log('${hostPath}')"` }
+    });
+
+    const result = await service(root).validate({ repo_id: "fixture", profile: "smoke" });
+    const capture = readValidationArtifactCapture(result);
+    expect(capture?.commands[0]?.stdout).toContain("[REDACTED_PATH]");
+    expect(capture?.commands[0]?.stdout).not.toContain(hostPath);
+  });
+
   test("reports validation failure as a structured result instead of a tool error", async () => {
     const root = await fixtureRepo({
       scripts: { test: "node -e \"console.error('failed safely'); process.exit(3)\"" }

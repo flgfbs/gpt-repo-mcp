@@ -74,8 +74,18 @@ export type TaskOpenResult = {
 export type TaskStatusResult = {
   repo_id: string;
   task: TaskState;
-  observed_worktree: WorktreeObservation;
+  observed_worktree: WorktreeObservation | UnknownWorktreeObservation;
   git_status: WorktreeStatus | null;
+};
+
+export type UnknownWorktreeObservation = {
+  disposition: "UNKNOWN";
+  path_present: false;
+  registered: false;
+  branch_present: false;
+  observed_head: null;
+  observed_tree: null;
+  observed_branch: null;
 };
 
 export type TaskCleanupResult = {
@@ -89,6 +99,7 @@ export type TaskCleanupResult = {
 export type TaskRegistrationRehydrationResult = {
   registered: TaskRepositoryRegistration[];
   skipped_task_ids: string[];
+  recovery_required_task_ids: string[];
 };
 
 export type ExactTaskMutationState = {
@@ -143,10 +154,15 @@ export class TaskRuntimeService {
     const parsedTaskId = TaskIdSchema.parse(taskId);
     return this.locks.withLock(`task:${parsedTaskId}`, async () => {
       const task = await this.states.requireTask(parsedTaskId);
-      const { git, binding } = await this.bindingForTask(task);
-      const observed = await git.inspect(binding);
-      const gitStatus = observed.disposition === "EXACT" ? await git.status(binding) : null;
-      return { repo_id: task.repo_id, task, observed_worktree: observed, git_status: gitStatus };
+      try {
+        const { git, binding } = await this.bindingForTask(task);
+        const observed = await git.inspect(binding);
+        const gitStatus = observed.disposition === "EXACT" ? await git.status(binding) : null;
+        return { repo_id: task.repo_id, task, observed_worktree: observed, git_status: gitStatus };
+      } catch (error) {
+        if (task.lifecycle !== "RECOVERY_REQUIRED" || mustPropagateRehydrationError(error)) throw error;
+        return { repo_id: task.repo_id, task, observed_worktree: unknownWorktreeObservation(), git_status: null };
+      }
     });
   }
 
@@ -160,25 +176,61 @@ export class TaskRuntimeService {
     const discovered = await this.states.listTasks(options);
     const registered: TaskRepositoryRegistration[] = [];
     const skippedTaskIds: string[] = [];
+    const recoveryRequiredTaskIds: string[] = [];
     for (const discoveredTask of discovered) {
-      if (discoveredTask.lifecycle !== "OPEN" || discoveredTask.close_disposition !== null) {
+      if (!isRehydratableTask(discoveredTask)) {
         skippedTaskIds.push(discoveredTask.task_id);
         continue;
       }
       await this.locks.withLock(`task:${discoveredTask.task_id}`, async () => {
-        const task = await this.states.requireTask(discoveredTask.task_id);
-        if (task.lifecycle !== "OPEN" || task.close_disposition !== null) {
+        let task = await this.states.requireTask(discoveredTask.task_id);
+        if (!isRehydratableTask(task)) {
           skippedTaskIds.push(task.task_id);
           return;
         }
-        const { git, binding } = await this.bindingForTask(task);
-        const observation = await git.inspect(binding);
-        if (observation.disposition !== "EXACT") throw uncertainOpen(observation);
-        const registeredTask = await this.ensureRegistered(task);
-        registered.push(registrationFor(registeredTask));
+        try {
+          const { git, binding } = await this.bindingForTask(task);
+          const observation = await git.inspect(binding);
+          if (observation.disposition !== "EXACT") {
+            task = await this.writeTaskUpdate(task, recoveryStateFor(observation));
+            recoveryRequiredTaskIds.push(task.task_id);
+            return;
+          }
+          if (!observation.observed_head || !observation.observed_tree) {
+            throw new TaskRuntimeError("GIT_EFFECT_UNCERTAIN", "Exact worktree observation omitted its Git object binding.");
+          }
+          if (
+            task.worktree_state !== "PRESENT"
+            || task.branch_state !== "PRESENT"
+            || task.worktree_head !== observation.observed_head
+            || task.worktree_tree !== observation.observed_tree
+          ) {
+            task = await this.writeTaskUpdate(task, {
+              worktree_state: "PRESENT",
+              branch_state: "PRESENT",
+              worktree_head: observation.observed_head,
+              worktree_tree: observation.observed_tree
+            });
+          }
+          const registeredTask = await this.ensureRegistered(task);
+          registered.push(registrationFor(registeredTask));
+        } catch (error) {
+          if (mustPropagateRehydrationError(error)) throw error;
+          task = await this.writeTaskUpdate(task, {
+            lifecycle: "RECOVERY_REQUIRED",
+            worktree_state: "UNKNOWN",
+            branch_state: "UNKNOWN",
+            registration_state: "UNKNOWN"
+          });
+          recoveryRequiredTaskIds.push(task.task_id);
+        }
       });
     }
-    return { registered, skipped_task_ids: skippedTaskIds };
+    return {
+      registered,
+      skipped_task_ids: skippedTaskIds,
+      recovery_required_task_ids: recoveryRequiredTaskIds
+    };
   }
 
   async runWithExactTaskState<T>(input: {
@@ -705,6 +757,49 @@ function blocked(operation: OperationState): TaskRuntimeError {
 
 function uncertainOpen(observation: WorktreeObservation): TaskRuntimeError {
   return new TaskRuntimeError("GIT_EFFECT_UNCERTAIN", "Task worktree readback is not exact; open will not replay the Git mutation.", observation);
+}
+
+function isRehydratableTask(task: TaskState): boolean {
+  return task.close_disposition === null && (task.lifecycle === "OPEN" || task.lifecycle === "RECOVERY_REQUIRED");
+}
+
+function recoveryStateFor(observation: WorktreeObservation): {
+  lifecycle: "RECOVERY_REQUIRED";
+  worktree_state: "ABSENT" | "PARTIAL" | "CONFLICT";
+  branch_state: "ABSENT" | "PRESENT" | "UNKNOWN";
+  registration_state: "UNKNOWN";
+} {
+  if (observation.disposition === "EXACT") {
+    throw new TaskRuntimeError("TASK_RUNTIME_INVALID", "Exact worktrees must be registered instead of marked for recovery.");
+  }
+  return {
+    lifecycle: "RECOVERY_REQUIRED",
+    worktree_state: observation.disposition,
+    branch_state: observation.branch_present
+      ? "PRESENT"
+      : observation.disposition === "ABSENT"
+        ? "ABSENT"
+        : "UNKNOWN",
+    registration_state: "UNKNOWN"
+  };
+}
+
+function mustPropagateRehydrationError(error: unknown): boolean {
+  if (!error || typeof error !== "object" || !("code" in error)) return false;
+  const code = (error as { code?: unknown }).code;
+  return code === "TASK_STATE_TAMPERED" || code === "RUNTIME_FILE_UNSAFE";
+}
+
+function unknownWorktreeObservation(): UnknownWorktreeObservation {
+  return {
+    disposition: "UNKNOWN",
+    path_present: false,
+    registered: false,
+    branch_present: false,
+    observed_head: null,
+    observed_tree: null,
+    observed_branch: null
+  };
 }
 
 function cleanupResult(task: TaskState, operation: OperationState): TaskCleanupResult {

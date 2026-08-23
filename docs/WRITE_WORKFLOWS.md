@@ -46,7 +46,9 @@ The server derives the task repository id, branch, and worktree. An exact replay
 of the same operation is idempotent. A conflicting replay fails.
 
 Use `repo_task_status` to resume. It returns the bound base, current exact
-HEAD/tree, task state, lifecycle artifacts, and cleanup eligibility.
+HEAD/tree, task state, lifecycle artifacts, and cleanup eligibility. The public
+artifact window is capped at 200 references; `ARTIFACTS_TRUNCATED` means
+additional durable artifacts remain available by their opaque ids.
 
 ## 4. Implement, Validate, And Review
 
@@ -62,7 +64,8 @@ Within `implement` or `ship` authority:
 
 Validation output may be returned directly when small or as a `validation_log`
 artifact. A large diff can become a `large_diff` artifact. Artifact ids are
-opaque and cannot be converted into source paths by a caller.
+opaque and cannot be converted into source paths by a caller. Full validation
+captures redact host absolute paths before the task artifact can be served.
 
 ## 5. Observe And Push
 
@@ -110,8 +113,10 @@ the bound pull request, not arbitrary caller-selected PR coordinates.
 ids and that snapshot id to `repo_write_ci_retry_failed`.
 
 The retry tool cannot start an arbitrary workflow, choose another ref, or rerun
-successful/unknown runs. A code correction creates a new HEAD and requires new
-validation, push, PR, review, CI, and merge-gate evidence.
+successful/unknown runs. Retry admission is serialized by exact task, HEAD, and
+run id, so concurrent operation ids cannot consume the same permitted retry.
+A code correction creates a new HEAD and requires new validation, push, PR,
+review, CI, and merge-gate evidence.
 
 ## 9. Prepare And Approve The Exact Merge Gate
 
@@ -169,6 +174,13 @@ After any interruption:
 3. inspect durable receipts or opaque evidence;
 4. classify the effect as absent, confirmed, or still queryable/uncertain; and
 5. retry only when the returned state explicitly admits an idempotent replay.
+
+At server startup, an OPEN task whose configured base or worktree is not
+byte-exact is durably marked `RECOVERY_REQUIRED` and omitted from active task
+registration; other repositories still start. Use
+`chat-pro-repo task inspect <task_id>` to inspect the durable binding, repair the
+owner configuration or worktree outside the server, and restart. An exact
+repaired binding rehydrates to OPEN; no Git mutation is replayed automatically.
 
 Never infer failure from an empty response, mint a replacement operation id to
 bypass replay detection, or reuse a merge approval after any bound state

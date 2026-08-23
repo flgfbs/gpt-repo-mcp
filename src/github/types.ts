@@ -95,6 +95,12 @@ export type GitHubOperationRecord = {
 };
 
 export interface DurableOperationLedger {
+  withSubjectLock<T>(input: {
+    repoId: string;
+    taskId: string;
+    semantic: GitHubPublicSemantic;
+    subjectDigest: string;
+  }, action: () => Promise<T>): Promise<T>;
   create(record: GitHubOperationRecord): Promise<{ created: boolean; record: GitHubOperationRecord }>;
   transition(input: {
     operationId: string;

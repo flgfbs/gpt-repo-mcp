@@ -76,6 +76,28 @@ export class FixedTaskLookup implements TaskLookup {
 export class MemoryOperationLedger implements DurableOperationLedger {
   readonly records = new Map<string, GitHubOperationRecord>();
   readonly history: { operationId: string; phase: GitHubOperationRecord["phase"] }[] = [];
+  private readonly subjectLocks = new Map<string, Promise<void>>();
+
+  async withSubjectLock<T>(input: {
+    repoId: string;
+    taskId: string;
+    semantic: GitHubOperationRecord["semantic"];
+    subjectDigest: string;
+  }, action: () => Promise<T>): Promise<T> {
+    const key = `${input.repoId}\0${input.taskId}\0${input.semantic}\0${input.subjectDigest}`;
+    const previous = this.subjectLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const tail = previous.then(async () => gate);
+    this.subjectLocks.set(key, tail);
+    await previous;
+    try {
+      return await action();
+    } finally {
+      release();
+      if (this.subjectLocks.get(key) === tail) this.subjectLocks.delete(key);
+    }
+  }
 
   async create(record: GitHubOperationRecord): Promise<{ created: boolean; record: GitHubOperationRecord }> {
     const existing = this.records.get(record.operationId);
@@ -163,6 +185,8 @@ export class FakeGitBoundary implements ExactGitBoundary {
     upstream: "origin/task/change"
   };
   pushCalls = 0;
+  readonly ancestryCalls: Array<{ ancestorSha: string; descendantSha: string }> = [];
+  ancestorResolver?: (ancestorSha: string, descendantSha: string) => boolean;
   onPush?: () => void;
   pushError?: Error;
 
@@ -170,8 +194,9 @@ export class FakeGitBoundary implements ExactGitBoundary {
     return structuredClone(this.snapshot);
   }
 
-  async isAncestor(): Promise<boolean> {
-    return true;
+  async isAncestor(_task: ServerOwnedTask, ancestorSha: string, descendantSha: string): Promise<boolean> {
+    this.ancestryCalls.push({ ancestorSha, descendantSha });
+    return this.ancestorResolver?.(ancestorSha, descendantSha) ?? true;
   }
 
   async pushExact(): Promise<void> {
@@ -236,6 +261,7 @@ export class FakeGitHubAdapter implements GitHubAdapter {
     }]
   }];
   nextError = new Map<keyof GitHubAdapter, Error>();
+  beforeRetryFailedJobs?: (runId: number) => Promise<void>;
 
   failNext(method: keyof GitHubAdapter, error: Error): void {
     this.nextError.set(method, error);
@@ -361,6 +387,7 @@ export class FakeGitHubAdapter implements GitHubAdapter {
 
   async retryFailedJobs(_repository: GitHubRepositoryRef, runId: number): Promise<void> {
     this.called("retryFailedJobs");
+    await this.beforeRetryFailedJobs?.(runId);
     const run = this.workflowRuns.find((candidate) => candidate.id === runId);
     if (!run) throw new GitHubBoundaryError("RUN_NOT_FOUND", "Run not found.", "KNOWN");
     run.attempt += 1;

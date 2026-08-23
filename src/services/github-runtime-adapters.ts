@@ -66,6 +66,24 @@ export class DurableGitHubOperationLedger implements DurableOperationLedger {
     await this.fs.ensureDirectory("github-operations");
   }
 
+  async withSubjectLock<T>(input: {
+    repoId: string;
+    taskId: string;
+    semantic: GitHubOperationRecord["semantic"];
+    subjectDigest: string;
+  }, action: () => Promise<T>): Promise<T> {
+    if (!/^[a-f0-9]{64}$/.test(input.subjectDigest)) {
+      throw new GitHubBoundaryError("INVALID_SUBJECT_DIGEST", "Operation subject digest is invalid.");
+    }
+    const lockDigest = sha256Json({
+      repoId: input.repoId,
+      taskId: input.taskId,
+      semantic: input.semantic,
+      subjectDigest: input.subjectDigest
+    });
+    return this.locks.withLock(`github-subject:${lockDigest}`, action);
+  }
+
   async create(record: GitHubOperationRecord): Promise<{ created: boolean; record: GitHubOperationRecord }> {
     await this.initialize();
     return this.locks.withLock(`github-operation:${record.operationId}`, async () => {
