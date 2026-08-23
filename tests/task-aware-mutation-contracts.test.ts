@@ -15,8 +15,10 @@ describe("task-aware inherited mutation contracts", () => {
         const field = tool.inputSchema.shape[key];
         expect(field, `${tool.name}.${key}`).toBeDefined();
       }
-      expect(tool.inputSchema.shape.operation_id?.isOptional(), `${tool.name}.operation_id remains optional for base repositories`).toBe(true);
-      expect(tool.inputSchema.shape.expected_tree_sha?.isOptional(), `${tool.name}.expected_tree_sha remains optional for base repositories`).toBe(true);
+      const operationField = tool.inputSchema.shape.operation_id as unknown as { safeParse(value: unknown): { success: boolean } };
+      const treeField = tool.inputSchema.shape.expected_tree_sha as unknown as { safeParse(value: unknown): { success: boolean } };
+      expect(operationField.safeParse(undefined).success, `${tool.name}.operation_id remains optional for base repositories`).toBe(true);
+      expect(treeField.safeParse(undefined).success, `${tool.name}.expected_tree_sha remains optional for base repositories`).toBe(true);
     }
   });
 });
