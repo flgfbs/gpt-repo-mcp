@@ -178,6 +178,18 @@ export class SecureRuntimeFs {
     await rm(absolute, { recursive: true, force: false });
   }
 
+  async removeFile(relativePath: string): Promise<void> {
+    const safe = validateManagedRelativePath(relativePath);
+    if (safe === ".") throw new TaskRuntimeError("RUNTIME_PATH_UNSAFE", "A runtime file path is required.");
+    const parent = posix.dirname(safe);
+    const parentAbsolute = await this.assertDirectory(parent);
+    const absolute = this.absolutePath(safe);
+    const metadata = await lstat(absolute);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) throw unsafeFile(relativePath);
+    await unlink(absolute);
+    await fsyncDirectory(parentAbsolute);
+  }
+
 }
 
 export function validateManagedRelativePath(value: string): string {

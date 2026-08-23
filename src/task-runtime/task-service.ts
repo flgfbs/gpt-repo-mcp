@@ -25,7 +25,13 @@ import { SecureRuntimeFs } from "./secure-runtime-fs.js";
 import { TaskStateStore } from "./state-store.js";
 
 export interface BaseRepositoryLookup {
-  getBaseRepository(repoId: string): Promise<{ repo_id: string; root: string; worktree_root: string }>;
+  getBaseRepository(repoId: string): Promise<{
+    repo_id: string;
+    root: string;
+    worktree_root: string;
+    require_clean_base?: boolean;
+    max_concurrent_tasks?: number;
+  }>;
 }
 
 export interface TaskWorktreeServiceFactory {
@@ -38,6 +44,7 @@ export type TaskRepositoryRegistration = {
   task_id: string;
   base_repo_id: string;
   authority: "inspect" | "implement" | "ship";
+  branch: string;
 };
 
 export interface TaskRepositoryRegistrar {
@@ -118,7 +125,9 @@ export class TaskRuntimeService {
   async open(rawInput: TaskOpenInput): Promise<TaskOpenResult> {
     const input = TaskOpenInputSchema.parse(rawInput);
     await this.initialize();
-    return this.locks.withLock(`task:${input.task_id}`, async () => this.openLocked(input));
+    return this.locks.withLock(`repo-open:${input.base_repo_id}`, async () => (
+      this.locks.withLock(`task:${input.task_id}`, async () => this.openLocked(input))
+    ));
   }
 
   async status(taskId: string): Promise<TaskStatusResult> {
@@ -182,6 +191,11 @@ export class TaskRuntimeService {
         });
       }
       if (["CLOSED", "CLEANUP_STARTED", "CLEANUP_BLOCKED", "CLEANED"].includes(task.lifecycle)) {
+        if (task.lifecycle === "CLEANED") {
+          assertPersistedExpectedState(task, input.expected_head, input.expected_tree);
+        } else {
+          await this.verifyExpectedTaskState(task, input.expected_head, input.expected_tree);
+        }
         if (operation.phase === "CREATED") operation = await this.advance(operation, "ADMITTED", "NOT_STARTED");
         operation = await this.advance(operation, "LOCAL_MUTATION_COMPLETE", "ABSENT", { result_repo_id: task.repo_id });
         return { repo_id: task.repo_id, task, operation };
@@ -189,6 +203,8 @@ export class TaskRuntimeService {
       if (!["OPEN", "CLOSING", "CLOSED", "CLEANUP_BLOCKED", "RECOVERY_REQUIRED"].includes(task.lifecycle)) {
         throw new TaskRuntimeError("TASK_NOT_OPEN", "Task must be open before it can be closed.", { lifecycle: task.lifecycle });
       }
+      const verified = await this.verifyExpectedTaskState(task, input.expected_head, input.expected_tree);
+      if (verified) task = await this.writeTaskUpdate(task, { worktree_head: verified.head, worktree_tree: verified.tree });
       if (operation.phase === "CREATED") operation = await this.advance(operation, "ADMITTED", "NOT_STARTED");
       if (operation.phase === "ADMITTED") operation = await this.advance(operation, "LOCAL_MUTATION_STARTED", "NOT_STARTED");
       task = await this.writeTaskUpdate(task, {
@@ -227,6 +243,7 @@ export class TaskRuntimeService {
       rejectNoReplay(operation);
       let task = await this.states.requireTask(input.task_id);
       if (task.lifecycle === "CLEANED") {
+        assertPersistedExpectedState(task, input.expected_head, input.expected_tree);
         if (operation.phase === "CREATED") operation = await this.advance(operation, "ADMITTED", "NOT_STARTED");
         operation = await this.advance(operation, "LOCAL_MUTATION_COMPLETE", "ABSENT", { result_repo_id: task.repo_id });
         return cleanupResult(task, operation);
@@ -239,6 +256,7 @@ export class TaskRuntimeService {
       if (!["CLOSED", "CLEANUP_STARTED", "CLEANUP_BLOCKED", "RECOVERY_REQUIRED"].includes(task.lifecycle)) {
         throw new TaskRuntimeError("TASK_NOT_CLOSED", "Task cleanup requires a closed task.", { lifecycle: task.lifecycle });
       }
+      await this.verifyExpectedTaskState(task, input.expected_head, input.expected_tree);
       if (operation.phase === "CREATED") operation = await this.advance(operation, "ADMITTED", "NOT_STARTED");
       const { git, binding } = await this.bindingForTask(task);
       let observation = await git.inspect(binding);
@@ -329,7 +347,27 @@ export class TaskRuntimeService {
       base_tree: input.base_tree,
       branch_slug: input.branch_slug
     });
-    await git.verifyBase(binding);
+    if (base.require_clean_base === true) {
+      await git.verifyBaseClean(binding);
+    } else {
+      await git.verifyBase(binding);
+    }
+
+    if (!existing) {
+      const limit = base.max_concurrent_tasks ?? 8;
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 64) {
+        throw new TaskRuntimeError("TASK_RUNTIME_INVALID", "max_concurrent_tasks must be an integer between 1 and 64.");
+      }
+      const active = (await this.states.listTasks({ limit: 10_000 })).filter((candidate) => (
+        candidate.base_repo_id === input.base_repo_id
+        && !["CLOSED", "CLEANED"].includes(candidate.lifecycle)
+        && candidate.close_disposition === null
+      ));
+      if (active.length >= limit) {
+        operation = await this.block(operation, "ABSENT", "TASK_CAPACITY_REACHED", "Repository task concurrency limit is reached.");
+        throw blocked(operation);
+      }
+    }
 
     let task = existing;
     if (task) {
@@ -420,6 +458,31 @@ export class TaskRuntimeService {
     await this.options.registrar.registerTaskRepository(registrationFor(task));
     if (task.registration_state === "REGISTERED" && task.lifecycle === "OPEN") return task;
     return this.writeTaskUpdate(task, { lifecycle: "OPEN", registration_state: "REGISTERED" });
+  }
+
+  private async verifyExpectedTaskState(
+    task: TaskState,
+    expectedHead?: string,
+    expectedTree?: string
+  ): Promise<WorktreeStatus | undefined> {
+    if (expectedHead === undefined || expectedTree === undefined) return undefined;
+    const { git, binding } = await this.bindingForTask(task);
+    const observation = await git.inspect(binding);
+    if (observation.disposition !== "EXACT") throw uncertainOpen(observation);
+    const status = await git.status(binding);
+    if (status.head !== expectedHead) {
+      throw new TaskRuntimeError("GIT_BINDING_MISMATCH", "Task HEAD changed before the exact lifecycle operation.", {
+        expected_head: expectedHead,
+        observed_head: status.head
+      });
+    }
+    if (status.tree !== expectedTree) {
+      throw new TaskRuntimeError("GIT_BINDING_MISMATCH", "Task tree changed before the exact lifecycle operation.", {
+        expected_tree: expectedTree,
+        observed_tree: status.tree
+      });
+    }
+    return status;
   }
 
   private async bindingForTask(task: TaskState): Promise<{ git: GitTaskWorktreeService; binding: GitTaskBinding }> {
@@ -529,6 +592,18 @@ export function ephemeralRepoId(taskId: string, baseRepoId: string): string {
   return `task-${hashedDiskKey("task-repository", `${taskId}\0${baseRepoId}`).slice(0, 40)}`;
 }
 
+function assertPersistedExpectedState(task: TaskState, expectedHead?: string, expectedTree?: string): void {
+  if (expectedHead === undefined || expectedTree === undefined) return;
+  if (task.worktree_head !== expectedHead || task.worktree_tree !== expectedTree) {
+    throw new TaskRuntimeError("GIT_BINDING_MISMATCH", "Persisted terminal task state does not match the expected HEAD and tree.", {
+      expected_head: expectedHead,
+      expected_tree: expectedTree,
+      persisted_head: task.worktree_head,
+      persisted_tree: task.worktree_tree
+    });
+  }
+}
+
 function assertTaskBinding(task: TaskState, input: TaskOpenInput): void {
   const matches = task.base_repo_id === input.base_repo_id
     && task.base_branch === input.base_branch
@@ -586,7 +661,8 @@ function registrationFor(task: TaskState): TaskRepositoryRegistration {
     root: task.worktree_path,
     task_id: task.task_id,
     base_repo_id: task.base_repo_id,
-    authority: task.authority
+    authority: task.authority,
+    branch: task.server_branch
   };
 }
 

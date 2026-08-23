@@ -5,6 +5,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { RootRegistry } from "./services/root-registry.js";
 import { CodeIntelligenceService } from "./services/code-intelligence-service.js";
 import { createCodebaseMemoryClientFactory } from "./services/codebase-memory-client.js";
+import { createLifecycleRuntimeBundle } from "./services/lifecycle-factory.js";
 import { createMcpServer } from "./register.js";
 import type { RuntimeContext } from "./runtime/context.js";
 import { buildMcpRoutePatterns, isAuthorizedMcpPath, sanitizeMcpRouteForAudit } from "./runtime/mcp-routes.js";
@@ -37,7 +38,12 @@ const codeIntelligence = codeIntelligenceConfig
       codeIntelligenceConfig.index_timeout_ms
     )
   : undefined;
-const context: RuntimeContext = { registry, codeIntelligence };
+const lifecycleBundle = await createLifecycleRuntimeBundle(registry);
+const context: RuntimeContext = {
+  registry,
+  codeIntelligence,
+  lifecycle: lifecycleBundle.lifecycle
+};
 
 const app = express();
 app.use((req, res, next) => {

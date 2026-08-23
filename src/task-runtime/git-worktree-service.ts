@@ -110,6 +110,16 @@ export class GitTaskWorktreeService {
     }
   }
 
+  async verifyBaseClean(binding: GitTaskBinding): Promise<void> {
+    await this.verifyBase(binding);
+    const status = await this.git(binding.owner_root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+    if (status.length > 0) {
+      throw new TaskRuntimeError("GIT_WORKTREE_DIRTY", "Base repository must be clean before opening a task worktree.", {
+        changed_entry_count: status.split("\0").filter(Boolean).length
+      });
+    }
+  }
+
   async inspect(binding: GitTaskBinding): Promise<WorktreeObservation> {
     await this.verifyRoots(binding);
     const entries = parseWorktreePorcelain(await this.git(binding.owner_root, ["worktree", "list", "--porcelain", "-z"]));

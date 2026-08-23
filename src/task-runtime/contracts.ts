@@ -142,14 +142,19 @@ export const TaskOpenInputSchema = z.object({
 export const TaskCloseInputSchema = z.object({
   operation_id: OperationIdSchema,
   task_id: TaskIdSchema,
+  expected_head: GitObjectIdSchema.optional(),
+  expected_tree: GitObjectIdSchema.optional(),
   disposition: TaskCloseDispositionSchema,
   reason: z.string().min(1).max(1_000).optional()
-}).strict();
+}).strict().superRefine(requireExpectedPair);
 
 export const TaskCleanupInputSchema = z.object({
   operation_id: OperationIdSchema,
-  task_id: TaskIdSchema
-}).strict();
+  task_id: TaskIdSchema,
+  expected_head: GitObjectIdSchema.optional(),
+  expected_tree: GitObjectIdSchema.optional(),
+  cleanup_scope: z.enum(["workspace_only", "workspace_and_artifacts"]).default("workspace_only")
+}).strict().superRefine(requireExpectedPair);
 
 export type TaskState = z.infer<typeof TaskStateSchema>;
 export type OperationState = z.infer<typeof OperationStateSchema>;
@@ -158,6 +163,19 @@ export type ObservedEffectState = z.infer<typeof ObservedEffectStateSchema>;
 export type OperationKind = z.infer<typeof OperationKindSchema>;
 export type TaskOpenInput = z.infer<typeof TaskOpenInputSchema>;
 export type TaskCloseInput = z.infer<typeof TaskCloseInputSchema>;
-export type TaskCleanupInput = z.infer<typeof TaskCleanupInputSchema>;
+export type TaskCleanupInput = z.input<typeof TaskCleanupInputSchema>;
 export type TaskAuthority = z.infer<typeof TaskAuthoritySchema>;
 export type TaskCloseDisposition = z.infer<typeof TaskCloseDispositionSchema>;
+
+function requireExpectedPair(
+  value: { expected_head?: string; expected_tree?: string },
+  context: z.RefinementCtx
+): void {
+  if ((value.expected_head === undefined) !== (value.expected_tree === undefined)) {
+    context.addIssue({
+      code: "custom",
+      path: ["expected_head"],
+      message: "expected_head and expected_tree must be provided together."
+    });
+  }
+}

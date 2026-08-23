@@ -71,6 +71,7 @@ const OperationTaskStateShape = {
 
 export const LifecycleTaskBindingSchema = z.object({
   repo_id: LifecycleRepoIdSchema,
+  base_repo_id: LifecycleRepoIdSchema,
   task_id: LifecycleTaskIdSchema,
   authority: z.enum(["inspect", "implement", "ship"]).describe("Maximum authority bound when the task was opened."),
   goal: z.string().min(1).max(4_000).describe("Exact task goal bound at open time."),
@@ -81,7 +82,16 @@ export const LifecycleTaskBindingSchema = z.object({
   task_branch: BranchNameSchema.describe("Exact server-owned task branch derived from the task binding."),
   head_sha: LifecycleGitObjectIdSchema.describe("Current exact task-branch HEAD."),
   tree_sha: LifecycleGitObjectIdSchema.describe("Current exact task-branch tree."),
-  state: z.enum(["open", "closed", "cleaned"]).describe("Current local task lifecycle state."),
+  state: z.enum([
+    "opening",
+    "open",
+    "closing",
+    "closed",
+    "cleanup_started",
+    "cleanup_blocked",
+    "cleaned",
+    "recovery_required"
+  ]).describe("Current durable local task lifecycle state."),
   opened_at: TimestampSchema,
   closed_at: TimestampSchema.optional(),
   cleaned_at: TimestampSchema.optional()

@@ -113,6 +113,39 @@ export class TaskStateStore {
     return this.readDigested(this.operationStatePath(taskId, operationId), OperationStateSchema, "operation", `${taskId}:${operationId}`);
   }
 
+  async listOperationsForTask(taskId: string, options: { limit?: number } = {}): Promise<OperationState[]> {
+    const limit = boundedListLimit(options.limit ?? 1_000);
+    const directory = posix.join("operations", hashedDiskKey("operation-task", taskId));
+    let entries;
+    try {
+      entries = await this.fs.listDirectory(directory, limit);
+    } catch (error) {
+      if (hasCode(error, "ENOENT")) return [];
+      throw error;
+    }
+    const operations: OperationState[] = [];
+    for (const entry of entries) {
+      if (entry.kind !== "file" || !/^[a-f0-9]{64}\.json$/.test(entry.name)) throw tampered("operation");
+      const raw = await this.fs.readFile(posix.join(directory, entry.name), MAX_STATE_BYTES);
+      let operation: OperationState;
+      try {
+        operation = OperationStateSchema.parse(JSON.parse(raw.toString("utf8")));
+      } catch {
+        throw tampered("operation");
+      }
+      if (
+        operation.task_id !== taskId
+        || `${hashedDiskKey("operation", operation.operation_id)}.json` !== entry.name
+        || digestRecord(operation as OperationState & Record<string, unknown>, "state_sha256") !== operation.state_sha256
+      ) throw tampered("operation");
+      operations.push(operation);
+    }
+    return operations.sort((left, right) => (
+      left.updated_at.localeCompare(right.updated_at)
+      || left.operation_id.localeCompare(right.operation_id)
+    ));
+  }
+
   async writeOperation(value: Omit<OperationState, "state_sha256"> & { state_sha256?: string }): Promise<OperationState> {
     const unsigned = omitUndefined(value as Record<string, unknown>);
     delete unsigned.state_sha256;

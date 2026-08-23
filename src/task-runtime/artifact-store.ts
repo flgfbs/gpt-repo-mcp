@@ -94,8 +94,10 @@ export class TaskArtifactStore {
     const taskId = TaskIdSchema.parse(input.task_id);
     return this.locks.withLock(`task:${taskId}`, async () => {
       const task = await this.states.requireTask(taskId);
-      if (task.lifecycle === "CLEANED") throw new TaskRuntimeError("TASK_NOT_OPEN", "Cleaned tasks cannot accept new artifacts.");
       const kind = TaskArtifactKindSchema.parse(input.kind);
+      if (task.lifecycle === "CLEANED" && kind !== "operation_receipt") {
+        throw new TaskRuntimeError("TASK_NOT_OPEN", "Cleaned tasks can accept only retained operation receipts.");
+      }
       const mediaType = TaskArtifactMediaTypeSchema.parse(input.media_type);
       const logicalPath = validateArtifactLogicalPath(input.logical_path);
       const content = Buffer.isBuffer(input.content) ? Buffer.from(input.content) : Buffer.from(input.content, "utf8");
@@ -215,6 +217,22 @@ export class TaskArtifactStore {
     });
   }
 
+  async removeTaskArtifacts(taskIdInput: string): Promise<number> {
+    const taskId = TaskIdSchema.parse(taskIdInput);
+    return this.locks.withLock(`artifacts:${taskId}`, async () => {
+      const task = await this.states.requireTask(taskId);
+      if (task.lifecycle !== "CLEANED") {
+        throw new TaskRuntimeError("TASK_NOT_CLOSED", "Task artifacts can be removed only after safe workspace cleanup completes.");
+      }
+      const artifacts = await this.listMetadataUnlocked(taskId, 10_000);
+      const removable = artifacts.filter((artifact) => artifact.kind !== "operation_receipt");
+      for (const artifact of removable) {
+        await this.states.fs.removeFile(metadataPath(taskId, artifact.artifact_id));
+      }
+      return removable.length;
+    });
+  }
+
   private async readMetadata(taskId: string, artifactId: string): Promise<TaskArtifactMetadata> {
     try {
       const metadata = await this.readMetadataAtPath(taskId, metadataPath(taskId, artifactId));
@@ -227,6 +245,25 @@ export class TaskArtifactStore {
       if (error instanceof SyntaxError || error instanceof ZodError) throw invalidArtifact();
       throw error;
     }
+  }
+
+  private async listMetadataUnlocked(taskId: string, limit: number): Promise<TaskArtifactMetadata[]> {
+    const directory = artifactDirectory(taskId);
+    let entries;
+    try {
+      entries = await this.states.fs.listDirectory(directory, limit);
+    } catch (error) {
+      if (hasCode(error, "ENOENT")) return [];
+      throw error;
+    }
+    const metadata: TaskArtifactMetadata[] = [];
+    for (const entry of entries) {
+      if (entry.kind !== "file" || !/^[a-f0-9]{64}\.json$/.test(entry.name)) throw invalidArtifact();
+      const artifact = await this.readMetadataAtPath(taskId, posix.join(directory, entry.name));
+      if (`${hashedDiskKey("artifact", artifact.artifact_id)}.json` !== entry.name) throw invalidArtifact();
+      metadata.push(artifact);
+    }
+    return metadata.sort((left, right) => left.created_at.localeCompare(right.created_at) || left.artifact_id.localeCompare(right.artifact_id));
   }
 
   private async readMetadataAtPath(taskId: string, relativePath: string): Promise<TaskArtifactMetadata> {
