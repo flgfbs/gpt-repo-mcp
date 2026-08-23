@@ -52,6 +52,7 @@ describe("package and public documentation", () => {
     expect(pkg.scripts?.connect).toBeUndefined();
     expect(pkg.scripts?.["connect:cloudflare"]).toBeUndefined();
     expect(pkg.scripts?.["connect:secure"]).toBeUndefined();
+    expect(pkg.scripts?.["security:export"]).toBe("node scripts/export-security-candidate.mjs");
     expect(pkg.scripts?.["security:scan"]).toBe("node scripts/oss-security-scan.mjs");
     expect(pkg.scripts?.add).toBe("node dist/cli/chat-pro-repo.js repo add");
     expect(pkg.scripts?.remove).toBe("node dist/cli/chat-pro-repo.js repo remove");

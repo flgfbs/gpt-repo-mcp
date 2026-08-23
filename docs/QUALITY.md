@@ -58,10 +58,12 @@ npm run typecheck
 npm test
 npm run lint
 npm run check:public
-npm run security:scan
 npm run verify:dist
 git diff --check
 ```
+
+Run the content-bound security export and scan from
+[Dependency Security](DEPENDENCY_SECURITY.md) after the candidate is clean.
 
 Tool-surface changes require order/count, contract identity, strict-schema,
 annotation, registration, and MCP discovery tests. Lifecycle service changes

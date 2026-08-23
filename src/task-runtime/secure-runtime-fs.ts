@@ -16,6 +16,8 @@ import { TaskRuntimeError } from "./errors.js";
 
 const DIRECTORY_MODE = 0o700;
 const FILE_MODE = 0o600;
+const TRANSIENT_LINK_RECHECKS = 10;
+const TRANSIENT_LINK_RECHECK_DELAY_MS = 1;
 
 export type ManagedDirectoryEntry = {
   name: string;
@@ -120,25 +122,37 @@ export class SecureRuntimeFs {
     await this.assertDirectory(parent);
     const absolute = this.absolutePath(safe);
     const flags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
-    let handle;
-    try {
-      handle = await open(absolute, flags);
-      const metadata = await handle.stat();
-      if (!metadata.isFile() || metadata.nlink !== 1 || (metadata.mode & 0o077) !== 0) throw unsafeFile(relativePath);
-      if (metadata.size > maxBytes) {
-        throw new TaskRuntimeError("RUNTIME_SIZE_LIMIT", "Runtime file exceeds the bounded read limit.", {
-          path: relativePath,
-          max_bytes: maxBytes,
-          size: metadata.size
-        });
+    for (let attempt = 0; attempt <= TRANSIENT_LINK_RECHECKS; attempt += 1) {
+      let handle;
+      let retryLinkCount = false;
+      try {
+        handle = await open(absolute, flags);
+        const metadata = await handle.stat();
+        if (!metadata.isFile() || (metadata.mode & 0o077) !== 0) throw unsafeFile(relativePath);
+        if (metadata.nlink !== 1) {
+          if (attempt === TRANSIENT_LINK_RECHECKS) throw unsafeFile(relativePath);
+          retryLinkCount = true;
+        } else {
+          if (metadata.size > maxBytes) {
+            throw new TaskRuntimeError("RUNTIME_SIZE_LIMIT", "Runtime file exceeds the bounded read limit.", {
+              path: relativePath,
+              max_bytes: maxBytes,
+              size: metadata.size
+            });
+          }
+          return await handle.readFile();
+        }
+      } catch (error) {
+        if (hasCode(error, "ELOOP")) throw unsafeFile(relativePath);
+        throw error;
+      } finally {
+        await handle?.close();
       }
-      return await handle.readFile();
-    } catch (error) {
-      if (hasCode(error, "ELOOP")) throw unsafeFile(relativePath);
-      throw error;
-    } finally {
-      await handle?.close();
+      if (retryLinkCount) {
+        await new Promise<void>((resolve) => setTimeout(resolve, TRANSIENT_LINK_RECHECK_DELAY_MS));
+      }
     }
+    throw unsafeFile(relativePath);
   }
 
   async listDirectory(relativePath: string, maxEntries: number): Promise<ManagedDirectoryEntry[]> {

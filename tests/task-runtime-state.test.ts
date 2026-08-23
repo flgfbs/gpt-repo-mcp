@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -57,6 +57,14 @@ describe("durable task runtime state", () => {
     await symlink(outside, statePath);
     expect((await lstat(statePath)).isSymbolicLink()).toBe(true);
     await expect(store.readTask(task.task_id)).rejects.toBeInstanceOf(TaskRuntimeError);
+  });
+
+  test("rejects a persistent hard link substituted for private state", async () => {
+    const { root, store } = await fixture();
+    const task = await store.writeTask(taskInput("task-hard-link"));
+    const statePath = store.fs.absolutePath(store.taskStatePath(task.task_id));
+    await link(statePath, join(root, "hard-link-alias.json"));
+    await expect(store.readTask(task.task_id)).rejects.toMatchObject({ code: "RUNTIME_FILE_UNSAFE" });
   });
 
   test("rejects a symlink substituted for a managed runtime directory", async () => {

@@ -113,7 +113,11 @@ async function startServer(extraEnv: Record<string, string> = {}) {
   const fixtureRoot = await mkdtemp(join(tmpdir(), "gpt-repo-network-boundary-"));
   const configPath = join(fixtureRoot, "config.json");
   const port = await freePort();
-  await writeFile(configPath, JSON.stringify({ repos: [], limits: {} }), "utf8");
+  await writeFile(configPath, JSON.stringify({
+    repos: [],
+    limits: {},
+    runtime_root: join(fixtureRoot, "runtime")
+  }), "utf8");
   let output = "";
   const child = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], {
     cwd: process.cwd(),

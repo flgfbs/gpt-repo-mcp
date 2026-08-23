@@ -32,6 +32,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "check:public": "node scripts/check-public.mjs",
+    "security:export": "node scripts/export-security-candidate.mjs",
     "security:scan": "node scripts/oss-security-scan.mjs",
     "test": "vitest run",
     "verify:dist": "npm run build && node scripts/smoke-dist-server.mjs"

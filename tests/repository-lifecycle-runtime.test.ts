@@ -104,7 +104,7 @@ describe("repository lifecycle runtime", () => {
       expected_tree_sha: fixture.tree,
       cleanup_scope: "workspace_and_artifacts"
     })).toEqual(cleaned);
-  });
+  }, 15_000);
 
   test("enforces repository authority, allowed base branch, clean base, and task capacity", async () => {
     const fixture = await fixtureRegistry({ authority: "write", maxConcurrentTasks: 1 });

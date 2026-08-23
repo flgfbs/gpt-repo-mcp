@@ -165,9 +165,11 @@ npm run typecheck
 npm test
 npm run lint
 npm run check:public
-npm run security:scan
 npm run verify:dist
 ```
+
+For release preparation, also run the content-bound export and security scan in
+[Dependency Security](DEPENDENCY_SECURITY.md) from a clean exact HEAD.
 
 Do not use `npm audit fix --force`. See
 [Dependency Security](DEPENDENCY_SECURITY.md) and [Migration](MIGRATION.md).

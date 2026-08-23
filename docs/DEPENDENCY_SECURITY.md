@@ -36,10 +36,23 @@ npm run typecheck
 npm test
 npm run lint
 npm run check:public
-npm run security:scan
 npm run verify:dist
 git diff --check
 ```
+
+The security scan is content-bound. From a clean exact-HEAD checkout, write the
+derived report outside the repository, then pass the candidate, report,
+existing public-history checkout, and the checksum-verified gitleaks executable
+explicitly:
+
+```bash
+npm run security:export -- --output /absolute/private/tmp/candidate-export.json
+npm run security:scan -- --candidate "$PWD" --export-report /absolute/private/tmp/candidate-export.json --public-repo /absolute/path/to/public-history --gitleaks-bin /absolute/path/to/pinned/gitleaks
+```
+
+The gitleaks version and archive and executable SHA-256 values are pinned in
+`security/oss-security-policy.json`. The export refuses a dirty worktree,
+symlinked tracked file, in-repository report path, or existing report target.
 
 Lifecycle implementation tests must use deterministic GitHub and push fakes;
 dependency verification must not contact a live repository or mutate GitHub.

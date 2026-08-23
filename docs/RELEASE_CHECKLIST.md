@@ -27,12 +27,15 @@ npm run typecheck
 npm test
 npm run lint
 npm run check:public
-npm run security:scan
 npm run verify:dist
 npm audit --omit=dev
 npm pack --dry-run
 git diff --check
 ```
+
+Run the content-bound export and security scan documented in
+[Dependency Security](DEPENDENCY_SECURITY.md) against the exact clean candidate
+and existing public history before publication.
 
 Lifecycle tests must use deterministic fakes. Do not contact live GitHub, push,
 create a pull request, retry CI, resolve a review, or merge as an implementation
