@@ -1,6 +1,10 @@
 import type { ToolHandler } from "./handler-support.js";
 import {
+  idempotentWriteAnnotations,
   nonDestructiveMutationAnnotations,
+  openWorldMutationAnnotations,
+  openWorldNonDestructiveMutationAnnotations,
+  openWorldReadOnlyAnnotations,
   readOnlyAnnotations,
   safeMutationAnnotations,
   writeAnnotations
@@ -14,15 +18,20 @@ export type ToolPackage =
   | "patchsets"
   | "advanced_operations"
   | "diagnostics_and_discovery"
-  | "code_index";
+  | "code_index"
+  | "lifecycle";
 
 export type ToolTier = "default" | "specialist";
-export type ToolCapability = "code_intelligence";
+export type ToolCapability = "code_intelligence" | "lifecycle";
 export type ToolAnnotationSet =
   | typeof readOnlyAnnotations
   | typeof writeAnnotations
   | typeof safeMutationAnnotations
-  | typeof nonDestructiveMutationAnnotations;
+  | typeof nonDestructiveMutationAnnotations
+  | typeof idempotentWriteAnnotations
+  | typeof openWorldReadOnlyAnnotations
+  | typeof openWorldMutationAnnotations
+  | typeof openWorldNonDestructiveMutationAnnotations;
 
 export type ToolDefinition = {
   name: ToolName;

@@ -21,6 +21,42 @@ import { GitDiffInputSchema, GitDiffResultSchema, GitStatusInputSchema, GitStatu
 import { GitReviewInputSchema, GitReviewResultSchema } from "../contracts/git-review.contract.js";
 import { HandoffInputSchema, HandoffResultSchema } from "../contracts/handoff.contract.js";
 import { IntegrationReviewWriteInputSchema, IntegrationReviewWriteResultSchema } from "../contracts/integration-review.contract.js";
+import {
+  RepoArtifactReadInputSchema,
+  RepoArtifactReadResultSchema,
+  RepoCiStatusInputSchema,
+  RepoCiStatusResultSchema,
+  RepoMergeGatePrepareInputSchema,
+  RepoMergeGatePrepareResultSchema,
+  RepoPostMergeReadbackInputSchema,
+  RepoPostMergeReadbackResultSchema,
+  RepoPrCreateOrUpdateInputSchema,
+  RepoPrCreateOrUpdateResultSchema,
+  RepoPrReviewThreadsInputSchema,
+  RepoPrReviewThreadsResultSchema,
+  RepoPrStatusInputSchema,
+  RepoPrStatusResultSchema,
+  RepoRemoteStatusInputSchema,
+  RepoRemoteStatusResultSchema,
+  RepoTaskCleanupInputSchema,
+  RepoTaskCleanupResultSchema,
+  RepoTaskCloseInputSchema,
+  RepoTaskCloseResultSchema,
+  RepoTaskOpenInputSchema,
+  RepoTaskOpenResultSchema,
+  RepoTaskStatusInputSchema,
+  RepoTaskStatusResultSchema,
+  RepoWriteCiRetryFailedInputSchema,
+  RepoWriteCiRetryFailedResultSchema,
+  RepoWriteMergeInputSchema,
+  RepoWriteMergeResultSchema,
+  RepoWritePrReplyInputSchema,
+  RepoWritePrReplyResultSchema,
+  RepoWritePrResolveThreadInputSchema,
+  RepoWritePrResolveThreadResultSchema,
+  RepoWritePushInputSchema,
+  RepoWritePushResultSchema
+} from "../contracts/lifecycle.contract.js";
 import { LastWriteInputSchema, LastWriteResultSchema } from "../contracts/operation-receipt.contract.js";
 import { OperationLedgerInputSchema, OperationLedgerResultSchema } from "../contracts/operation-ledger.contract.js";
 import { PatchsetApplyInputSchema, PatchsetApplyResultSchema, PatchsetPrepareInputSchema, PatchsetPrepareResultSchema, PatchsetReviewInputSchema, PatchsetReviewResultSchema, PatchsetRollbackInputSchema, PatchsetRollbackResultSchema } from "../contracts/patchset.contract.js";
@@ -226,6 +262,74 @@ export const toolContracts = {
   repo_write_handoff: {
     input: HandoffInputSchema,
     output: HandoffResultSchema
+  },
+  repo_task_open: {
+    input: RepoTaskOpenInputSchema,
+    output: RepoTaskOpenResultSchema
+  },
+  repo_task_status: {
+    input: RepoTaskStatusInputSchema,
+    output: RepoTaskStatusResultSchema
+  },
+  repo_task_close: {
+    input: RepoTaskCloseInputSchema,
+    output: RepoTaskCloseResultSchema
+  },
+  repo_task_cleanup: {
+    input: RepoTaskCleanupInputSchema,
+    output: RepoTaskCleanupResultSchema
+  },
+  repo_artifact_read: {
+    input: RepoArtifactReadInputSchema,
+    output: RepoArtifactReadResultSchema
+  },
+  repo_remote_status: {
+    input: RepoRemoteStatusInputSchema,
+    output: RepoRemoteStatusResultSchema
+  },
+  repo_write_push: {
+    input: RepoWritePushInputSchema,
+    output: RepoWritePushResultSchema
+  },
+  repo_pr_create_or_update: {
+    input: RepoPrCreateOrUpdateInputSchema,
+    output: RepoPrCreateOrUpdateResultSchema
+  },
+  repo_pr_status: {
+    input: RepoPrStatusInputSchema,
+    output: RepoPrStatusResultSchema
+  },
+  repo_pr_review_threads: {
+    input: RepoPrReviewThreadsInputSchema,
+    output: RepoPrReviewThreadsResultSchema
+  },
+  repo_write_pr_reply: {
+    input: RepoWritePrReplyInputSchema,
+    output: RepoWritePrReplyResultSchema
+  },
+  repo_write_pr_resolve_thread: {
+    input: RepoWritePrResolveThreadInputSchema,
+    output: RepoWritePrResolveThreadResultSchema
+  },
+  repo_ci_status: {
+    input: RepoCiStatusInputSchema,
+    output: RepoCiStatusResultSchema
+  },
+  repo_write_ci_retry_failed: {
+    input: RepoWriteCiRetryFailedInputSchema,
+    output: RepoWriteCiRetryFailedResultSchema
+  },
+  repo_merge_gate_prepare: {
+    input: RepoMergeGatePrepareInputSchema,
+    output: RepoMergeGatePrepareResultSchema
+  },
+  repo_write_merge: {
+    input: RepoWriteMergeInputSchema,
+    output: RepoWriteMergeResultSchema
+  },
+  repo_post_merge_readback: {
+    input: RepoPostMergeReadbackInputSchema,
+    output: RepoPostMergeReadbackResultSchema
   }
 } as const satisfies Record<string, ToolContract>;
 

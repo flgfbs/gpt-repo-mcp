@@ -4,6 +4,7 @@ import { codeIndexTools } from "./packages/code-index.js";
 import { delegationTools } from "./packages/delegation.js";
 import { developerTools } from "./packages/developer.js";
 import { diagnosticAndDiscoveryTools } from "./packages/diagnostics-and-discovery.js";
+import { lifecycleTools } from "./packages/lifecycle.js";
 import { patchsetTools } from "./packages/patchsets.js";
 import type { ToolDefinition, ToolPackage } from "./tool-definition.js";
 
@@ -53,7 +54,24 @@ export const CANONICAL_TOOL_ORDER = [
   "repo_current_work_session",
   "repo_write_file",
   "repo_write_changes",
-  "repo_write_handoff"
+  "repo_write_handoff",
+  "repo_task_open",
+  "repo_task_status",
+  "repo_task_close",
+  "repo_task_cleanup",
+  "repo_artifact_read",
+  "repo_remote_status",
+  "repo_write_push",
+  "repo_pr_create_or_update",
+  "repo_pr_status",
+  "repo_pr_review_threads",
+  "repo_write_pr_reply",
+  "repo_write_pr_resolve_thread",
+  "repo_ci_status",
+  "repo_write_ci_retry_failed",
+  "repo_merge_gate_prepare",
+  "repo_write_merge",
+  "repo_post_merge_readback"
 ] as const satisfies readonly ToolName[];
 
 const packageDefinitions = [
@@ -62,7 +80,8 @@ const packageDefinitions = [
   ...patchsetTools,
   ...advancedOperationTools,
   ...diagnosticAndDiscoveryTools,
-  ...codeIndexTools
+  ...codeIndexTools,
+  ...lifecycleTools
 ];
 
 const definitionsByName = new Map<ToolName, ToolDefinition>();

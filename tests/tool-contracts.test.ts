@@ -115,7 +115,24 @@ describe("tool catalog contracts", () => {
       "repo_current_work_session",
       "repo_write_file",
       "repo_write_changes",
-      "repo_write_handoff"
+      "repo_write_handoff",
+      "repo_task_open",
+      "repo_task_status",
+      "repo_task_close",
+      "repo_task_cleanup",
+      "repo_artifact_read",
+      "repo_remote_status",
+      "repo_write_push",
+      "repo_pr_create_or_update",
+      "repo_pr_status",
+      "repo_pr_review_threads",
+      "repo_write_pr_reply",
+      "repo_write_pr_resolve_thread",
+      "repo_ci_status",
+      "repo_write_ci_retry_failed",
+      "repo_merge_gate_prepare",
+      "repo_write_merge",
+      "repo_post_merge_readback"
     ]);
 
     for (const tool of toolCatalog) {
@@ -123,7 +140,9 @@ describe("tool catalog contracts", () => {
       expect(tool.description.startsWith("Use this when")).toBe(true);
       expect(tool.inputSchema).toBeDefined();
       expect(tool.outputSchema).toBeDefined();
-      if (isMutatingToolName(tool.name)) {
+      if (tool.package === "lifecycle") {
+        expect(tool.annotations.idempotentHint).toBe(true);
+      } else if (isMutatingToolName(tool.name)) {
         expect(tool.annotations).toEqual(
           tool.name === "repo_code_index"
             ? safeMutationAnnotations
@@ -144,10 +163,10 @@ describe("tool catalog contracts", () => {
     const descriptionPayloadBytes = Buffer.byteLength(toolCatalog.map((tool) => tool.description).join(" "), "utf8");
 
     expect(instructionSourceBytes).toBeLessThan(6_000);
-    expect(descriptionSourceBytes).toBeLessThan(8_500);
-    expect(descriptionPayloadBytes).toBeLessThan(7_500);
+    expect(descriptionSourceBytes).toBeLessThan(11_000);
+    expect(descriptionPayloadBytes).toBeLessThan(9_500);
     expect(instructionSourceBytes).toBeLessThan(Math.floor(15_644 * 0.4));
-    expect(descriptionSourceBytes).toBeLessThan(Math.floor(16_819 * 0.5));
+    expect(descriptionSourceBytes).toBeLessThan(Math.floor(16_819 * 0.7));
 
     const description = (name: string) => toolCatalog.find((tool) => tool.name === name)?.description ?? "";
     expect(description("repo_context_map")).toContain("file-level impact");
@@ -184,7 +203,16 @@ describe("tool catalog contracts", () => {
       "repo_update_work_session",
       "repo_write_file",
       "repo_write_changes",
-      "repo_write_handoff"
+      "repo_write_handoff",
+      "repo_task_open",
+      "repo_task_close",
+      "repo_task_cleanup",
+      "repo_write_push",
+      "repo_pr_create_or_update",
+      "repo_write_pr_reply",
+      "repo_write_pr_resolve_thread",
+      "repo_write_ci_retry_failed",
+      "repo_write_merge"
     ]);
     expect(MUTATING_TOOL_NAMES).toEqual(toolCatalog
       .filter((tool) => tool.annotations.readOnlyHint === false)
@@ -327,7 +355,7 @@ describe("tool catalog contracts", () => {
   test("internal registry composes exact packages without changing the canonical surface", () => {
     expect(toolRegistry).toBe(toolCatalog);
     expect(toolRegistry.map((tool) => tool.name)).toEqual(CANONICAL_TOOL_ORDER);
-    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(46);
+    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(63);
     expect([...CANONICAL_TOOL_ORDER].sort()).toEqual(Object.keys(toolContracts).sort());
 
     expect(toolsForPackage("developer").map((tool) => tool.name)).toEqual([
@@ -361,10 +389,17 @@ describe("tool catalog contracts", () => {
     expect(toolsForPackage("advanced_operations")).toHaveLength(6);
     expect(toolsForPackage("diagnostics_and_discovery")).toHaveLength(4);
     expect(toolsForPackage("code_index")).toHaveLength(1);
+    expect(toolsForPackage("lifecycle")).toHaveLength(17);
 
     for (const tool of toolRegistry) {
       expect(tool.tier).toBe(tool.package === "developer" ? "default" : "specialist");
-      expect(tool.requiredCapabilities).toEqual(tool.name === "repo_code_index" ? ["code_intelligence"] : []);
+      expect(tool.requiredCapabilities).toEqual(
+        tool.name === "repo_code_index"
+          ? ["code_intelligence"]
+          : tool.package === "lifecycle"
+            ? ["lifecycle"]
+            : []
+      );
     }
   });
 
@@ -1147,8 +1182,8 @@ describe("tool catalog contracts", () => {
     ]);
   });
 
-  test("exposed tool surface shape stays stable", () => {
-    expect(toolCatalog.map((tool) => ({
+  test("inherited exposed tool surface shape stays stable", () => {
+    expect(toolCatalog.slice(0, 46).map((tool) => ({
       name: tool.name,
       title: tool.title,
       description: tool.description,
@@ -2593,7 +2628,9 @@ describe("tool catalog contracts", () => {
     expect(Object.keys(handlerExports).sort()).toEqual([
       "agentRunsHandler",
       "applyPatchsetHandler",
+      "artifactReadHandler",
       "changePlanHandler",
+      "ciStatusHandler",
       "cleanupPathsHandler",
       "codeIndexHandler",
       "codexReviewHandler",
@@ -2608,12 +2645,18 @@ describe("tool catalog contracts", () => {
       "gitStatusHandler",
       "lastWriteHandler",
       "listRootsHandler",
+      "mergeGatePrepareHandler",
       "operationLedgerHandler",
       "policyExplainHandler",
+      "postMergeReadbackHandler",
+      "prCreateOrUpdateHandler",
+      "prReviewThreadsHandler",
+      "prStatusHandler",
       "prepareCodexTaskHandler",
       "preparePatchsetHandler",
       "projectBriefHandler",
       "readManyHandler",
+      "remoteStatusHandler",
       "reviewPatchsetHandler",
       "rollbackPatchsetHandler",
       "searchHandler",
@@ -2621,18 +2664,27 @@ describe("tool catalog contracts", () => {
       "shipReviewHandler",
       "startWorkSessionHandler",
       "symbolContextHandler",
+      "taskCleanupHandler",
+      "taskCloseHandler",
       "taskInventoryHandler",
+      "taskOpenHandler",
+      "taskStatusHandler",
       "treeHandler",
       "updateWorkSessionHandler",
       "validateHandler",
       "writeAgentReplyHandler",
       "writeChangesHandler",
+      "writeCiRetryFailedHandler",
       "writeCodexReviewHandler",
       "writeCodexTaskHandler",
       "writeCommitHandler",
       "writeFileHandler",
       "writeHandoffHandler",
       "writeIntegrationReviewHandler",
+      "writeMergeHandler",
+      "writePrReplyHandler",
+      "writePrResolveThreadHandler",
+      "writePushHandler",
       "writeRecoverHandler",
       "writeStageCommitHandler",
       "writeStageHandler",
