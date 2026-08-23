@@ -305,7 +305,8 @@ export const RepoPrStatusResultSchema = z.object({
 const ReviewCommentSchema = z.object({
   comment_id: GitHubNodeIdSchema,
   author: z.string().min(1).max(200),
-  body: z.string().max(65_536),
+  body_excerpt: z.string().max(4_096).describe("Bounded comment excerpt; the complete snapshot is available through the result artifact."),
+  body_truncated: z.boolean(),
   created_at: TimestampSchema,
   updated_at: TimestampSchema,
   url: z.string().url()
@@ -415,6 +416,13 @@ export const RepoCiStatusResultSchema = z.object({
   ci_status_id: CiStatusIdSchema,
   head_sha: LifecycleGitObjectIdSchema,
   overall: z.enum(["pending", "success", "failure", "no_runs"]),
+  required_checks: z.array(z.object({
+    key: z.string().min(1).max(500),
+    kind: z.enum(["check_run", "commit_status"]),
+    status: z.enum(["missing", "pending", "success", "failure"]),
+    source_id: z.string().regex(/^[1-9][0-9]{0,19}$/).optional(),
+    conclusion: z.string().min(1).max(100).optional()
+  }).strict()).max(100),
   runs: z.array(CiRunSchema).max(100),
   observed_at: TimestampSchema,
   artifact: LifecycleArtifactRefSchema,
@@ -447,8 +455,15 @@ export const LifecycleMergeManifestSchema = z.object({
   manifest_sha256: LifecycleSha256Schema,
   repo_id: LifecycleRepoIdSchema,
   task_id: LifecycleTaskIdSchema,
+  repository_id: GitHubNodeIdSchema,
+  repository_name_with_owner: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+  pull_request_id: GitHubNodeIdSchema,
   pull_request_number: PullRequestNumberSchema,
+  pull_request_state: z.literal("open"),
+  pull_request_draft: z.literal(true),
+  pull_request_mergeable: z.literal("mergeable"),
   base_branch: BranchNameSchema,
+  base_sha: LifecycleGitObjectIdSchema,
   task_branch: BranchNameSchema,
   head_sha: LifecycleGitObjectIdSchema,
   tree_sha: LifecycleGitObjectIdSchema,
@@ -456,15 +471,26 @@ export const LifecycleMergeManifestSchema = z.object({
   remote_branch_retained: z.literal(true).describe("The merge gate never authorizes remote task-branch deletion."),
   required_run_ids: z.array(GitHubRunIdSchema).max(100),
   unresolved_thread_ids: z.array(GitHubNodeIdSchema).max(500),
+  ci_status_id: CiStatusIdSchema,
+  ci_evidence_sha256: LifecycleSha256Schema,
+  validation_id: identifier("Exact validation evidence id", 200),
+  validation_sha256: LifecycleSha256Schema,
+  independent_review_id: identifier("Exact independent-review evidence id", 200),
+  independent_review_sha256: LifecycleSha256Schema,
+  independent_review_required: z.boolean(),
+  material_finding_count: z.literal(0),
+  unknown_external_effect_count: z.literal(0),
+  post_merge_plan: z.object({
+    readback_required: z.literal(true),
+    retain_task_branch: z.literal(true),
+    verify_base_contains_head: z.literal(true)
+  }).strict(),
   prepared_at: TimestampSchema,
   expires_at: TimestampSchema
 }).strict().describe("Exact read-only merge manifest eligible for owner CLI approval.");
 
-export const RepoMergeGatePrepareInputSchema = z.object({
-  ...OperationTaskStateShape,
-  merge_method: MergeMethodSchema,
-  remote_branch_retained: z.literal(true).describe("Remote task-branch retention is mandatory and cannot be overridden by the caller.")
-}).strict();
+export const RepoMergeGatePrepareInputSchema = z.object(OperationTaskStateShape).strict()
+  .describe("Prepare a gate using only the owner-registered merge method and mandatory remote branch retention policy.");
 
 const MergeGateBlockerSchema = z.object({
   code: z.string().min(1).max(120),
@@ -480,6 +506,7 @@ export const RepoMergeGatePrepareResultSchema = z.object({
   blockers: z.array(MergeGateBlockerSchema).max(100),
   manifest: LifecycleMergeManifestSchema.nullable(),
   approval_surface: z.literal("owner_cli"),
+  approval_command: z.string().regex(/^chat-pro-repo approve-merge --gate-id merge_manifest_[A-Za-z0-9_-]{16,160}$/).nullable(),
   artifact: LifecycleArtifactRefSchema,
   warnings: WarningsSchema
 }).strict().superRefine((value, context) => {
@@ -488,6 +515,9 @@ export const RepoMergeGatePrepareResultSchema = z.object({
   }
   if (value.eligible === (value.blockers.length > 0)) {
     context.addIssue({ code: "custom", path: ["blockers"], message: "Eligible merge preparation cannot contain blockers and blocked preparation must contain at least one." });
+  }
+  if (value.eligible !== (value.approval_command !== null)) {
+    context.addIssue({ code: "custom", path: ["approval_command"], message: "Eligible merge preparation must return the exact owner CLI command and blocked preparation must not." });
   }
 });
 

@@ -128,7 +128,7 @@ const validInputs = {
   repo_write_pr_resolve_thread: { ...taskState, thread_id: "PRRT_1234567890", expected_thread_updated_at: "2026-08-23T00:00:00.000Z" },
   repo_ci_status: taskState,
   repo_write_ci_retry_failed: { ...taskState, ci_status_id: "ci_status_1234567890abcdef", failed_run_ids: ["123456789"] },
-  repo_merge_gate_prepare: { ...taskState, merge_method: "squash", remote_branch_retained: true },
+  repo_merge_gate_prepare: taskState,
   repo_write_merge: {
     ...taskState,
     manifest_id: "merge_manifest_1234567890abcdef",
@@ -250,6 +250,11 @@ describe("lifecycle tool contracts", () => {
       ...validInputs.repo_merge_gate_prepare,
       remote_branch_retained: false
     }).success).toBe(false);
+    expect(RepoMergeGatePrepareInputSchema.safeParse({
+      ...validInputs.repo_merge_gate_prepare,
+      merge_method: "squash"
+    }).success).toBe(false);
+    expect("merge_method" in RepoMergeGatePrepareInputSchema.shape).toBe(false);
     expect("delete_task_branch" in RepoMergeGatePrepareInputSchema.shape).toBe(false);
   });
 
@@ -264,6 +269,7 @@ describe("lifecycle tool contracts", () => {
       blockers: [{ code: "CI_PENDING", message: "Required checks are pending." }],
       manifest: null,
       approval_surface: "owner_cli",
+      approval_command: null,
       artifact: {
         artifact_id: "artifact_1234567890abcdef",
         kind: "merge_gate_evidence",
