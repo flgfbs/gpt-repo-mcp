@@ -1,239 +1,170 @@
-# GPT Repo MCP
+# Chat Pro Repository MCP
 
-**Let ChatGPT work from your repo — safely.**
+Chat Pro Repository MCP is a local-first Model Context Protocol server for
+working with explicitly registered repositories. It gives ChatGPT 63 focused
+tools for repository understanding, bounded edits, validation, local Git,
+task-isolated worktrees, GitHub pull requests, CI, review, and exact-head
+owner-approved merges.
 
-[![CI](https://github.com/CAHN91/gpt-repo-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/CAHN91/gpt-repo-mcp/actions/workflows/ci.yml)
-![Node.js >=20](https://img.shields.io/badge/Node.js-%3E%3D20-339933)
-[![License: MIT](https://img.shields.io/badge/License-MIT-111111)](LICENSE)
-![Writes opt-in](https://img.shields.io/badge/Writes-opt--in-157f53)
+The server is not a shell and is not a general GitHub client. Repository roots,
+task authority, paths, expected Git state, operation identities, and merge
+approval are enforced by the server even when ChatGPT is configured to
+**Allow all actions**.
 
-GPT Repo MCP connects ChatGPT to approved local repositories through a focused,
-policy-controlled toolset. ChatGPT can understand a codebase, edit multiple
-files, run approved checks, diagnose failures, review the real Git diff, and
-prepare a local commit — while you stay in the normal ChatGPT conversation.
+## Quick Start
 
-Your files remain in the workspace you approved. You choose whether each
-repository is read-only, writable, or ready for reviewed local commit work.
+Requirements:
 
-> GPT Repo MCP is a tool-only MCP server. It does not add a custom interface to
-> ChatGPT and is not affiliated with OpenAI, ChatGPT, Anthropic, or the Model
-> Context Protocol maintainers.
+- Node.js 20 or newer;
+- Git;
+- the GitHub CLI (`gh`) installed and authenticated when GitHub lifecycle tools
+  are needed; and
+- an OpenAI workspace with Secure MCP Tunnel access for ChatGPT connectivity.
 
-## What Becomes Possible
-
-| Your goal | What ChatGPT can do |
-| --- | --- |
-| Understand an unfamiliar project | Map the structure, search code, read relevant files, and trace dependencies |
-| Build a feature or application | Plan and apply cohesive edits across one or many files in an approved repository |
-| Fix a failing implementation | Run approved tests, builds, linting, type checks, or smoke checks and use the evidence to correct the code |
-| Review work before it ships | Inspect current file bytes and the real Git diff, identify risks, and verify what remains |
-| Finish a local change safely | Validate, review, stage, recover, or create a local commit when the repository policy allows it |
-| Continue in a later conversation | Preserve bounded local context, decisions, risks, touched files, and next steps |
-
-ChatGPT chooses a workflow that fits your request. GPT Repo MCP independently
-enforces repository access, path boundaries, write policy, secret checks,
-validation profiles, stale-state guards, and allowed Git operations.
-
-[Explore the capability guide](docs/CAPABILITIES.md) ·
-[Review the security model](docs/SECURITY.md) ·
-[See the tools and workflows](docs/TOOL_SURFACE.md)
-
-## From Request To Reviewed Result
-
-```text
-You ask in ChatGPT
-        ↓
-Understand → Edit → Validate → Review → Local commit
-        ↓
-Approved local repository
-```
-
-A question may need only search and reading. An implementation can continue
-through multi-file editing, approved validation, review, and local commit
-preparation. ChatGPT receives tool descriptions, schemas, safety annotations,
-and structured results that help it select the next appropriate action.
-
-The model guides the work; the server enforces the boundary. No prompt can turn
-the server into unrestricted filesystem access, arbitrary shell execution,
-automatic push, or automatic deployment.
-
-## Quickstart
-
-### 1. Install
+Install from a trusted checkout:
 
 ```bash
-git clone https://github.com/CAHN91/gpt-repo-mcp.git
-cd gpt-repo-mcp
-npm install
+git clone <repository-url>
+cd chat-pro-repository-mcp
+npm ci
 npm run build
 cp config.example.json config.local.json
 ```
 
-The copied starter config is valid and empty.
-
-### 2. Approve a repository
-
-```bash
-npm run add -- /path/to/your/repo
-```
-
-In an interactive terminal, choose `read`, `write`, or `ship`. For predictable
-setup in scripts or CI-like terminals, provide an explicit `read`, `write`, or
-`ship` mode:
+The example configuration is intentionally empty. Register a repository from
+the owner terminal with an explicit `read`, `write`, or `ship` mode:
 
 ```bash
-npm run add -- /path/to/your/repo --mode read
-npm run add -- /path/to/your/repo --mode write
-npm run add -- /path/to/your/repo --mode ship
+npm run add -- /path/to/your/repo --mode <mode>
+npm run list
+npm run check:config
 ```
 
-The general command form is `npm run add -- <path> --mode <mode>`.
+No MCP tool can add, remove, or widen a repository root. Registration is an
+owner CLI operation.
 
-### 3. Connect ChatGPT
+Start the loopback server:
 
 ```bash
-npm run connect
+npm run mcp
 ```
 
-Copy the printed MCP URL into ChatGPT Developer Mode connector settings, start
-a new chat, select the connector, and ask:
+It listens on `127.0.0.1:8789`. In another terminal, verify it:
 
-```text
-Use GPT Repo MCP. Which repositories can you access?
+```bash
+curl http://127.0.0.1:8789/health
+npm run doctor
 ```
 
-New to ngrok? Follow [Install ngrok from zero](docs/SETUP.md#install-ngrok-from-zero).
-For the OpenAI Secure MCP Tunnel, use `npm run connect:secure` and follow the
-[connection guide](docs/CONNECTION_OPTIONS.md).
+Activate an OpenAI Secure MCP Tunnel for the loopback MCP endpoint
+`http://127.0.0.1:8789/mcp`, then create a custom ChatGPT app using that Tunnel
+ID. This repository intentionally does not ship a public-URL fallback or store
+tunnel credentials. See [ChatGPT connection](docs/CHATGPT_CONNECT.md).
 
-## Permission Modes
+## Repository And Task Authority
 
-| Mode | Best for | Available outcome |
-| --- | --- | --- |
-| `read` | Exploration, architecture review, and cautious first use | Search, read, understand, and review repository state |
-| `write` | Daily implementation | Read capabilities plus policy-checked single- and multi-file edits |
-| `ship` | Reviewed local completion | Write capabilities plus approved validation, recovery, staging, and local commits |
+Repository registration sets the maximum local capability:
 
-No mode enables push, pull, reset, checkout, switch, rebase, merge, stash,
-force operations, branch deletion, shell execution, or arbitrary commands.
+| Mode | Maximum capability |
+| --- | --- |
+| `read` | Bounded inspection only. |
+| `write` | Inspection and policy-checked repository edits. |
+| `ship` | Write capability plus local Git and the task-bound GitHub lifecycle. |
 
-## Try It In ChatGPT
+`repo_task_open` then creates a narrower task binding with `inspect`,
+`implement`, or `ship` authority. It binds the task id, base branch, base commit,
+base tree, goal, and branch slug. The server derives and owns the task branch
+and isolated worktree.
 
-```text
-Give me a project brief for <repo_id>. Explain the architecture and likely entry points.
-```
-
-```text
-Implement this feature in <repo_id>. Update every affected file, run the approved checks, and review the final diff.
-```
-
-```text
-Diagnose the failing tests in <repo_id>, fix the underlying issue, and verify the result.
-```
-
-```text
-Review the current Git changes in <repo_id>. Tell me what is ready, what is risky, and what still needs work.
-```
-
-```text
-Prepare this completed change for a local commit, but do not push or deploy anything.
-```
-
-More examples and resulting workflows are available in the
-[capability guide](docs/CAPABILITIES.md).
+`ship` task authority is required for push and pull-request mutation. A push is
+fast-forward-only to the exact server-owned task branch and never uses force.
+Pull requests are created and updated as Draft.
 
 ## How ChatGPT Works
 
-You describe the outcome in normal language. ChatGPT then chooses the smallest
-safe workflow that fits the request:
+The ordinary path is:
 
-1. **Understand** — inspect the project structure and read relevant files.
-2. **Change** — edit one file or a coherent set of files when writes are enabled.
-3. **Validate** — run only checks that the repository has approved.
-4. **Review** — inspect the real Git diff, validation evidence, and remaining risk.
-5. **Finish or recover** — prepare a reviewed local commit, or safely reverse the
-   affected paths.
+1. **Understand** the approved repository with bounded tree, search, file,
+   context, and Git reads.
+2. Open an exact task when isolated implementation or external lifecycle work
+   is needed.
+3. Edit with policy-checked file or patchset tools.
+4. **Validate** through configured profiles; arbitrary commands are not
+   accepted.
+5. **Review** the actual Git state, semantic risks, validation evidence, review
+   threads, and CI for the exact HEAD and tree.
+6. Create a local commit, then use `repo_write_push` and
+   `repo_pr_create_or_update` only under `ship` authority.
+7. Prepare an exact merge manifest with `repo_merge_gate_prepare`.
+8. The repository owner runs the one command printed by the gate:
 
-Simple questions can stop after reading. Implementation requests can continue
-through the whole loop. Specialist tools for transactional patchsets, work
-continuity, or reviewing externally executed agent work are used only when the
-task benefits from them.
+   ```bash
+   chat-pro-repo approve-merge --gate-id <opaque-id>
+   ```
 
-You normally do not need to select tools by name. The connector describes each
-tool to ChatGPT, and the server checks every request independently. See
-[Tools and workflows](docs/TOOL_SURFACE.md) when you want to understand the
-available tool groups or ask ChatGPT to use a specific capability.
+9. `repo_write_merge` consumes that exact, unexpired, one-time approval, and
+   `repo_post_merge_readback` confirms authoritative GitHub state.
 
-## Safety By Design
+Changing the HEAD, tree, pull request, CI evidence, review state, merge method,
+or expiration invalidates the gate. One owner approval authorizes one exact
+merge only.
 
-- Only explicitly approved repository roots are accessible.
-- Every path is repo-relative and sandboxed against traversal and symlink escapes.
-- Writes are disabled until the repository opts in.
-- File changes are checked against allowed paths, denied paths, size limits,
-  stale-state guards, and secret patterns.
-- Validation uses configured profiles instead of arbitrary commands.
-- Git mutations operate on explicit paths and current reviewed state.
-- Push and deployment remain outside the server.
+## Security Boundaries
 
-For the full boundary, threat model, and approval behavior, read
-[Security](docs/SECURITY.md).
+- **Allow all actions does not broaden server authority.** It affects ChatGPT's
+  host confirmation behavior, not registered roots, write policy, task
+  authority, exact-state checks, credentials, or owner approval.
+- No tool adds repository roots or reads credential stores, tokens, SSH keys,
+  environment secrets, or the GitHub CLI authentication material.
+- Repository paths remain relative to a registered canonical root; traversal,
+  symlink escape, secret-like paths, and hard-denied outputs fail closed.
+- External calls require task identity, an `operation_id`, and the exact
+  expected HEAD and tree where applicable.
+- Unknown push effects are durably classified and read back; they are not
+  blindly replayed.
+- Release, deployment, signing, package publication, and infrastructure change
+  are out of scope.
 
-## Common Commands
+See the full [security and threat model](docs/SECURITY.md).
 
-| Command | Purpose |
+## Tool Surface
+
+The public surface is exactly 63 canonical names: the inherited 46 tools in
+their original order followed by 17 lifecycle tools. There are no aliases.
+See [Tool Surface](docs/TOOL_SURFACE.md) for the complete ordered catalog and
+[Capability Guide](docs/CAPABILITIES.md) for task-oriented guidance.
+
+## Operations
+
+| Action | Command |
 | --- | --- |
-| `npm run add -- <path>` | Approve a repository and choose a permission mode |
-| `npm run add -- <path> --mode <mode>` | Add a repository with an explicit `read`, `write`, or `ship` mode |
-| `npm run list` | List approved repositories |
-| `npm run remove -- <repo_id>` | Remove an approved repository |
-| `npm run doctor` | Check configuration, scripts, tunnel state, port use, and Git state |
-| `npm run connect` | Start the server and built-in ngrok connection flow |
-| `npm run connect:secure` | Start the server with the OpenAI Secure MCP Tunnel |
-| `npm run check:config` | Validate local configuration |
+| Build | `npm run build` |
+| Start locally | `npm run mcp` |
+| Production start after build | `PORT=8789 npm start` |
+| Health | `curl http://127.0.0.1:8789/health` |
+| Diagnose | `npm run doctor` |
+| Validate config | `npm run check:config` |
+| Stop | Press `Ctrl-C` in the server terminal. |
+
+For rollback and uninstall, stop the server and Secure MCP Tunnel first,
+remove the ChatGPT app/tunnel association, unregister roots with
+`npm run remove -- <repo_id>`, and only then remove the local checkout if its
+configuration or task artifacts are no longer needed. See [Setup](docs/SETUP.md).
 
 ## Documentation
 
-### Using GPT Repo MCP
+- [Capability Guide](docs/CAPABILITIES.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Security And Threat Model](docs/SECURITY.md)
+- [Setup And Operations](docs/SETUP.md)
+- [ChatGPT Connection](docs/CHATGPT_CONNECT.md)
+- [Write And Lifecycle Workflows](docs/WRITE_WORKFLOWS.md)
+- [Crash And Error Handling](docs/ERRORS.md)
+- [Dependency Security](docs/DEPENDENCY_SECURITY.md)
+- [Contributor Quality Rules](docs/QUALITY.md)
 
-| Guide | When you need... |
-| --- | --- |
-| [Capability guide](docs/CAPABILITIES.md) | A user-oriented explanation of what ChatGPT can accomplish |
-| [Setup](docs/SETUP.md) | Installation and local configuration |
-| [ChatGPT connection](docs/CHATGPT_CONNECT.md) | Connector setup inside ChatGPT |
-| [Connection options](docs/CONNECTION_OPTIONS.md) | ngrok, Cloudflare, secure tunnel, and manual alternatives |
-| [Write workflows](docs/WRITE_WORKFLOWS.md) | Editing, validation, review, recovery, and local commits |
-| [Tools and workflows](docs/TOOL_SURFACE.md) | What each tool group enables and when ChatGPT uses it |
-| [Security model](docs/SECURITY.md) | What is protected, what leaves your machine, and what remains your responsibility |
-| [Error reference](docs/ERRORS.md) | Stable error codes and what they mean |
-| [External-agent protocol](docs/DELEGATION_ARTIFACTS.md) | Advanced review workflow when you separately operate an implementation agent |
-| [Migration guide](docs/MIGRATION.md) | Moving from 0.1.x to 0.2.0 |
+## License And Attribution
 
-### Contributing And Extending
-
-See [Product principles](docs/PRODUCT.md), [Architecture](docs/ARCHITECTURE.md),
-[Contributing](CONTRIBUTING.md), [Quality](docs/QUALITY.md), the
-[technical terminology](docs/GLOSSARY.md), and the
-[release checklist](docs/RELEASE_CHECKLIST.md).
-
-## Requirements
-
-- Node.js 20 or newer
-- npm
-- Git
-- An HTTPS tunnel such as ngrok, or the supported secure tunnel flow
-- ChatGPT with Developer Mode access
-
-## Troubleshooting
-
-- **Unknown repository:** run `npm run list` and confirm the `repo_id`.
-- **Write blocked:** ask ChatGPT to use `repo_policy_explain` for the repository and path.
-- **Connector URL changed:** restart the connection and update ChatGPT with the new URL.
-- **Tunnel returns 502:** confirm the local server is running, check `/health`, and restart the tunnel.
-- **Tool schema looks stale:** refresh the connector and start a new ChatGPT conversation.
-
-For detailed diagnostics, see [Setup](docs/SETUP.md#common-failure-modes) and
-[Approval troubleshooting](docs/APPROVAL_TROUBLESHOOTING.md).
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+The project is MIT licensed. It incorporates and extends an upstream MIT
+project; the exact upstream repository, commit, tree, copyright notice, and
+license attribution are preserved in [NOTICE](NOTICE) and [LICENSE](LICENSE).

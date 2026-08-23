@@ -40,13 +40,13 @@ async function writeContract(root: string, value: unknown): Promise<void> {
 }
 
 describe("ProductContractService", () => {
-  test("dogfoods the committed GPT Repo MCP product contract", async () => {
+  test("dogfoods the committed Chat Pro Repository MCP product contract", async () => {
     const root = process.cwd();
     const result = await new ProductContractService(new PathSandbox(root)).load();
 
     expect(result.status).toBe("configured");
     if (result.status !== "configured") return;
-    expect(result.contract.product.name).toBe("GPT Repo MCP");
+    expect(result.contract.product.name).toBe("Chat Pro Repository MCP");
     expect(result.contract_sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(result.canonical_documents.map(({ path }) => path)).toEqual(result.contract.canonical_docs);
   });

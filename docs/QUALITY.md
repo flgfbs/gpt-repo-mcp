@@ -1,106 +1,77 @@
-# Quality Checklist
-
-This contributor and maintainer checklist describes the engineering standards
-expected for public changes. GPT Repo MCP is a closed-world MCP server for
-approved local repositories, so changes should preserve its contract-first
-architecture, clear tool surface, and conservative safety model.
+# Contributor Quality Rules
 
 ## Architecture Invariants
 
-- Tool flow stays `contracts -> toolContracts -> package definitions -> registry -> define-tool -> package handlers -> services`.
-- `src/tools/catalog.ts` remains a thin compatibility re-export of the registry:
-  no definitions, inline Zod schemas, or policy logic.
-- Handlers stay thin: resolve context, create services, call services, return envelopes.
-- Filesystem access stays behind the existing sandbox, ignore, classifier, reader, writer, and policy services.
-- Mutating behavior stays separate from read services.
+- Preserve `contracts -> tool-contract map -> packages -> registry ->
+  registration -> handlers -> services`.
+- Keep exactly 63 canonical names in registry order unless an intentional public
+  contract change is approved. Do not add aliases.
+- Keep Zod objects strict and schemas centrally referenced.
+- Keep package definitions metadata-only, handlers thin, and effects in
+  services.
+- Keep runtime construction explicit and dependency-injectable.
 
-## Tool Contract Rules
+## Effect And Adapter Invariants
 
-- Every tool has one central input contract and one central output contract in `src/tools/contracts.ts`.
-- Contracts use Zod objects and include field descriptions for public MCP usability.
-- Output schemas describe successful `structuredContent`; errors use the shared MCP error envelope.
-- Tool names, descriptions, annotations, and handlers are defined once in
-  `src/tools/packages/*` and composed through the registry.
-- Tests must prove registry entries use the central contract objects.
+- Mutating or external lifecycle inputs use `operation_id`, task identity, and
+  exact expected HEAD/tree as applicable.
+- Push uses a separate fixed-argument Git boundary for the exact server-owned
+  task branch, fast-forward-only, never force.
+- GitHub operations use a strict adapter around installed `gh` fixed
+  subcommands and bounded JSON.
+- Tests use deterministic fakes and never contact live GitHub.
+- External writes persist pre-contact, post-contact, read-back, and replay
+  evidence.
+- Artifact reads accept opaque ids and bounded byte windows, never paths.
+- Merge preparation is read-only; only the owner CLI writes a one-time exact
+  approval.
 
-## MCP Surface Rules
+## Annotation Invariants
 
-- Tool descriptions start with `Use this when...`.
-- Read tools use read-only annotations.
-- Mutating tools use mutating annotations:
-  - `readOnlyHint: false`
-  - `destructiveHint: true`
-  - `openWorldHint: false`
-  - `idempotentHint: false`
-- Tool results keep machine-readable data in `structuredContent` and short summaries in `content`.
-- Do not add standard MCP `search` or `fetch` unless connector compatibility becomes an explicit project goal.
+Use annotations that describe the real tool effect:
 
-## Security Rules
+- local reads: read-only, closed-world, idempotent;
+- local safe state changes: non-destructive where accurate and idempotent when
+  protected by exact replay;
+- cleanup/removal: destructive and idempotent;
+- remote observations: read-only, open-world, idempotent; and
+- remote mutations: open-world with accurate destructive classification and
+  exact-operation idempotency.
 
-- Do not add shell execution or generic command execution.
-- Do not weaken approved-root, path traversal, symlink, secret, denied glob, expected SHA, expected HEAD, or exact staged path checks.
-- Do not expose push, pull, reset, checkout, switch, rebase, merge, stash, clean, force, branch deletion, or arbitrary git command tools.
-- Prefer repo-relative paths in outputs and logs.
-- Keep generated backups and cleanup artifacts out of commits unless explicitly reviewed.
+Annotations never replace server authorization.
+
+## Security Invariants
+
+- No arbitrary shell, process, Git command, GitHub request, root-registration,
+  or credential-read tool.
+- Preserve canonical-root, traversal, symlink, ignore, secret, size, denied
+  path, expected-content, exact Git state, and approval checks.
+- Keep release, deployment, signing, and publication outside product tools.
+- Keep Secure MCP Tunnel credentials outside the repository.
 
 ## Required Verification
 
-Run the focused checks for the area changed, then run:
+Run focused tests for changed contracts or services, then:
 
 ```bash
 npm run typecheck
-npm test -- tests/tool-contracts.test.ts tests/mcp-contract.test.ts
+npm test
 npm run lint
 npm run check:public
+npm run security:scan
 npm run verify:dist
 git diff --check
 ```
 
-Run service tests when touching service behavior:
+Tool-surface changes require order/count, contract identity, strict-schema,
+annotation, registration, and MCP discovery tests. Lifecycle service changes
+also require crash/replay, stale-state, deterministic adapter, artifact, and
+owner-approval tests.
 
-```bash
-npm test -- tests/file-writer.test.ts tests/git-operations-service.test.ts tests/cleanup-service.test.ts
-```
+## Public Documentation
 
-## Release Readiness Checklist
-
-- README describes the current tool surface and disabled-by-default mutating tools.
-- `docs/SECURITY.md`, `docs/TOOL_SURFACE.md`,
-  `docs/DELEGATION_ARTIFACTS.md`, `docs/WRITE_WORKFLOWS.md`, and this file are
-  current.
-- `docs/ERRORS.md` lists stable error codes.
-- CI must pass before merge.
-- Contract tests must run when the tool surface, annotations, or schemas change.
-- Mutating tool schema descriptions must remain covered by tests.
-- Public hygiene checks must pass before release.
-- The built `dist/server.js` runtime smoke must pass before release.
-- MCP contract tests pass and snapshots match intentional tool surface changes.
-- No machine-specific paths, personal workflow instructions, credentials, or
-  development planning notes are present in published documentation.
-- Documentation links resolve to files available in the public repository or
-  to an intentional external source.
-- `package.json` metadata is accurate and `package-lock.json` is unchanged unless dependencies changed intentionally.
-
-## How To Add A Tool
-
-1. Add input and output contracts under `src/contracts/*`.
-2. Add the tool to `src/tools/contracts.ts`.
-3. Add a concise description in `src/tools/descriptions.ts`.
-4. Add metadata and handler wiring in the matching `src/tools/packages/*` module.
-5. Add a thin adapter in the matching `src/tools/handlers/*` module.
-6. Put real logic in `src/services/*`.
-7. Add service tests when behavior is non-trivial.
-8. Update MCP contract tests, registry discipline tests, and docs.
-
-## How To Add A Mutating Tool
-
-1. Require explicit opt-in config with safe disabled defaults.
-2. Use mutating annotations and add the tool to the shared mutating tool list.
-3. Provide `dry_run` where practical.
-4. Require explicit repo-relative paths where paths are applicable.
-5. Do not use shell execution or arbitrary git/command runners.
-6. Put authorization decisions in a policy or service layer.
-7. Put execution logic in a service, not a handler.
-8. Add focused service tests for policy, safety, dry-run, and mutation behavior.
-9. Add MCP contract and tool contract tests.
-10. Update security, tool surface, workflow, and error docs.
+Before release, confirm README, capability, architecture, security, setup,
+tool-surface, lifecycle, error/recovery, dependency, migration, and NOTICE
+content match the built behavior. Public examples must use placeholders and
+must not contain machine-specific owner paths, credentials, real repository
+data, Tunnel IDs, or account names.

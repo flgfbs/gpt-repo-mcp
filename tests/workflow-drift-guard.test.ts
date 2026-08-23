@@ -43,8 +43,7 @@ const PUBLIC_DOCUMENTS = [
   "docs/SECURITY.md",
   "docs/SETUP.md",
   "docs/TOOL_SURFACE.md",
-  "docs/WRITE_WORKFLOWS.md",
-  "docs/assets/README.md"
+  "docs/WRITE_WORKFLOWS.md"
 ] as const;
 
 const REMOVED_SOURCE_FILES = [
@@ -84,7 +83,7 @@ describe("canonical workflow drift guards", () => {
     expect(readme).toContain("Review");
 
     const capabilities = await readFile("docs/CAPABILITIES.md", "utf8");
-    expect(capabilities).toContain("## What GPT Repo MCP Does Not Do");
+    expect(capabilities).toContain("## What Chat Pro Repository MCP Does Not Do");
 
     const security = await readFile("docs/SECURITY.md", "utf8");
     expect(security).toContain("## Security Model At A Glance");
@@ -92,8 +91,13 @@ describe("canonical workflow drift guards", () => {
 
     const toolSurface = await readFile("docs/TOOL_SURFACE.md", "utf8");
     expect(toolSurface).toContain("## Tool Groups");
+    let priorHeading = -1;
     for (const { name } of toolCatalog) {
-      expect(toolSurface).toContain(`### \`${name}\``);
+      const heading = `### \`${name}\``;
+      const index = toolSurface.indexOf(heading);
+      expect(index).toBeGreaterThan(priorHeading);
+      expect(toolSurface.split(heading)).toHaveLength(2);
+      priorHeading = index;
     }
 
     for (const doc of [readme, capabilities, security, toolSurface]) {

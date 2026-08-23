@@ -1,157 +1,67 @@
-# Delegation Artifact Protocol
+# Delegation And Semantic Worker Contracts
 
-This advanced reference is for users and integrators who separately operate an
-external implementation agent. Most repository work does not require this
-protocol; use the direct workflow described in the
-[Capability guide](CAPABILITIES.md) instead.
+Delegation is an optional specialist capability for users who operate an
+external implementation worker. Chat Pro Repository MCP writes and validates
+repository-owned artifacts; it does not launch a model, schedule a provider,
+load provider credentials, or control a worker process.
 
-GPT Repo MCP supports delegation through repository-owned files and explicit
-review tools. The protocol lets a manual or external implementation agent work
-against a bounded task while the MCP server retains authority over validation,
-review, staging, and local commit preparation.
+## Current Delegation V3
 
-Writing a task with runner mode `queued` records handoff intent only. The
-public MCP server does not execute agents, schedule implementation work, load
-provider credentials, or supervise external processes.
+The current public names retain `codex` for compatibility:
 
-## Canonical Delegation v3 flow
+1. `repo_prepare_codex_task` previews a bound task.
+2. `repo_write_codex_task` writes the task artifacts.
+3. An external worker writes strict result evidence.
+4. `repo_agent_runs` exposes bounded lifecycle and structured questions.
+5. `repo_write_agent_reply` writes an exact current reply artifact.
+6. `repo_codex_review` verifies task, repository, scope, Git, and evidence.
+7. `repo_write_codex_review` records the state-bound qualitative verdict.
+8. Normal validation, ship review, local commit, and task lifecycle remain
+   authoritative.
 
-1. Preview and validate a task with `repo_prepare_codex_task`, or write it with
-   `repo_write_codex_task`.
-2. An external implementation agent reads the task and writes strict
-   `RESULT.json` evidence.
-3. Inspect bounded lifecycle information with `repo_agent_runs`. If a
-   compatible external worker asks structured questions, answer the exact
-   current question with `repo_write_agent_reply`.
-4. Run `repo_codex_review` to verify the task, current repository state, scope,
-   evidence, and technical readiness.
-5. Record the required state-bound product or technical verdict with
-   `repo_write_codex_review`.
-6. Use the normal ship review and its exact stage-commit or recovery payload.
-   For several related runs in one dirty worktree, use the separately
-   authorized integration-review path described below.
+Artifacts live under local `.chatgpt/` state and are not intended for commit or
+publication. Generic tree, file, and search tools exclude private run state.
+The dedicated run tool returns only bounded, schema-validated, redacted fields.
 
-Delegation is a specialist workflow. Direct implementation remains the default
-when the user has not explicitly requested an implementation agent.
+## Evidence Is Not Authority
 
-## Repository-owned artifacts
+A worker result cannot approve its own scope, product claim, validation, push,
+pull request, merge, release, or deployment. Review binds exact repository
+state. A relevant HEAD or byte change makes prior evidence stale. Malformed,
+unsafe, oversized, mismatched, or secret-bearing artifacts fail closed.
 
-Each run lives under:
+Several related runs may share a dirty worktree only through the explicit
+integration-review contract. The server binds the reviewed run set, current
+HEAD, path union, content fingerprint, validation, verdicts, and commit payload.
 
-```text
-.chatgpt/codex-runs/<run_id>/
-```
+## Future Provider-Neutral Semantic Worker Contract
 
-The current v3 contract uses:
+The intended evolution is a provider-neutral **Semantic Worker** protocol. Its
+public contract should express repository semantics, not a vendor transport:
 
-| Artifact | Owner and purpose |
+| Contract area | Stable provider-neutral content |
 | --- | --- |
-| `PROMPT.md` | Server-rendered human-readable assignment and constraints. |
-| `run.json` | Server-owned task manifest, identity, baseline, authorization, and contract hashes. |
-| `review-gate.json` | Server-owned gate binding protected paths to the run and required review. |
-| `RESULT.json` | Implementation-agent evidence for changed files, connected work, technical criteria, and product criteria. |
-| `review.json` | Server-written qualitative attestation bound to the reviewed repository state. |
+| Task | task id, goal, exact repository baseline, bounded authority, scope, acceptance criteria |
+| Lifecycle | queued/running/awaiting-input/terminal state, timestamps, bounded events |
+| Interaction | structured questions, turn/version hash, complete structured replies |
+| Result | changed-path evidence, criteria evidence, validation references, terminal outcome |
+| Review | exact repository binding, technical findings, product verdict, freshness |
+| Lineage | parent/root identity, bounded correction or scope-amendment relationship |
 
-Compatible external workers may also produce bounded lifecycle, event, and
-structured interaction artifacts. These files are protocol inputs, not an
-execution API: MCP tools never use them to launch, resume, configure, or cancel
-a worker.
+Provider adapter names, model ids, thread ids, credentials, scheduling, retry
+policy, and raw logs stay outside the public MCP contract. A future adapter may
+translate between a Semantic Worker and these artifacts, but it must not widen
+repository authority or bypass validation and review.
 
-Delegation artifacts are local working state under `.chatgpt/` and should not
-be committed or published.
+Until such contracts are versioned and implemented, the current Delegation v3
+schemas remain canonical. “Semantic Worker” in this documentation is a design
+direction, not an available embedded execution provider.
 
-## Visibility and privacy
+## Compatibility Rules
 
-Generic tree, read, batch-read, search, and diff workflows do not expose
-internal session, attempt, lock, replacement-lock, or reply artifacts.
-Configuration overrides and explicit paths cannot reopen those files.
-
-`repo_agent_runs` is the public inspection boundary. It returns only bounded,
-validated, redacted lifecycle metadata, safe event summaries, runtime budget,
-and current structured questions. It does not return prompt or result text,
-source contents, raw logs, environment values, credentials, or provider thread
-identifiers.
-
-`repo_write_agent_reply` requires the exact run, turn index, question hash, and
-one answer for every current question. It rejects stale and duplicate replies
-and writes only the reply artifact. It cannot change task scope, accept
-commands, or control an external worker.
-
-## State binding and staleness
-
-Review authority applies to exact repository state, not to an agent's claim:
-
-- task manifests bind repository identity, run identity, prompt content,
-  authorization, baseline HEAD, and relevant contract hashes;
-- modern v3 runs fingerprint paths that were already dirty at task creation;
-- review attributes only connected changes inside the effective authorized
-  scope;
-- a HEAD change or byte change inside the attributed pathset makes the review
-  stale;
-- unrelated work outside a modern run's attributed pathset does not stale that
-  run; and
-- older v3 artifacts without initial path states use conservative
-  whole-worktree binding.
-
-Malformed, unsafe, mismatched, oversized, or stale artifacts fail closed.
-Secret-bearing result or review evidence is rejected rather than persisted or
-returned.
-
-## Review, lineage, and scope
-
-Authorization scope defines the maximum permitted area; it is not a prediction
-of every file needed. Starting points are advisory. The implementation result
-must account for all connected work, and review rejects silent scope omission
-or expansion.
-
-When a run needs correction or a legitimate scope amendment, the server may
-offer a new baseline-bound child task with explicit parent and root lineage.
-The child inherits or narrows the valid contract, records the reason, and
-cannot bypass review gates. A root lineage has a hard maximum of two children.
-
-Product evidence and technical evidence remain separate. Agent-reported
-product evidence never self-approves product work; the owner records the
-qualitative verdict through `repo_write_codex_review`.
-
-## Multi-run integration
-
-Several related v3 runs may share one dirty worktree only through an explicit
-owner-selected integration review:
-
-1. Every selected run must have current technical review and its required
-   state-bound verdict.
-2. A current full validation must cover the repository state.
-3. `repo_write_integration_review` verifies that the selected reviewed union
-   exactly covers the current project changes and writes a hash-bound artifact
-   under `.chatgpt/integration-reviews/`.
-4. The returned opaque `review_pathset_id` is passed unchanged to
-   `repo_write_stage_commit`.
-
-The server owns and rechecks the exact HEAD, run review hashes, pathset, content
-fingerprint, validation, path policy, and commit message before and after
-staging. A client cannot add paths, replace the reviewed message, rescue a
-failed run, or bypass secret and forbidden-path checks. Integration pathsets
-are bounded to 2,000 paths.
-
-Historical v1 and v2 task artifacts remain readable through isolated
-compatibility paths. Public tools create only v3 tasks, and legacy artifacts
-cannot be promoted into a v3 integration review.
-
-## Contributor compatibility rules
-
-- Treat public tool names, schema fields, artifact paths, hashes, error codes,
-  and stale-state behavior as compatibility contracts.
-- Keep artifact parsing bounded, schema-validated, identity-bound, redacted,
-  and fail-closed.
-- Keep worker execution outside the public MCP server and outside public tool
-  handlers.
-- Do not weaken generic-read exclusions for private run state.
-- Require a documented migration and contract coverage before changing
-  persisted artifact formats or legacy read behavior.
-- Keep product truth in repository-owned product documentation rather than in
-  generated prompts or implementation-agent output.
-
-For task payloads and operational examples, see
-[Write Workflows](WRITE_WORKFLOWS.md). For tool inputs and outputs, see
-[Tool Surface](TOOL_SURFACE.md). For service and authority boundaries, see
-[Architecture](ARCHITECTURE.md).
+- Treat public tool names, schema fields, artifact versions, hashes, and stale
+  behavior as contracts.
+- Keep parsing bounded, identity-bound, redacted, and fail-closed.
+- Keep worker execution and credentials outside MCP handlers and services.
+- Do not reopen private worker artifacts through generic repository reads.
+- Require documented migration and contract tests for persisted-format changes.

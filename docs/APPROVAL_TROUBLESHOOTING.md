@@ -1,63 +1,63 @@
 # Approval Troubleshooting
 
-Use this checklist when a mutating tool dry-run succeeds but the actual tool call is blocked before the user sees an approval prompt.
+ChatGPT host confirmation and server authority are separate controls.
 
-## Checklist
+## Allow All Actions
 
-- Verify `tools/list` includes the mutating tools relevant to the blocked flow:
-  - `repo_write_file`
-  - `repo_write_changes`
-  - `repo_write_handoff`
-  - `repo_write_codex_task`
-  - `repo_git_restore_paths`
-  - `repo_write_stage`
-  - `repo_write_unstage`
-  - `repo_write_commit`
-  - `repo_write_stage_commit`
-  - `repo_write_recover`
-  - `repo_cleanup_paths`
-- Refresh connector metadata after upgrading or rebuilding GPT Repo MCP.
-- Start a new ChatGPT conversation after refreshing the connector so the current tool descriptions are loaded.
-- Verify `config.local.json` enables the relevant write or operations policy for the target repo.
-- Verify the dry-run call succeeds before the actual mutation.
-- Verify the same operation works through MCP Inspector, API Playground, or a raw MCP client if available.
+Selecting **Allow all actions** may suppress repeated ChatGPT confirmation for
+tools whose annotations match workspace policy. It does not:
 
-## How To Tell Where A Block Happened
+- register a repository or enable writes;
+- raise repository mode or task authority;
+- bypass path, secret, expected HEAD/tree, review, or CI checks;
+- expose credential material;
+- permit force push or arbitrary GitHub actions; or
+- create or replace owner merge approval.
 
-Check the local server stderr audit logs. Each `/mcp` request that reaches the server emits `mcp_request_start` and `mcp_request_finish` with a `request_id`. Tool handlers emit their normal tool audit with the same `request_id`.
+If a tool remains denied after host confirmation, inspect the structured server
+error and current policy rather than changing ChatGPT confirmation settings.
 
-| Local logs | Meaning |
-| --- | --- |
-| ChatGPT says the call was blocked by OpenAI safety checks, with no `mcp_request_start` and no tool audit | The call was blocked before reaching the local MCP server. |
-| `mcp_request_start` exists, but no tool audit exists for the same `request_id` | The request reached `/mcp`, but did not reach the tool handler. Inspect MCP session, transport, and routing. |
-| `mcp_request_start` and a tool audit with a warning or error code exist for the same `request_id` | The server received the call and rejected it through validation, policy, or runtime handling. |
-| `mcp_request_start` and a successful tool audit exist for the same `request_id` | Normal server path. |
+## Tool Annotations
 
-For blocked-before-approval cases, the absence of any local `request_id` or audit entry is the key evidence. Request diagnostics include only safe metadata such as method, route, session presence, MCP method, and MCP tool name; they do not include tool arguments or request bodies.
+Local reads are closed-world read-only tools. Local writes describe whether
+they are destructive and idempotent. Remote status, PR, review, CI, merge-gate,
+and post-merge reads are open-world read-only. Remote mutations are open-world,
+operation-bound, and idempotent at their exact contract boundary.
 
-For easier terminal scanning, start the connector with pretty audit logs:
+Annotations help the host describe an action. They are not capabilities and do
+not override server checks.
 
-```bash
-GPT_REPO_LOG_FORMAT=pretty npm run connect
-```
+## Push Or Pull Request Is Denied
 
-JSON audit logs remain the default. Pretty logs are compact one-line renderings of the same sanitized metadata.
+Confirm all of the following:
 
-## If A Commit Tool Is Blocked Before Approval
+1. the base repository was owner-registered in `ship` mode;
+2. the task was opened with `ship` authority;
+3. `repo_id`, `task_id`, `operation_id`, expected HEAD, and expected tree match;
+4. local validation/review and current Git state admit the operation; and
+5. installed `gh` authentication and repository permission are valid for
+   GitHub calls.
 
-Use the canonical `repo_write_stage`, `repo_write_unstage`, and `repo_write_commit` tools for granular Git operations. There are no duplicate git-prefixed mutation aliases.
+Do not paste `gh auth status` output or tokens into ChatGPT.
 
-1. Confirm `repo_write_commit` with `dry_run: true` passed.
-2. Confirm the intended paths are staged with `repo_git_status`.
-3. If needed, stage explicit files with `repo_write_stage`.
-4. Use the manual fallback:
+## Merge Is Denied
+
+`repo_merge_gate_prepare` must return an eligible, unexpired exact gate. The
+owner then runs the command it prints:
 
 ```bash
-git commit -m "<message>"
+chat-pro-repo approve-merge --gate-id <opaque-id>
 ```
 
-This indicates client-side pre-approval blocking, not necessarily a server policy failure. The server still requires repo-local operations opt-in, exact `expected_head_sha`, and exact `expected_staged_paths`, and it creates a local commit only. It does not push, pull, reset, checkout, switch, rebase, merge, stash, clean, force, delete branches, or run shell commands.
+The CLI displays the bound details and writes one mode-0600 approval after
+confirmation. `repo_write_merge` rejects a missing, expired, consumed,
+mismatched, or state-stale approval. Prepare and inspect a new gate after any
+HEAD/tree, PR, review, CI, method, branch-deletion, digest, or expiration
+change.
 
-## Canonical Git Tool Names
+## Interrupted Action
 
-Safe local Git mutations have one public name each: `repo_write_stage`, `repo_write_unstage`, `repo_write_commit`, and `repo_write_stage_commit`. This avoids duplicate approval surfaces and ambiguous tool selection.
+Do not assume that an empty response means failure. Keep the original operation
+id, call task/status/read-back tools, and inspect durable evidence. Replay only
+when the server recognizes the exact operation and reports that replay is safe.
+See [Errors And Recovery](ERRORS.md).

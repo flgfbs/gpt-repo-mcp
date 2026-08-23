@@ -1,69 +1,68 @@
 {
   "schema_version": 1,
   "product": {
-    "name": "GPT Repo MCP",
-    "purpose": "Help a solo developer use ChatGPT as a product-aware senior developer, reviewer, and workflow coordinator in trusted local repositories while preserving strong server-side safety, evidence, recovery, and local control."
+    "name": "Chat Pro Repository MCP",
+    "purpose": "Give ChatGPT bounded local repository development and an exact task-bound GitHub lifecycle while preserving server-side policy, durable recovery, and owner-only merge approval."
   },
   "primary_users": [
     {
       "id": "solo-developer",
       "role": "Solo developer or small-team technical owner",
-      "technical_level": "Technical, but time-constrained and unable to continuously supervise every agent step",
-      "work_context": "Uses ChatGPT and implementation agents across multiple local repositories and needs fast, trustworthy progress without repeatedly reconstructing project context."
+      "technical_level": "Comfortable with code and Git but unwilling to grant a model arbitrary machine or GitHub authority.",
+      "work_context": "Uses ChatGPT to understand, change, validate, review, and carry an isolated repository task through Draft pull request, CI, review, and one exact approved merge."
     },
     {
       "id": "repo-operator",
-      "role": "Developer operating ChatGPT, Codex, or another implementation agent against a trusted local repository",
-      "technical_level": "Comfortable with code and Git, but expects the tooling to preserve product intent and prevent unsafe or incomplete repository operations",
-      "work_context": "Delegates planning, implementation, review, validation, recovery, and local ship work through named MCP tools."
+      "role": "Developer operating ChatGPT or a separate implementation worker",
+      "technical_level": "Able to inspect repository and lifecycle evidence and expects stale state and partial effects to fail safely.",
+      "work_context": "Coordinates local implementation, external-worker evidence, GitHub review, CI, and recovery while the MCP server enforces repository and task boundaries."
     }
   ],
   "jobs_to_be_done": [
     {
       "id": "understand-repository",
-      "statement": "Understand a repository, its product intent, architecture, current state, and relevant constraints without reading everything manually."
+      "statement": "Understand product intent, architecture, code, and current Git state through bounded reads."
     },
     {
       "id": "delegate-coherent-work",
-      "statement": "Delegate coherent implementation work to an agent without converting the product goal into a brittle file-by-file script."
+      "statement": "Make coherent policy-checked local changes directly or through bounded external-worker artifacts without granting provider or machine authority."
     },
     {
       "id": "review-real-changes",
-      "statement": "Review actual code, Git state, validation evidence, and product outcome rather than trusting an agent summary."
+      "statement": "Validate and review actual repository bytes, Git objects, scope, CI, and review evidence rather than trusting a claimed result."
     },
     {
       "id": "ship-and-recover-safely",
-      "statement": "Validate, recover, stage, and create local commits through bounded server-side workflows without arbitrary shell access."
+      "statement": "Open and operate an exact task worktree, push its fixed branch, maintain a Draft pull request, handle CI and review, obtain one exact owner merge approval, and recover without blind replay."
     },
     {
       "id": "preserve-continuity",
-      "statement": "Continue work across sessions and agents without losing decisions, product direction, or current implementation state."
+      "statement": "Recover across crashes and sessions without replaying uncertain effects or losing task and artifact evidence."
     }
   ],
   "must_reduce": [
-    "Repeatedly explaining the same repository and product context",
-    "Babysitting implementation agents through every internal step",
-    "Prompt micromanagement and closed-world file-by-file delegation",
-    "Risky manual repository operations that lack review or recovery evidence",
-    "Context loss between ChatGPT sessions, Codex runs, reviews, and commits",
-    "Technically correct changes that move a product away from its intended user"
+    "Repeated reconstruction of repository and product context",
+    "Unbounded model or tool authority",
+    "Stale writes and GitHub actions",
+    "Blind replay after interrupted external effects",
+    "Unreviewed push, pull-request, CI, review, or merge actions",
+    "Context loss between ChatGPT, external workers, local Git, and GitHub"
   ],
   "must_not_become": [
-    "A generic shell or unrestricted command runner",
-    "A safety-ceremony server that makes trusted local development slower than direct work",
-    "A prompt factory that optimizes for local technical tasks while forgetting the product and user",
-    "An enterprise workflow or approval platform",
-    "A hosted repository service or source-code exfiltration path",
-    "A replacement for Git, the implementation agent, or product judgment"
+    "A generic shell, Git command runner, or GitHub API proxy",
+    "A tool for adding repository roots or reading credentials",
+    "A force-push or history-rewrite path",
+    "An implementation-provider credential host",
+    "A release, deployment, signing, publication, or infrastructure service"
   ],
   "experience_principles": [
-    "Product or operational outcome before implementation detail",
-    "Autonomy with safety implemented mostly as server-side infrastructure",
-    "A small number of high-leverage tools over visible workflow ceremony",
-    "Repository truth and actual diff evidence over agent claims",
-    "Explicit recovery and stale-state protection",
-    "Local-first operation with no automatic push or deployment",
-    "Technical precision when it represents a real contract, not habitual micromanagement"
+    "Outcome before implementation detail",
+    "Explicit repository and task authority",
+    "Actual bytes and Git objects before claims",
+    "Deterministic validation and review before external mutation",
+    "Durable effect evidence before retry",
+    "One exact owner decision for one exact merge",
+    "Optional specialist workflows rather than mandatory ceremony"
   ],
   "canonical_docs": [
     "README.md",

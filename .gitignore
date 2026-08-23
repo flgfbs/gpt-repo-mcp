@@ -1,4 +1,4 @@
-# Local GPT Repo MCP artifacts
+# Local Chat Pro Repository MCP artifacts
 .chatgpt/
 .chatgpt/backups/
 .chatgpt/operations/*.json
@@ -26,7 +26,6 @@ playwright-report/
 # Environment and local config
 .env
 .env.*
-!.env.example
 config.local.json
 *.local.json
 *.local.json.*

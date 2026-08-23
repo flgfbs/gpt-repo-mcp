@@ -1,20 +1,47 @@
 import { execFile } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, test } from "vitest";
 
-describe("package startup scripts", () => {
-  test("declares local startup shortcuts", async () => {
-    const raw = await readFile(join(process.cwd(), "package.json"), "utf8");
-    const pkg = JSON.parse(raw) as {
+const execFileAsync = promisify(execFile);
+
+const PUBLIC_DOCS = [
+  "README.md",
+  "SECURITY.md",
+  "CONTRIBUTING.md",
+  "CHANGELOG.md",
+  "docs/APPROVAL_TROUBLESHOOTING.md",
+  "docs/ARCHITECTURE.md",
+  "docs/CAPABILITIES.md",
+  "docs/CHATGPT_CONNECT.md",
+  "docs/CONNECTION_OPTIONS.md",
+  "docs/DELEGATION_ARTIFACTS.md",
+  "docs/DEPENDENCY_SECURITY.md",
+  "docs/ERRORS.md",
+  "docs/GLOSSARY.md",
+  "docs/MIGRATION.md",
+  "docs/PRODUCT.md",
+  "docs/QUALITY.md",
+  "docs/RELEASE_CHECKLIST.md",
+  "docs/SECURITY.md",
+  "docs/SETUP.md",
+  "docs/TOOL_SURFACE.md",
+  "docs/WRITE_WORKFLOWS.md"
+] as const;
+
+describe("package and public documentation", () => {
+  test("declares the Chat Pro CLI and loopback startup commands", async () => {
+    const pkg = JSON.parse(await readFile("package.json", "utf8")) as {
+      name?: string;
       bin?: Record<string, string>;
       engines?: Record<string, string>;
-      devDependencies?: Record<string, string>;
       keywords?: string[];
       scripts?: Record<string, string>;
     };
 
+    expect(pkg.name).toBe("chat-pro-repository-mcp");
     expect(pkg.bin).toEqual({ "chat-pro-repo": "dist/cli/chat-pro-repo.js" });
     expect(pkg.engines?.node).toBe(">=20");
     expect(pkg.keywords).toEqual(
@@ -30,190 +57,110 @@ describe("package startup scripts", () => {
     expect(pkg.scripts?.remove).toBe("node dist/cli/chat-pro-repo.js repo remove");
     expect(pkg.scripts?.list).toBe("node dist/cli/chat-pro-repo.js repo list");
     expect(pkg.scripts?.["check:config"]).toBe("node dist/cli/chat-pro-repo.js config validate");
+    expect(pkg.scripts?.doctor).toBe("npm run build && node dist/cli/chat-pro-repo.js doctor");
   });
 
-  test("includes connect runner script and ngrok URL hints", async () => {
-    const scriptPath = join(process.cwd(), "scripts", "connect-dev.mjs");
-    await expect(access(scriptPath)).resolves.toBeUndefined();
-    const script = await readFile(scriptPath, "utf8");
-    expect(script).toContain("randomBytes(16)");
-    expect(script).toContain("GPT_REPO_PUBLIC_PATH_TOKEN");
-    expect(script).toContain("REPO_READER_PUBLIC_PATH_TOKEN");
-    expect(script).toContain("/t/${publicPathToken}/mcp");
-    expect(script).toContain("This is guess-resistance only, not authentication");
-    expect(script).toContain("127.0.0.1:4040/api/tunnels");
-    expect(script).toContain("ChatGPT MCP URL");
-    expect(script).toContain("Reusing existing ngrok tunnel");
-    expect(script).toContain("readNgrokHttpsUrl");
-    expect(script).toContain("resolveNpmDevCommand");
-    expect(script).toContain("resolveNgrokVersionCommand");
-    expect(script).toContain("resolveNgrokTunnelCommand");
-    expect(script).not.toContain("shell:");
+  test("removes obsolete connection scripts, examples, and static mockups", async () => {
+    const removed = [
+      "scripts/connect-dev.mjs",
+      "scripts/connect-cloudflare.mjs",
+      "scripts/connect-secure.mjs",
+      "scripts/connector-runtime.mjs",
+      "scripts/platform-command.mjs",
+      ".env.example",
+      "docs/assets/README.md",
+      "docs/assets/chatgpt-server-url.png",
+      "docs/assets/chatgpt-server-url.svg",
+      "docs/assets/chatgpt-tunnel-id.png",
+      "docs/assets/chatgpt-tunnel-id.svg"
+    ];
+
+    for (const path of removed) {
+      await expect(access(path)).rejects.toMatchObject({ code: "ENOENT" });
+    }
   });
 
-  test("includes Cloudflare tunnel startup script", async () => {
-    const scriptPath = join(process.cwd(), "scripts", "connect-cloudflare.mjs");
-    await expect(access(scriptPath)).resolves.toBeUndefined();
-    const script = await readFile(scriptPath, "utf8");
-    expect(script).toContain("cloudflared");
-    expect(script).toContain("tunnel");
-    expect(script).toContain("--url");
-    expect(script).toContain("GPT_REPO_PUBLIC_PATH_TOKEN");
-    expect(script).toContain("/t/${publicPathToken}/mcp");
-    expect(script).toContain("trycloudflare\\.com");
-    expect(script).toContain("ChatGPT MCP URL");
-    expect(script).toContain("This is guess-resistance only, not authentication");
+  test("documents Secure MCP Tunnel only and uses no machine-specific owner path", async () => {
+    for (const path of PUBLIC_DOCS) {
+      const text = await readFile(path, "utf8");
+      expect(text).not.toMatch(/ngrok|cloudflare|npm run connect|connect:secure|chatgpt-server-url|127\.0\.0\.1:8787/iu);
+      expect(text).not.toContain("/Users/");
+      expect(text).not.toMatch(/\bGPT Repo MCP\b/u);
+    }
+
+    const connection = await readFile("docs/CHATGPT_CONNECT.md", "utf8");
+    expect(connection).toContain("OpenAI Secure MCP Tunnel");
+    expect(connection).toContain("http://127.0.0.1:8789/mcp");
+    expect(connection).toContain("Confirm that exactly 63 tools are listed.");
   });
 
-  test("includes secure tunnel startup script and env example", async () => {
-    const scriptPath = join(process.cwd(), "scripts", "connect-secure.mjs");
-    await expect(access(scriptPath)).resolves.toBeUndefined();
-    const script = await readFile(scriptPath, "utf8");
-    expect(script).toContain("CONTROL_PLANE_API_KEY");
-    expect(script).toContain("TUNNEL_CLIENT_BIN");
-    expect(script).toContain("TUNNEL_CLIENT_PROFILE");
-    expect(script).toContain("GPT_REPO_LOG_FORMAT");
-    expect(script).toContain("REPO_READER_LOG_FORMAT");
-    expect(script).toContain("tunnel-client run");
-    expect(script).toContain("Open ChatGPT connector settings");
-    expect(script).not.toContain("REPO_READER_PUBLIC_PATH_TOKEN");
-    expect(script).not.toContain("console.log(process.env.CONTROL_PLANE_API_KEY");
+  test("documents installation, registration, operations, and uninstall", async () => {
+    const readme = await readFile("README.md", "utf8");
+    const setup = await readFile("docs/SETUP.md", "utf8");
 
-    const envExample = await readFile(join(process.cwd(), ".env.example"), "utf8");
-    expect(envExample).toContain("CONTROL_PLANE_API_KEY=");
-    expect(envExample).toContain("TUNNEL_CLIENT_BIN=");
-    expect(envExample).toContain("example value is only a convention");
-    expect(envExample).toContain("TUNNEL_CLIENT_PROFILE=gpt-repo-local");
-    expect(envExample).toContain("GPT_REPO_CONFIG=./config.local.json");
-    expect(envExample).toContain("GPT_REPO_LOG_FORMAT=pretty");
-    expect(envExample).toContain("PORT=8787");
+    for (const text of [readme, setup]) {
+      expect(text).toContain("npm ci");
+      expect(text).toContain("cp config.example.json config.local.json");
+      expect(text).toContain("npm run add -- /path/to/your/repo --mode <mode>");
+      expect(text).toContain("explicit `read`, `write`, or `ship`");
+      expect(text).toContain("npm run doctor");
+      expect(text).toContain("curl http://127.0.0.1:8789/health");
+    }
 
-    const connectionOptions = await readFile(join(process.cwd(), "docs", "CONNECTION_OPTIONS.md"), "utf8");
-    expect(connectionOptions).toContain("example local `tunnel-client` profile label");
-    expect(connectionOptions).toContain("not a `repo_id`, GitHub repo, ChatGPT connector name, ngrok tunnel, or MCP server name");
-    expect(connectionOptions).toContain("tunnel-client run --profile <profile>");
+    expect(setup).toContain("## Rollback And Uninstall");
+    expect(setup).toContain("npm run remove -- <repo_id>");
+    expect(setup).toContain("No MCP tool can register a root or change its mode.");
   });
 
-  test("public hygiene script blocks local-only artifacts and stale public claims", async () => {
-    const script = await readFile(join(process.cwd(), "scripts", "check-public.mjs"), "utf8");
+  test("documents the non-bypassable authority and merge boundaries", async () => {
+    const readme = await readFile("README.md", "utf8");
+    const security = await readFile("docs/SECURITY.md", "utf8");
+    const workflows = await readFile("docs/WRITE_WORKFLOWS.md", "utf8");
 
-    expect(script).toContain("git");
-    expect(script).toContain("ls-files");
-    expect(script).toContain("tools/");
-    expect(script).toContain("config.local.json");
-    expect(script).toContain(".gitignore");
-    expect(script).toContain(".gitleaks.toml");
-    expect(script).toContain(".gitleaksignore");
-    expect(script).toContain("security/");
-    expect(script).toContain(".chatgpt/");
-    expect(script).toContain("read-only TypeScript MCP server");
-    expect(script).toContain("/Users/");
+    expect(readme).toContain("Allow all actions does not broaden server authority.");
+    expect(readme).toContain("`ship` task authority is required for push and pull-request mutation.");
+    expect(security).toContain("No tool reads credential stores");
+    expect(workflows).toContain("chat-pro-repo approve-merge --gate-id <opaque-id>");
+    expect(workflows).toContain("mode-0600");
+    expect(workflows).toContain("one exact, unexpired, one-time owner approval");
+    expect(workflows).toContain("does not authorize release");
   });
 
-  test("public hygiene script rejects any tracked .chatgpt artifact", async () => {
-    const fixture = await mkdtemp(join(tmpdir(), "gpt-repo-public-check-"));
-    const scriptPath = join(process.cwd(), "scripts", "check-public.mjs");
-    await run("git", ["init"], fixture);
-    await mkdir(join(fixture, ".chatgpt", "plans"), { recursive: true });
-    await writeFile(join(fixture, ".chatgpt", "plans", "private.md"), "# Private plan\n");
-    await run("git", ["add", ".chatgpt/plans/private.md"], fixture);
-
-    await expect(run(process.execPath, [scriptPath], fixture)).rejects.toMatchObject({
-      stderr: expect.stringContaining(".chatgpt/plans/private.md")
-    });
+  test("preserves exact upstream attribution in NOTICE", async () => {
+    const notice = await readFile("NOTICE", "utf8");
+    expect(notice).toContain("gpt-repo-mcp");
+    expect(notice).toContain("https://github.com/CAHN91/gpt-repo-mcp.git");
+    expect(notice).toContain("986f2135f00959f8e0d214ed8d173a7054f4cea1");
+    expect(notice).toContain("4cff6c18f013eba5bcc66eabc5a7a43d4fcd7d6b");
+    expect(notice).toContain("MIT License");
   });
 
-  test("public hygiene script allows Promptiva only in LICENSE", async () => {
-    const scriptPath = join(process.cwd(), "scripts", "check-public.mjs");
-
-    const licenseFixture = await mkdtemp(join(tmpdir(), "gpt-repo-public-license-"));
-    await run("git", ["init"], licenseFixture);
-    await writeFile(join(licenseFixture, "LICENSE"), "MIT License\n\nCopyright (c) 2026 Promptiva AB\n");
-    await run("git", ["add", "LICENSE"], licenseFixture);
-    await expect(run(process.execPath, [scriptPath], licenseFixture)).resolves.toMatchObject({
+  test("public checker admits NOTICE attribution but rejects brand leakage elsewhere", async () => {
+    const scriptPath = resolve("scripts/check-public.mjs");
+    const allowed = await mkdtemp(join(tmpdir(), "chat-pro-public-notice-"));
+    await execFileAsync("git", ["init", "--quiet"], { cwd: allowed });
+    await writeFile(join(allowed, "NOTICE"), "Upstream copyright Promptiva AB\n");
+    await execFileAsync("git", ["add", "NOTICE"], { cwd: allowed });
+    await expect(execFileAsync(process.execPath, [scriptPath], { cwd: allowed })).resolves.toMatchObject({
       stdout: expect.stringContaining("Public hygiene check passed.")
     });
 
-    const readmeFixture = await mkdtemp(join(tmpdir(), "gpt-repo-public-readme-"));
-    await run("git", ["init"], readmeFixture);
-    await writeFile(join(readmeFixture, "README.md"), "Built by Promptiva AB\n");
-    await run("git", ["add", "README.md"], readmeFixture);
-    await expect(run(process.execPath, [scriptPath], readmeFixture)).rejects.toMatchObject({
+    const rejected = await mkdtemp(join(tmpdir(), "chat-pro-public-readme-"));
+    await execFileAsync("git", ["init", "--quiet"], { cwd: rejected });
+    await writeFile(join(rejected, "README.md"), "Built by Promptiva AB\n");
+    await execFileAsync("git", ["add", "README.md"], { cwd: rejected });
+    await expect(execFileAsync(process.execPath, [scriptPath], { cwd: rejected })).rejects.toMatchObject({
       stderr: expect.stringContaining("README.md: blocked public-release marker found: Promptiva")
     });
   });
 
-  test("gitignore uses public-safe local artifact wording", async () => {
-    const gitignore = await readFile(join(process.cwd(), ".gitignore"), "utf8");
+  test("uses public-safe local artifact ignores", async () => {
+    const gitignore = await readFile(".gitignore", "utf8");
+    const npmignore = await readFile(".npmignore", "utf8");
 
-    expect(gitignore).toContain("# Local GPT Repo MCP artifacts");
-    expect(gitignore).toContain(".chatgpt/");
-    expect(gitignore).not.toContain("Agent Recorder");
-  });
-
-  test("setup docs explain ngrok installation from zero", async () => {
-    const readme = await readFile(join(process.cwd(), "README.md"), "utf8");
-    const setup = await readFile(join(process.cwd(), "docs", "SETUP.md"), "utf8");
-    const connectionOptions = await readFile(join(process.cwd(), "docs", "CONNECTION_OPTIONS.md"), "utf8");
-
-    expect(readme).toContain("Install ngrok from zero");
-    expect(setup).toContain("## Install ngrok from zero");
-    expect(setup).toContain("brew install ngrok");
-    expect(setup).toContain("sudo apt install ngrok");
-    expect(setup).toContain("Windows");
-    expect(setup).toContain("ngrok help");
-    expect(setup).toContain("npm run connect");
-    expect(connectionOptions).toContain("## ngrok prerequisites");
-    expect(connectionOptions).toContain("SETUP.md#install-ngrok-from-zero");
-  });
-
-  test("setup docs explain the empty starter config flow", async () => {
-    const readme = await readFile(join(process.cwd(), "README.md"), "utf8");
-    const setup = await readFile(join(process.cwd(), "docs", "SETUP.md"), "utf8");
-    const workflows = await readFile(join(process.cwd(), "docs", "WRITE_WORKFLOWS.md"), "utf8");
-
-    for (const doc of [readme, setup]) {
-      expect(doc).toContain("cp config.example.json config.local.json");
-      expect(doc).toContain("empty");
-      expect(doc).toContain("npm run add -- /path/to/your/repo");
-    }
-    expect(setup).toContain("WARN config has no repositories");
-    expect(workflows).toContain("Manual config remains supported");
-    expect(workflows).toContain("\"root\": \"/absolute/path/to/repo\"");
-  });
-
-  test("ChatGPT connector docs reference sanitized local assets", async () => {
-    const chatgptConnect = await readFile(join(process.cwd(), "docs", "CHATGPT_CONNECT.md"), "utf8");
-    const assetsReadme = await readFile(join(process.cwd(), "docs", "assets", "README.md"), "utf8");
-
-    expect(chatgptConnect).toContain("assets/chatgpt-server-url.png");
-    expect(chatgptConnect).toContain("assets/chatgpt-tunnel-id.png");
-    await expect(access(join(process.cwd(), "docs", "assets", "chatgpt-server-url.png"))).resolves.toBeUndefined();
-    await expect(access(join(process.cwd(), "docs", "assets", "chatgpt-tunnel-id.png"))).resolves.toBeUndefined();
-    expect(assetsReadme).toContain("sanitized source mockups");
-    expect(assetsReadme).toContain("free of real tunnel URLs, tunnel ids, tokens, repo paths, account names, or other private data");
-  });
-
-  test("clone docs avoid Markdown table pipes inside command cells", async () => {
-    const readme = await readFile(join(process.cwd(), "README.md"), "utf8");
-    const setup = await readFile(join(process.cwd(), "docs", "SETUP.md"), "utf8");
-
-    for (const doc of [readme, setup]) {
-      expect(doc).not.toContain("`npm run add -- <path> --mode read|write|ship`");
-      expect(doc).toContain("`npm run add -- <path> --mode <mode>`");
-      expect(doc).toContain("explicit `read`, `write`, or `ship` mode");
-    }
+    expect(gitignore).toContain("# Local Chat Pro Repository MCP artifacts");
+    expect(gitignore).toContain("config.local.json");
+    expect(gitignore).not.toContain("!.env.example");
+    expect(npmignore).not.toContain("!.env.example");
   });
 });
-
-function run(command: string, args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(command, args, { cwd, encoding: "utf8" }, (error, stdout, stderr) => {
-      if (error) {
-        reject(Object.assign(error, { stdout, stderr }));
-        return;
-      }
-      resolve({ stdout, stderr });
-    });
-  });
-}

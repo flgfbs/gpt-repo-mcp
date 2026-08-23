@@ -1,54 +1,47 @@
 # Dependency Security
 
-This maintainer reference records current dependency decisions so contributors
-can distinguish production risk from development-tool advisories.
+Dependencies are pinned through `package.json` and `package-lock.json`. Review
+updates as code changes: inspect provenance, runtime reachability, lockfile
+diffs, licenses, advisories, and the exact validation surface.
 
-Dependency advisories are handled from the checked-in lockfile. Do not use
-`npm audit fix --force`; it may replace the MCP SDK with an older incompatible
-version.
+## Current Runtime Set
 
-## Current production dependency decisions
+The direct runtime dependencies are the MCP SDK, Express, Ignore, TypeScript,
+and Zod. `@hono/node-server` has a deliberate compatible override selected by
+the lockfile. Remove or change an override only after the owning direct
+dependency declares a safe compatible range and integration coverage passes.
 
-| Dependency | Reachability | Resolution |
-| --- | --- | --- |
-| `body-parser` | Reachable through the server's bounded `express.json` middleware. | Keep the compatible fixed transitive release selected by the lockfile. |
-| `fast-uri` | Potentially reachable through AJV-backed validation in the MCP SDK. | Keep the compatible fixed 3.x release selected by the lockfile. |
-| `hono` | The project does not import Hono adapters directly, but it ships under the MCP SDK. | Keep the compatible fixed 4.x release selected by the lockfile. |
-| `@hono/node-server` | Reachable through the MCP SDK Streamable HTTP transport. | Temporarily override to fixed `2.0.12` because MCP SDK 1.29.0 still requests vulnerable 1.x. |
+## Update Procedure
 
-The `@hono/node-server` override must be removed once
-`@modelcontextprotocol/sdk` declares a fixed compatible range. Review the
-override no later than 2026-10-26. Any override change requires the MCP
-contract tests, server network-boundary tests, full test suite, build, and
-`verify:dist`.
+1. Start from a clean trusted checkout.
+2. Inspect the proposed direct and transitive version changes.
+3. Update only the intended dependency set and regenerate the lockfile.
+4. Review `npm ls` and both production-only and full audit output.
+5. Trace every advisory to runtime or development reachability.
+6. Run the complete deterministic verification below.
+7. Record any temporary exception with package, path, severity, rationale,
+   expiry, and removal condition in the repository security policy.
 
-## Current development-only advisories
-
-The checked-in lockfile currently has no production advisories. Its full audit
-has one transitive finding confined to build tooling:
-
-| Package | Toolchain path | Current decision |
-| --- | --- | --- |
-| `esbuild` | `tsup`, `tsx`, and Vite | Development process only; review coordinated toolchain updates by 2026-08-31. |
-
-These are explicit temporary classifications, not blanket audit suppression.
-`security/oss-security-policy.json` locks the package names, severities, and
-review deadline. A new package, changed severity, production finding, or
-expired deadline fails the release security scan. Upgrade the owning direct
-development dependencies together, regenerate the lockfile, and run the full
-verification suite; do not apply forced semver-major audit fixes.
+Do not use `npm audit fix --force`; it can replace compatible protocol and
+transport dependencies with an older or breaking graph.
 
 ## Verification
 
-Run:
-
 ```bash
+npm ci
 npm audit --omit=dev
 npm audit
-npm ls @modelcontextprotocol/sdk @hono/node-server hono body-parser fast-uri ajv
+npm ls @modelcontextprotocol/sdk @hono/node-server express ignore zod
+npm run typecheck
+npm test
+npm run lint
+npm run check:public
+npm run security:scan
+npm run verify:dist
+git diff --check
 ```
 
-Treat a new production advisory as an investigation task: trace its dependency
-path and runtime reachability, prefer a compatible lockfile update, and add an
-override only when upstream has no usable fixed range and the affected path has
-integration coverage.
+Lifecycle implementation tests must use deterministic GitHub and push fakes;
+dependency verification must not contact a live repository or mutate GitHub.
+A new production advisory, license incompatibility, unexplained package,
+expired exception, or unreviewed lockfile churn blocks release preparation.

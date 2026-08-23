@@ -1,95 +1,71 @@
 # Product Principles
 
-GPT Repo MCP is for developers who want ChatGPT to work with a real local
-repository while keeping repository access narrow, visible, and reversible.
-This page explains the product choices users should be able to rely on.
+Chat Pro Repository MCP helps a developer use ChatGPT against real registered
+repositories while keeping local and external effects narrow, visible,
+recoverable, and owner controlled.
 
-## Who It Is For
+## Intended User
 
 The primary user is a solo developer or small technical team that wants
-ChatGPT to understand, change, validate, review, and locally commit work in an
-approved repository.
+ChatGPT to understand, edit, validate, review, commit, and—when explicitly
+configured for `ship`—carry one isolated task through Draft PR, CI, review, and
+an exact owner-approved merge.
 
-Many users already work with Codex or another coding agent. GPT Repo MCP
-complements those tools by giving ChatGPT current repository context, controlled
-development capabilities, and a way to review and coordinate the same local
-work without repeatedly copying files or reconstructing context in the
-conversation.
+## Expected Experience
 
-## The Expected Experience
+Ordinary work should remain simple:
 
-A normal task follows a simple path:
+```text
+understand -> edit -> validate -> review -> local commit/recovery
+```
 
-1. ChatGPT inspects the approved repository and relevant files.
-2. It changes one file or a coherent set of files when writes are enabled.
-3. It runs only repository-approved validation.
-4. It reviews the actual Git state and remaining risks.
-5. It either prepares a reviewed local commit or recovers the affected paths.
+Task work adds explicit isolation and external state only when needed:
 
-Simple questions can stop after reading. Specialist capabilities such as
-transactional patchsets, work sessions, code indexing, or external-agent review
-are available when the task benefits from them, but they are not required for
-ordinary work.
+```text
+open task -> implement -> validate/review -> push -> Draft PR
+          -> CI/review -> exact merge gate -> owner approval -> merge/read-back
+```
+
+Specialist tools such as code indexing, patchsets, work sessions, failure
+diagnosis, artifacts, and external-worker evidence remain optional.
 
 ## Product Promises
 
-Users should be able to rely on these guarantees:
-
-- Only explicitly approved repositories are available.
-- Repository permissions are clear: `read`, `write`, or `ship`.
-- The server offers focused repository capabilities, never arbitrary shell
-  access or unrestricted filesystem access.
-- Writes and local Git operations are policy-checked and visible to the host
-  approval flow.
-- Current file bytes, Git state, and validation evidence take precedence over
-  assumptions or external-agent claims.
-- Failures return useful, sanitized guidance without exposing credentials,
-  absolute local paths, stack traces, or raw environment values.
-- The server may create a reviewed local commit when authorized. It never
-  pushes, merges, deploys, or rewrites Git history.
-- Recovery is explicit and path-scoped rather than based on broad reset or
-  cleanup commands.
+- Only owner-registered repositories are available.
+- Repository mode and task authority are explicit and never increased by a
+  model or tool.
+- The 63 public tools are focused schemas, not an arbitrary shell or API.
+- Actual file bytes, Git objects, validation, review, and remote read-back take
+  precedence over claims.
+- Push is task-branch-only, fast-forward-only, and non-force.
+- Pull requests stay Draft through the create/update boundary.
+- Merge requires one exact, unexpired owner approval and post-merge read-back.
+- Interrupted external effects are queried and classified before replay.
+- Errors and artifacts are bounded and do not expose credential material.
 
 ## User Control
 
-The user chooses:
+The owner chooses registered roots and modes, task goals and maximum authority,
+whether host confirmations are automatic, and whether to approve one exact
+merge gate. ChatGPT chooses an efficient path within those limits. The server
+enforces them independently.
 
-- which local repositories are approved;
-- the permission mode for each repository;
-- the development outcome to pursue;
-- whether mutating calls are approved;
-- whether a completed change should be committed; and
-- whether anything is later pushed, merged, or deployed outside GPT Repo MCP.
+**Allow all actions** is a host convenience. It does not alter repository
+configuration, credentials, task authority, state binding, or merge approval.
 
-ChatGPT chooses a suitable workflow for the request. The MCP server separately
-enforces repository, path, validation, write, secret, and Git policy on every
-call.
+## External Workers
 
-## External-Agent Work
+Current delegation tools can exchange bounded artifacts with a separately
+operated implementation worker. The future Semantic Worker direction makes
+those contracts provider-neutral. Neither current nor future design places
+provider credentials or unrestricted worker execution inside this MCP server.
 
-GPT Repo MCP can prepare bounded task artifacts and review results produced by
-an external implementation agent. It does not include, launch, authenticate,
-or control that agent.
+## Scope Limit
 
-External-agent claims are treated as evidence rather than proof. The normal
-review, validation, and local-commit gates still apply to the real repository
-state.
+`ship` covers reviewed local Git and the exact task-bound GitHub lifecycle. It
+does not include release, deployment, signing, publication, environment
+mutation, or infrastructure administration.
 
-## Compatibility
-
-Public tool names, documented payload fields, error codes, and persisted
-artifact formats are versioned compatibility contracts. Breaking changes
-should have a documented reason, migration path, and release note.
-
-Some public names retain terms such as `codex` or `ship` for compatibility.
-Here, “ship” means readiness for a reviewed local result; it does not mean push
-or deployment. See [Terms and compatibility names](GLOSSARY.md).
-
-## Related Guides
-
-- [Capability guide](CAPABILITIES.md)
-- [Tools and workflows](TOOL_SURFACE.md)
-- [Security model](SECURITY.md)
-- [Write workflows](WRITE_WORKFLOWS.md)
-- [Architecture](ARCHITECTURE.md)
-- [Delegation artifact protocol](DELEGATION_ARTIFACTS.md)
+Public names, strict payloads, order, error semantics, artifact identities, and
+approval behavior are compatibility contracts. Breaking changes require an
+explicit migration and release note.

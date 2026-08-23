@@ -1,54 +1,72 @@
-# Migrating from 0.1.x to 0.2.0
+# Migration Guide
 
-Version 0.2.0 expands the public capability set and removes five overlapping
-tool names. Existing repository configuration remains supported, but unknown
-configuration fields are now rejected.
+This release changes the public identity, connection path, and tool count while
+preserving the inherited 46-tool order.
 
-## Before upgrading
+## Before Updating
 
-1. Keep a copy of your current `config.local.json`.
-2. Update the checkout and run `npm ci`.
-3. Run `npm run build`.
-4. Run `npm run check:config` and remove any unsupported configuration fields
-   it reports.
-5. Refresh the GPT Repo MCP connector in ChatGPT so it receives the current
-   tool schemas.
+1. Stop the local server and Secure MCP Tunnel.
+2. Preserve the local configuration and any needed task/artifact state.
+3. Update to a trusted revision and run `npm ci` and `npm run build`.
+4. Run `npm run check:config` and `npm run doctor`.
+5. Refresh the ChatGPT app so it receives the exact 63-tool schema.
 
-The normal `npm run connect`, `npm run connect:secure`, repository ids,
-read/write/ship modes, and `gpt-repo`/`connect-gpt` binaries remain supported.
+## Command And Connection Changes
 
-## Tool-name changes
+- The public CLI is `chat-pro-repo`.
+- Repository commands are `repo add`, `repo list`, and `repo remove`; package
+  shortcuts remain `npm run add`, `npm run list`, and `npm run remove`.
+- The local package start uses `CHAT_PRO_REPOSITORY_MCP_CONFIG` and port `8789`.
+- ChatGPT connects through OpenAI Secure MCP Tunnel to
+  `http://127.0.0.1:8789/mcp`.
+- Public-URL connection helpers and their credential/example files are removed.
 
-| 0.1.x tool | 0.2.0 replacement |
-| --- | --- |
-| `repo_git_stage` | `repo_write_stage` |
-| `repo_git_unstage` | `repo_write_unstage` |
-| `repo_git_commit` | `repo_write_commit` |
-| `repo_next_action` | `repo_current_work_session` when resuming; `repo_change_plan` for an explicit goal; `repo_git_review` or `repo_ship_review` for readiness |
-| `repo_plan_review` | `repo_git_review` for current Git state; `repo_semantic_review` for focused semantic risks |
+Do not copy an old public endpoint or connection secret into the new setup.
+Activate the Secure MCP Tunnel through the OpenAI workspace.
 
-The canonical write-prefixed Git tools preserve the same bounded local
-stage/unstage/commit responsibilities. No tool pushes, pulls, deploys, or runs
-arbitrary shell commands.
+## Exact Tool Addition
 
-## New optional capabilities
+The following 17 names are appended after the inherited 46, in this order:
 
-The direct workflow does not require every new tool. Continue to use the normal
-path:
+1. `repo_task_open`
+2. `repo_task_status`
+3. `repo_task_close`
+4. `repo_task_cleanup`
+5. `repo_artifact_read`
+6. `repo_remote_status`
+7. `repo_write_push`
+8. `repo_pr_create_or_update`
+9. `repo_pr_status`
+10. `repo_pr_review_threads`
+11. `repo_write_pr_reply`
+12. `repo_write_pr_resolve_thread`
+13. `repo_ci_status`
+14. `repo_write_ci_retry_failed`
+15. `repo_merge_gate_prepare`
+16. `repo_write_merge`
+17. `repo_post_merge_readback`
 
-1. inspect with the bounded read tools;
-2. edit with `repo_write_file` or `repo_write_changes`;
-3. validate with `repo_validate`;
-4. review with `repo_git_review` or `repo_ship_review`; and
-5. use the exact reviewed local commit or recovery payload.
+The total is exactly 63. No old or alternate lifecycle names are accepted as
+aliases.
 
-Context maps, symbol/code indexing, patchsets, work sessions, delegation,
-operation ledgers, failure diagnosis, and standalone semantic review are
-specialist capabilities to use only when the task benefits from them.
+## Workflow Change
 
-## Intentionally not included
+Push and pull-request work now requires a server-bound task with `ship`
+authority and exact expected HEAD/tree. Merge requires a fresh gate and the
+owner command printed by `repo_merge_gate_prepare`:
 
-The OSS server supports delegation artifacts and review, but it does not
-execute implementation agents, load provider integrations, schedule external
-work, or ship project-specific development utilities. External execution
-remains a separate user-owned integration.
+```bash
+chat-pro-repo approve-merge --gate-id <opaque-id>
+```
+
+Old local commits remain ordinary Git history. Existing delegation artifacts
+retain their documented versioned compatibility, but new task/GitHub lifecycle
+artifacts use opaque ids and must not be treated as paths.
+
+## Rollback
+
+If the updated app cannot be admitted, disable the ChatGPT app and Secure MCP
+Tunnel, stop the server, restore the preserved compatible configuration, and
+restart the previously trusted revision. Do not reuse a lifecycle operation,
+merge gate, or approval across revisions unless the exact runtime reports it as
+current and compatible.

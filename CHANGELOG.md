@@ -1,39 +1,34 @@
 # Changelog
 
-All notable public changes to GPT Repo MCP are documented here.
+Notable public changes to Chat Pro Repository MCP are recorded here.
 
-## [0.2.0] - 2026-07-31
+## Unreleased
 
 ### Added
 
-- Repository context maps, symbol context, optional code indexing, failure
-  diagnosis, semantic review, and ship-readiness review.
-- Operation receipts and ledger access, allowlisted validation, work sessions,
-  and transactional patchset prepare/apply/review/rollback workflows.
-- Delegation v3 run inspection, structured replies, state-bound review
-  attestations, and reviewed multi-run integration.
-- Secure Cloudflare connection support, stricter network boundaries, and
-  reproducible security and dependency verification.
+- Seventeen task and GitHub lifecycle tools appended after the inherited 46,
+  producing an exact 63-tool surface with no aliases.
+- Server-bound task worktrees, opaque lifecycle artifacts, exact-state remote
+  observation, fixed-argument non-force push, Draft pull requests, review and
+  CI handling, exact merge-gate preparation, one-time owner CLI approval, and
+  post-merge read-back.
+- OpenAI Secure MCP Tunnel as the documented ChatGPT connection path.
 
 ### Changed
 
-- The recommended workflow is now inspect, edit, validate, review, then use one
-  reviewed local stage/commit or recovery payload.
-- Configuration rejects unknown fields and stores local backup files with
-  owner-only permissions.
-- Git mutation tools use one canonical `repo_write_*` name per action.
-- Planning and readiness decisions come directly from work-session, change,
-  Git-review, semantic-review, and ship-review tools.
+- Public naming, commands, documentation, and examples now use Chat Pro
+  Repository MCP, `chat-pro-repo`, and loopback port `8789`.
+- Push and merge are no longer described as globally absent. They are available
+  only through `ship` tasks and their exact-state boundaries.
 
 ### Removed
 
-- Duplicate aliases `repo_git_stage`, `repo_git_unstage`, and
-  `repo_git_commit`.
-- The overlapping advisory routers `repo_next_action` and `repo_plan_review`.
+- Public-URL fallback connection scripts and static connector mockups.
+- Duplicate or compatibility tool aliases; canonical names are the only public
+  names.
+
 ### Security
 
-- Added pinned secret scanning, dependency-license and advisory policy, and
-  stricter checks that keep local runtime state out of published source and
-  packages.
-
-See [docs/MIGRATION.md](docs/MIGRATION.md) for the 0.1.x upgrade steps.
+- External operations bind task, operation, HEAD, and tree state.
+- Merge requires one exact, unexpired approval created by the owner CLI and
+  consumed once.
