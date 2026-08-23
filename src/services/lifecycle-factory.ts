@@ -62,7 +62,7 @@ export async function createLifecycleRuntimeBundle(
   return {
     tasks,
     artifacts,
-    taskMutations: new DurableTaskMutationRuntime(registry, tasks),
+    taskMutations: new DurableTaskMutationRuntime(registry, tasks, artifacts),
     lifecycle: new RepositoryLifecycleRuntime(registry, tasks, artifacts, external)
   };
 }

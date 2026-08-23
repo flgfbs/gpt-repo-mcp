@@ -13,9 +13,14 @@ import { IgnoreEngine } from "./ignore-engine.js";
 import { GitService } from "./git-service.js";
 import { NodeRuntimeResolver, type NodeRuntimeResolverOptions, type NodeRuntimeSource } from "./node-runtime-resolver.js";
 import { runProcessWithTail } from "./process-exec.js";
+import {
+  attachValidationArtifactCapture,
+  type CapturedValidationCommand
+} from "./validation-artifact-capture.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const OUTPUT_TAIL_CHARS = 4_000;
+const MAX_CAPTURED_VALIDATION_BYTES = 3_500_000;
 const ALL_PROFILE_ORDER = ["typecheck", "lint", "test", "build", "smoke"] as const;
 const VALIDATION_ROOT = ".chatgpt/validation";
 
@@ -78,9 +83,29 @@ export class ValidationService {
       };
     }
 
-    const results = [];
+    const results: ValidateResult["commands"] = [];
+    const capturedCommands: CapturedValidationCommand[] = [];
+    let remainingCaptureBytes = MAX_CAPTURED_VALIDATION_BYTES;
     for (const command of commands) {
-      results.push(await this.runCommand(command, args.timeout_ms ?? DEFAULT_TIMEOUT_MS));
+      const execution = await this.runCommand(command, args.timeout_ms ?? DEFAULT_TIMEOUT_MS, remainingCaptureBytes);
+      if (execution.capture.truncated) {
+        throw new RepoReaderError("VALIDATION_ARTIFACT_TOO_LARGE", "Validation output exceeds the full-log artifact limit.");
+      }
+      remainingCaptureBytes -= Buffer.byteLength(execution.capture.stdout, "utf8")
+        + Buffer.byteLength(execution.capture.stderr, "utf8");
+      results.push(execution.result);
+      capturedCommands.push({
+        profile: command.profile,
+        script: command.script,
+        command: command.command,
+        status: execution.result.status === "passed" ? "passed" : "failed",
+        ...(execution.result.exit_code === undefined ? {} : { exit_code: execution.result.exit_code }),
+        ...(execution.signal === undefined ? {} : { signal: execution.signal }),
+        timed_out: execution.timedOut,
+        duration_ms: execution.result.duration_ms ?? 0,
+        stdout: execution.capture.stdout,
+        stderr: execution.capture.stderr
+      });
     }
     const failed = results.filter((result) => result.status === "failed").length;
     const passed = results.filter((result) => result.status === "passed").length;
@@ -99,10 +124,17 @@ export class ValidationService {
     };
     const artifactPath = await this.writeValidationArtifact(result);
 
-    return {
+    return attachValidationArtifactCapture({
       ...result,
       validation_artifact: { path: artifactPath }
-    };
+    }, {
+      schema_version: 1,
+      validation_id: validationId,
+      repo_id: args.repo_id,
+      profile: args.profile,
+      status: result.status === "passed" ? "passed" : "failed",
+      commands: capturedCommands
+    });
   }
 
   private async readScripts(): Promise<Record<string, string>> {
@@ -206,13 +238,19 @@ export class ValidationService {
     return plans;
   }
 
-  private async runCommand(command: CommandPlan, timeoutMs: number): Promise<ValidateResult["commands"][number]> {
+  private async runCommand(command: CommandPlan, timeoutMs: number, captureBytes: number): Promise<{
+    result: ValidateResult["commands"][number];
+    capture: { stdout: string; stderr: string; truncated: boolean };
+    signal?: string;
+    timedOut: boolean;
+  }> {
     const result = await runProcessWithTail({
       executable: command.executable,
       args: command.args,
       cwd: command.cwd ?? this.root,
       timeout_ms: Math.min(timeoutMs, command.timeout_ms ?? timeoutMs),
       tail_bytes: OUTPUT_TAIL_CHARS * 4,
+      capture_bytes: captureBytes,
       env: {
         PATH: command.pathPrefix ? `${command.pathPrefix}${delimiter}${process.env.PATH ?? ""}` : process.env.PATH ?? "",
         CI: "1",
@@ -223,16 +261,21 @@ export class ValidationService {
     });
     const passed = result.exit_code === 0 && !result.timed_out;
     return {
-      profile: command.profile,
-      script: command.script,
-      command: command.command,
-      ...(command.runtime ? { runtime: command.runtime } : {}),
-      ...(command.executable_sha256 ? { executable_sha256: command.executable_sha256 } : {}),
-      status: passed ? "passed" : "failed",
-      ...(typeof result.exit_code === "number" ? { exit_code: result.exit_code } : {}),
-      duration_ms: result.duration_ms,
-      stdout_tail: tail(result.stdout_tail),
-      stderr_tail: tail(result.timed_out ? `${result.stderr_tail}\nCommand timed out after ${timeoutMs}ms.` : result.stderr_tail)
+      result: {
+        profile: command.profile,
+        script: command.script,
+        command: command.command,
+        ...(command.runtime ? { runtime: command.runtime } : {}),
+        ...(command.executable_sha256 ? { executable_sha256: command.executable_sha256 } : {}),
+        status: passed ? "passed" : "failed",
+        ...(typeof result.exit_code === "number" ? { exit_code: result.exit_code } : {}),
+        duration_ms: result.duration_ms,
+        stdout_tail: tail(result.stdout_tail),
+        stderr_tail: tail(result.timed_out ? `${result.stderr_tail}\nCommand timed out after ${timeoutMs}ms.` : result.stderr_tail)
+      },
+      capture: result.captured_output ?? { stdout: "", stderr: "", truncated: true },
+      ...(result.signal ? { signal: result.signal } : {}),
+      timedOut: result.timed_out
     };
   }
 

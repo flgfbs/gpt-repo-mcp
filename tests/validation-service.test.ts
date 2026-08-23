@@ -7,6 +7,7 @@ import { OperationsPolicy } from "../src/services/operations-policy.js";
 import { ValidateInputSchema } from "../src/contracts/validation.contract.js";
 import { descriptions } from "../src/tools/descriptions.js";
 import type { NodeRuntimeResolverOptions } from "../src/services/node-runtime-resolver.js";
+import { readValidationArtifactCapture } from "../src/services/validation-artifact-capture.js";
 
 describe("ValidationService", () => {
   test("tool and contract describe repo-owned priority plus safe fallbacks without shell execution", async () => {
@@ -106,7 +107,7 @@ describe("ValidationService", () => {
   test("validation artifact records the pytest runner and display command", async () => {
     const root = await fixtureRepo({ pythonMarker: true, localPython: true });
     const result = await service(root).validate({ repo_id: "fixture", profile: "test" });
-    const artifact = JSON.parse(await readFile(join(root, result.validation_artifact!.path), "utf8"));
+    const artifact = JSON.parse(await readFile(join(root, result.validation_artifact!.path!), "utf8"));
     expect(artifact.commands[0]).toMatchObject({ script: "pytest", command: ".venv/bin/python -m pytest" });
   });
 
@@ -163,7 +164,7 @@ describe("ValidationService", () => {
     const root = await fixtureRepo({ scripts: { smoke: "echo ok" }, nodeVersion: "24.18.0" });
     const runtime = await fakeNvmRuntime("24.18.0");
     const result = await service(root, {}, runtime.options).validate({ repo_id: "fixture", profile: "smoke" });
-    const artifactText = await readFile(join(root, result.validation_artifact!.path), "utf8");
+    const artifactText = await readFile(join(root, result.validation_artifact!.path!), "utf8");
     expect(JSON.parse(artifactText).commands[0].runtime).toEqual({ name: "node", version: "24.18.0", source: ".node-version" });
     expect(artifactText).not.toContain(runtime.home);
   });
@@ -218,6 +219,13 @@ describe("ValidationService", () => {
       warnings: []
     });
     expect(result.commands[0]?.stdout_tail?.length).toBeLessThanOrEqual(4000);
+    const capture = readValidationArtifactCapture(result);
+    expect(capture?.commands[0]).toMatchObject({
+      status: "passed",
+      stdout: expect.stringContaining("smoke ok"),
+      timed_out: false
+    });
+    expect(JSON.stringify(result)).not.toContain("validation-artifact-capture");
   });
 
   test("reports validation failure as a structured result instead of a tool error", async () => {
@@ -296,7 +304,7 @@ describe("ValidationService", () => {
     });
     expect(result.validation_id).toMatch(/^validation-/);
 
-    const artifact = JSON.parse(await readFile(join(root, result.validation_artifact!.path), "utf8")) as {
+    const artifact = JSON.parse(await readFile(join(root, result.validation_artifact!.path!), "utf8")) as {
       validation_id?: string;
       focused?: boolean;
       test_paths?: string[];

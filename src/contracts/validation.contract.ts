@@ -48,8 +48,20 @@ export const ValidateResultSchema = z.object({
   }).describe("Validation command counts by status."),
   warnings: z.array(z.string()).describe("Stable warning codes produced during validation."),
   validation_artifact: z.object({
-    path: z.string().describe("Repo-relative path to the saved redacted validation artifact.")
-  }).optional().describe("Saved validation artifact metadata when validation executed.")
+    path: z.string().optional().describe("Repo-relative path to the saved redacted validation artifact for a base-repository call."),
+    artifact_id: z.string().regex(/^artifact_[A-Za-z0-9_-]{16,160}$/).optional().describe("Opaque task-owned artifact id."),
+    kind: z.literal("validation_log").optional(),
+    media_type: z.literal("application/json").optional(),
+    byte_length: z.number().int().nonnegative().optional(),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    created_at: z.string().datetime().optional()
+  }).strict().superRefine((value, context) => {
+    const runtimeFields = [value.artifact_id, value.kind, value.media_type, value.byte_length, value.sha256, value.created_at];
+    const hasRuntimeReference = runtimeFields.every((field) => field !== undefined);
+    if ((value.path !== undefined) === hasRuntimeReference || (value.path === undefined && !hasRuntimeReference)) {
+      context.addIssue({ code: "custom", message: "Validation artifact must contain exactly one complete path or opaque runtime reference." });
+    }
+  }).optional().describe("Saved validation artifact metadata. Task-scoped calls return only an opaque runtime artifact reference.")
 });
 
 export type ValidateInput = z.infer<typeof ValidateInputSchema>;

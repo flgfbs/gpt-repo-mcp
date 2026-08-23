@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
 import { createLifecycleRuntimeBundle } from "../src/services/lifecycle-factory.js";
 import { RootRegistry } from "../src/services/root-registry.js";
+import { attachValidationArtifactCapture } from "../src/services/validation-artifact-capture.js";
 
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
@@ -111,6 +112,70 @@ describe("durable task mutation runtime", () => {
       path: "different.txt"
     }, async () => ({ content: [{ type: "text", text: "unexpected conflict invocation" }] }));
     expect(conflict).toMatchObject({ isError: true, structuredContent: { error: { code: "TASK_OPERATION_CONFLICT" } } });
+  });
+
+  test("stores complete validation output as an opaque task artifact bound to exact Git state", async () => {
+    const fixture = await setup();
+    const fullOutput = `full-output-${"x".repeat(8_000)}`;
+    const structuredContent = attachValidationArtifactCapture({
+      ok: true,
+      repo_id: fixture.taskRepoId,
+      validation_id: "validation-full-log",
+      profile: "all",
+      dry_run: false,
+      status: "passed",
+      commands: [],
+      counts: { total: 1, passed: 1, failed: 0, skipped: 0 },
+      warnings: [],
+      validation_artifact: { path: ".chatgpt/validation/validation-full-log/result.json" }
+    }, {
+      schema_version: 1,
+      validation_id: "validation-full-log",
+      repo_id: fixture.taskRepoId,
+      profile: "all",
+      status: "passed",
+      commands: [{
+        profile: "all",
+        script: "verify",
+        command: "make verify",
+        status: "passed",
+        exit_code: 0,
+        timed_out: false,
+        duration_ms: 10,
+        stdout: fullOutput,
+        stderr: ""
+      }]
+    });
+    const result = await fixture.bundle.taskMutations.run("repo_validate", {
+      repo_id: fixture.taskRepoId,
+      operation_id: "operation-validation-artifact",
+      expected_head_sha: fixture.head,
+      expected_tree_sha: fixture.tree,
+      profile: "all"
+    }, async () => ({
+      structuredContent,
+      content: [{ type: "text", text: "Validation passed." }]
+    }));
+
+    expect(result.isError).not.toBe(true);
+    const reference = (result.structuredContent as { validation_artifact: { artifact_id: string; path?: string } }).validation_artifact;
+    expect(reference.artifact_id).toMatch(/^artifact_/);
+    expect(reference.path).toBeUndefined();
+    const stored = await fixture.bundle.artifacts.read({
+      task_id: "task-mutation",
+      artifact_id: reference.artifact_id,
+      offset: 0,
+      length: 65_536
+    });
+    const payload = JSON.parse(Buffer.from(stored.content_base64, "base64").toString("utf8"));
+    expect(payload).toMatchObject({
+      operation_id: "operation-validation-artifact",
+      expected_head_sha: fixture.head,
+      expected_tree_sha: fixture.tree,
+      resulting_head_sha: fixture.head,
+      resulting_tree_sha: fixture.tree
+    });
+    expect(payload.validation.commands[0].stdout).toBe(fullOutput);
   });
 });
 

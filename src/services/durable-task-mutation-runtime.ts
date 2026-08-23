@@ -2,7 +2,9 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { RepoReaderError } from "../runtime/errors.js";
 import { createErrorEnvelope } from "../runtime/result-envelope.js";
 import {
+  TaskArtifactStore,
   TaskMutationStore,
+  canonicalJson,
   canonicalSha256,
   type TaskMutationRecord,
   type TaskRuntimeService
@@ -10,6 +12,7 @@ import {
 import type { ToolName } from "../tools/contracts.js";
 import type { RootRegistry } from "./root-registry.js";
 import type { TaskMutationRuntime } from "./task-mutation-runtime.js";
+import { readValidationArtifactCapture } from "./validation-artifact-capture.js";
 
 const MAX_RESULT_DIGEST_BYTES = 1024 * 1024;
 
@@ -19,6 +22,7 @@ export class DurableTaskMutationRuntime implements TaskMutationRuntime {
   constructor(
     private readonly registry: RootRegistry,
     private readonly tasks: TaskRuntimeService,
+    private readonly artifacts?: TaskArtifactStore,
     private readonly now: () => Date = () => new Date()
   ) {
     this.store = new TaskMutationStore(tasks.fs);
@@ -64,6 +68,7 @@ export class DurableTaskMutationRuntime implements TaskMutationRuntime {
           record = await this.store.transition(record, "LOCAL_MUTATION_STARTED", {}, this.now().toISOString());
           return invoke();
         });
+        await this.persistValidationArtifact(tool, binding.operationId, registered.task_id, execution, execution.result);
         const resultSha256 = digestResult(execution.result);
         record = await this.store.transition(record, "LOCAL_MUTATION_COMPLETE", {
           after_head_sha: execution.after.head,
@@ -89,6 +94,50 @@ export class DurableTaskMutationRuntime implements TaskMutationRuntime {
       if (error instanceof RepoReaderError) return createErrorEnvelope(error);
       return taskError("TASK_STATE_MISMATCH", "Task mutation admission failed closed.");
     }
+  }
+
+  private async persistValidationArtifact(
+    tool: ToolName,
+    operationId: string,
+    taskId: string,
+    execution: {
+      before: { head: string; tree: string };
+      after: { head: string; tree: string };
+    },
+    result: CallToolResult
+  ): Promise<void> {
+    if (tool !== "repo_validate") return;
+    const capture = readValidationArtifactCapture(result.structuredContent);
+    if (!capture || !this.artifacts) {
+      throw new RepoReaderError("TASK_OPERATION_BLOCKED", "Task validation did not produce a durable full-log artifact payload.");
+    }
+    const artifact = await this.artifacts.put({
+      task_id: taskId,
+      kind: "validation_log",
+      media_type: "application/json",
+      logical_path: `validation/${capture.validation_id}.json`,
+      content: `${canonicalJson({
+        schema_version: 1,
+        task_id: taskId,
+        operation_id: operationId,
+        expected_head_sha: execution.before.head,
+        expected_tree_sha: execution.before.tree,
+        resulting_head_sha: execution.after.head,
+        resulting_tree_sha: execution.after.tree,
+        validation: capture
+      })}\n`
+    });
+    if (!result.structuredContent || typeof result.structuredContent !== "object") {
+      throw new RepoReaderError("TASK_OPERATION_BLOCKED", "Task validation returned no structured content for its artifact reference.");
+    }
+    (result.structuredContent as Record<string, unknown>).validation_artifact = {
+      artifact_id: artifact.artifact_id,
+      kind: artifact.kind,
+      media_type: artifact.media_type,
+      byte_length: artifact.byte_length,
+      sha256: artifact.content_sha256,
+      created_at: artifact.created_at
+    };
   }
 
   private handleExisting(
