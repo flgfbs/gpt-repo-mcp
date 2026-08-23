@@ -43,6 +43,40 @@ describe("lifecycle repository config validation", () => {
       expect.objectContaining({ code: "WORKTREE_ROOT_OVERLAP" })
     ]));
   });
+
+  test("rejects worktree roots that overlap another registered repository", async () => {
+    const first = await lifecycleFixture();
+    const second = await lifecycleFixture();
+    const document = documentFor(first);
+    const secondRepo = documentFor(second).repos[0]!;
+    secondRepo.repo_id = "fixture-two";
+    document.repos[0]!.lifecycle.worktree_root = second.repo;
+    document.repos.push(secondRepo);
+
+    const result = await validateConfigDocument(document);
+
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "WORKTREE_ROOT_CROSSES_REPOSITORY" })
+    ]));
+  });
+
+  test("rejects overlapping worktree roots across repositories", async () => {
+    const first = await lifecycleFixture();
+    const second = await lifecycleFixture();
+    const nestedWorktrees = join(first.worktrees, "nested");
+    await mkdir(nestedWorktrees);
+    const document = documentFor(first);
+    const secondRepo = documentFor(second).repos[0]!;
+    secondRepo.repo_id = "fixture-two";
+    secondRepo.lifecycle.worktree_root = nestedWorktrees;
+    document.repos.push(secondRepo);
+
+    const result = await validateConfigDocument(document);
+
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "WORKTREE_ROOTS_OVERLAP" })
+    ]));
+  });
 });
 
 type LifecycleFixture = {

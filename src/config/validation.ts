@@ -53,6 +53,8 @@ export async function validateConfigDocument(document: unknown): Promise<{
   }
 
   const seenRoots = new Map<string, string>();
+  const lifecycleRepoRoots: Array<{ repo_id: string; root: string }> = [];
+  const lifecycleWorktreeRoots: Array<{ repo_id: string; root: string }> = [];
   for (const [index, repo] of config.repos.entries()) {
     const rootPath = resolve(repo.root);
     let stats: Awaited<ReturnType<typeof stat>>;
@@ -96,13 +98,17 @@ export async function validateConfigDocument(document: unknown): Promise<{
     }
 
     if (repo.lifecycle) {
+      lifecycleRepoRoots.push({ repo_id: repo.repo_id, root: canonicalRoot });
       if (repo.allow_non_git) {
         issues.push({
           code: "LIFECYCLE_REQUIRES_GIT",
           message: `Lifecycle policy cannot be combined with allow_non_git for repo_id "${repo.repo_id}".`
         });
       } else {
-        await validateLifecycleRepository(repo, canonicalRoot, issues);
+        const worktreeRoot = await validateLifecycleRepository(repo, canonicalRoot, issues);
+        if (worktreeRoot) {
+          lifecycleWorktreeRoots.push({ repo_id: repo.repo_id, root: worktreeRoot });
+        }
       }
     }
 
@@ -136,6 +142,8 @@ export async function validateConfigDocument(document: unknown): Promise<{
       });
     }
   }
+
+  validateLifecycleRootSeparation(lifecycleRepoRoots, lifecycleWorktreeRoots, issues);
 
   return { config, issues, warnings };
 }
@@ -196,9 +204,9 @@ async function validateLifecycleRepository(
   repo: NonNullable<Awaited<ReturnType<typeof validateConfigDocument>>["config"]>["repos"][number],
   canonicalRoot: string,
   issues: ConfigIssue[]
-): Promise<void> {
+): Promise<string | undefined> {
   const lifecycle = repo.lifecycle;
-  if (!lifecycle) return;
+  if (!lifecycle) return undefined;
 
   try {
     const topLevel = (await runGit(canonicalRoot, ["rev-parse", "--show-toplevel"])).trim();
@@ -207,7 +215,7 @@ async function validateLifecycleRepository(
     }
   } catch {
     issues.push({ code: "GIT_BINDING_UNAVAILABLE", message: `Git repository binding could not be read for repo_id "${repo.repo_id}".` });
-    return;
+    return undefined;
   }
 
   try {
@@ -248,18 +256,48 @@ async function validateLifecycleRepository(
     const worktreeInfo = await lstat(worktreeRoot);
     if (!worktreeInfo.isDirectory() || worktreeInfo.isSymbolicLink()) {
       issues.push({ code: "WORKTREE_ROOT_UNSAFE", message: `Configured worktree root is not a no-follow directory for repo_id "${repo.repo_id}".` });
-      return;
+      return undefined;
     }
     const canonicalWorktreeRoot = await realpath(worktreeRoot);
     if (pathsOverlap(canonicalRoot, canonicalWorktreeRoot)) {
       issues.push({ code: "WORKTREE_ROOT_OVERLAP", message: `Configured worktree root overlaps the owner repository for repo_id "${repo.repo_id}".` });
     }
+    return canonicalWorktreeRoot;
   } catch (error) {
     if (isNotFoundError(error)) {
       issues.push({ code: "WORKTREE_ROOT_MISSING", message: `Configured worktree root does not exist for repo_id "${repo.repo_id}".` });
-      return;
+      return undefined;
     }
     throw error;
+  }
+}
+
+function validateLifecycleRootSeparation(
+  repoRoots: Array<{ repo_id: string; root: string }>,
+  worktreeRoots: Array<{ repo_id: string; root: string }>,
+  issues: ConfigIssue[]
+): void {
+  for (const worktree of worktreeRoots) {
+    for (const repo of repoRoots) {
+      if (worktree.repo_id !== repo.repo_id && pathsOverlap(worktree.root, repo.root)) {
+        issues.push({
+          code: "WORKTREE_ROOT_CROSSES_REPOSITORY",
+          message: `Worktree root for repo_id "${worktree.repo_id}" overlaps owner root for repo_id "${repo.repo_id}".`
+        });
+      }
+    }
+  }
+  for (let leftIndex = 0; leftIndex < worktreeRoots.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < worktreeRoots.length; rightIndex += 1) {
+      const left = worktreeRoots[leftIndex]!;
+      const right = worktreeRoots[rightIndex]!;
+      if (pathsOverlap(left.root, right.root)) {
+        issues.push({
+          code: "WORKTREE_ROOTS_OVERLAP",
+          message: `Worktree roots overlap for repo_id "${left.repo_id}" and "${right.repo_id}".`
+        });
+      }
+    }
   }
 }
 
