@@ -158,21 +158,116 @@ export async function addRepository(args: string[], configPath: string, io: Owne
 
 export async function listRepositories(configPath: string, io: OwnerCliIo): Promise<number> {
   const config = await loadConfig(configPath);
-  if (config.repos.length === 0) {
+  const validation = await validateConfigDocument(config);
+  const repos = validation.repositories ?? validation.config!.repos;
+  if (repos.length === 0) {
     io.stdout("No repositories registered.");
+  } else {
+    io.stdout("repo_id\tdisplay_name\tauthority\tgithub_repository\tallowed_base_branches\troot");
+    for (const repo of [...repos].sort((left, right) => left.repo_id.localeCompare(right.repo_id))) {
+      io.stdout([
+        repo.repo_id,
+        repo.display_name,
+        repo.lifecycle?.authority ?? (repo.writes.enabled ? "write" : "read"),
+        repo.lifecycle?.github_repository ?? "-",
+        repo.lifecycle?.allowed_base_branches.join(",") ?? "-",
+        repo.root
+      ].join("\t"));
+    }
+  }
+  if (validation.issues.length > 0) {
+    io.stderr(`FAIL ${validation.issues.length} configuration issue(s); explicit entries are listed for diagnosis.`);
+    for (const issue of validation.issues) io.stderr(`- [${issue.code}] ${issue.message}`);
+    return 1;
+  }
+  return 0;
+}
+
+export async function addProjectRoot(args: string[], configPath: string, io: OwnerCliIo): Promise<number> {
+  const options = parseProjectRootAddOptions(args);
+  if (!options.path) throw new OwnerCliError("USAGE", "Usage: chat-pro-repo project-root add <path> [options]");
+  const root = await canonicalOwnerDirectory(resolve(io.cwd, options.path), "Project root");
+  const projectRootId = normalizeRepoId(options.projectRootId ?? basename(root));
+  if (!projectRootId) throw new OwnerCliError("INVALID_PROJECT_ROOT_ID", "Project root id must contain an ASCII letter or digit.");
+
+  const config = await loadConfig(configPath);
+  const existingValidation = await validateConfigDocument(config);
+  if (existingValidation.issues.length > 0) {
+    throw new OwnerCliError(
+      "CONFIG_VALIDATION_FAILED",
+      `Existing configuration is invalid: ${existingValidation.issues.map((issue) => `[${issue.code}] ${issue.message}`).join("; ")}`
+    );
+  }
+  const projectRoots = config.project_roots ?? [];
+  if (projectRoots.some((entry) => entry.project_root_id === projectRootId)) {
+    throw new OwnerCliError("DUPLICATE_PROJECT_ROOT_ID", `Project root id already exists: ${projectRootId}`);
+  }
+  const canonicalExistingRoots = await Promise.all(projectRoots.map(async (entry) => realpath(entry.root)));
+  if (canonicalExistingRoots.includes(root)) {
+    throw new OwnerCliError("DUPLICATE_PROJECT_ROOT", "Canonical project root is already registered.");
+  }
+
+  const next: RepoReaderConfig = {
+    ...config,
+    project_roots: [...projectRoots, {
+      project_root_id: projectRootId,
+      root,
+      ...(options.repoIdPrefix ? { repo_id_prefix: options.repoIdPrefix } : {}),
+      exclude_directories: unique(options.excludeDirectories)
+    }]
+  };
+  const validation = await validateConfigDocument(next);
+  if (validation.issues.length > 0) {
+    throw new OwnerCliError(
+      "CONFIG_VALIDATION_FAILED",
+      `Project root was not written: ${validation.issues.map((issue) => `[${issue.code}] ${issue.message}`).join("; ")}`
+    );
+  }
+  await writePrivateConfig(configPath, next);
+
+  io.stdout(`project_root_id=${projectRootId}`);
+  io.stdout(`root=${root}`);
+  io.stdout("mode=read");
+  io.stdout(`repo_id_prefix=${options.repoIdPrefix ?? "-"}`);
+  io.stdout(`exclude_directories=${unique(options.excludeDirectories).join(",")}`);
+  io.stdout(`approved_repository_count=${validation.repositories!.length}`);
+  io.stdout("restart_required=true");
+  return 0;
+}
+
+export async function listProjectRoots(configPath: string, io: OwnerCliIo): Promise<number> {
+  const config = await loadConfig(configPath);
+  const projectRoots = config.project_roots ?? [];
+  if (projectRoots.length === 0) {
+    io.stdout("No project roots registered.");
     return 0;
   }
-  io.stdout("repo_id\tdisplay_name\tauthority\tgithub_repository\tallowed_base_branches\troot");
-  for (const repo of [...config.repos].sort((left, right) => left.repo_id.localeCompare(right.repo_id))) {
+  io.stdout("project_root_id\tmode\trepo_id_prefix\texclude_directories\troot");
+  for (const projectRoot of [...projectRoots].sort((left, right) => left.project_root_id.localeCompare(right.project_root_id))) {
     io.stdout([
-      repo.repo_id,
-      repo.display_name,
-      repo.lifecycle?.authority ?? "read",
-      repo.lifecycle?.github_repository ?? "-",
-      repo.lifecycle?.allowed_base_branches.join(",") ?? "-",
-      repo.root
+      projectRoot.project_root_id,
+      "read",
+      projectRoot.repo_id_prefix ?? "-",
+      projectRoot.exclude_directories?.join(",") ?? "-",
+      projectRoot.root
     ].join("\t"));
   }
+  return 0;
+}
+
+export async function removeProjectRoot(args: string[], configPath: string, io: OwnerCliIo): Promise<number> {
+  if (args.length !== 1) throw new OwnerCliError("USAGE", "Usage: chat-pro-repo project-root remove <project_root_id>");
+  const projectRootId = args[0]!;
+  const config = await loadConfig(configPath);
+  const projectRoots = config.project_roots ?? [];
+  const index = projectRoots.findIndex((entry) => entry.project_root_id === projectRootId);
+  if (index < 0) throw new OwnerCliError("UNKNOWN_PROJECT_ROOT", `Project root is not registered: ${projectRootId}`);
+  const [removed] = projectRoots.splice(index, 1);
+  config.project_roots = projectRoots;
+  await writePrivateConfig(configPath, config);
+  io.stdout(`removed_project_root_id=${removed!.project_root_id}`);
+  io.stdout("repository_data_deleted=false");
+  io.stdout("restart_required=true");
   return 0;
 }
 
@@ -266,6 +361,41 @@ function parseAddOptions(args: string[]): AddOptions {
   return options;
 }
 
+function parseProjectRootAddOptions(args: string[]): {
+  path?: string;
+  projectRootId?: string;
+  repoIdPrefix?: string;
+  excludeDirectories: string[];
+} {
+  const options: {
+    path?: string;
+    projectRootId?: string;
+    repoIdPrefix?: string;
+    excludeDirectories: string[];
+  } = { excludeDirectories: [] };
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (!arg.startsWith("--")) {
+      if (options.path) throw new OwnerCliError("USAGE", `Unexpected argument: ${arg}`);
+      options.path = arg;
+      continue;
+    }
+    const value = args[index + 1];
+    if (!value || value.startsWith("--")) throw new OwnerCliError("USAGE", `Missing value for ${arg}.`);
+    index += 1;
+    switch (arg) {
+      case "--id": options.projectRootId = normalizeRepoId(value); break;
+      case "--repo-id-prefix": options.repoIdPrefix = normalizeRepoId(value); break;
+      case "--exclude": options.excludeDirectories.push(value); break;
+      default: throw new OwnerCliError("USAGE", `Unknown option: ${arg}`);
+    }
+  }
+  if (options.repoIdPrefix === "") {
+    throw new OwnerCliError("INVALID_REPO_ID_PREFIX", "Repository id prefix must contain an ASCII letter or digit.");
+  }
+  return options;
+}
+
 function setAuthority(current: Authority | undefined, value: string): Authority {
   const authority = RepositoryAuthoritySchema.parse(value);
   if (current && current !== authority) throw new OwnerCliError("AUTHORITY_CONFLICT", "Repository authority was specified more than once with different values.");
@@ -351,7 +481,7 @@ async function ensureOwnerDirectory(path: string, label: string): Promise<string
   return realpath(path);
 }
 
-async function writePrivateConfig(configPath: string, config: RepoReaderConfig): Promise<void> {
+export async function writePrivateConfig(configPath: string, config: RepoReaderConfig): Promise<void> {
   const existing = await lstat(configPath).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return undefined;
     throw error;
@@ -403,6 +533,14 @@ async function writePrivateConfig(configPath: string, config: RepoReaderConfig):
   } finally {
     await parentHandle.close();
   }
+}
+
+async function canonicalOwnerDirectory(path: string, label: string): Promise<string> {
+  const stats = await lstat(path);
+  if (!stats.isDirectory() || stats.isSymbolicLink()) {
+    throw new OwnerCliError("OWNER_DIRECTORY_UNSAFE", `${label} must be a real directory, not a symlink.`);
+  }
+  return realpath(path);
 }
 
 async function runGit(cwd: string, args: string[]): Promise<string> {

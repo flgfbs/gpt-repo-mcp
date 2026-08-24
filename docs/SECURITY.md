@@ -6,7 +6,8 @@ deployment administrator.
 
 ## Security Model At A Glance
 
-- Only owner-registered canonical repository roots are visible.
+- Only owner-registered canonical repository roots and read-only exact Git
+  children of owner-registered project roots are visible.
 - Every repository has deny-first read, write, Git, validation, and cleanup
   policy.
 - Tools accept structured schemas, not arbitrary commands.
@@ -54,9 +55,14 @@ not receive, read, or return the credential material.
 
 ## Repository And Credential Boundaries
 
-No tool adds, removes, or widens repository roots. Only the owner CLI edits the
-local registry. A task may narrow authority from repository policy; it cannot
-widen it.
+No tool adds, removes, or widens repository or project roots. Only the owner
+CLI edits the local registry. Project discovery is one directory deep,
+read-only, rejects symlink roots, skips `.git` indirection files, rejects
+ambiguous or overlong ids, and gives each discovered standalone Git worktree
+its own canonical sandbox. Exclusions are case-insensitive. Explicit child
+repositories may override discovered policy, but project roots inside explicit
+repositories fail closed. A task may narrow authority from repository policy;
+it cannot widen it.
 
 No tool reads credential stores, access tokens, API keys, SSH keys, environment
 secret values, Git credential helpers, or `gh` authentication state. The GitHub

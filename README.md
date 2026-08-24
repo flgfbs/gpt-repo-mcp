@@ -1,7 +1,8 @@
 # Chat Pro Repository MCP
 
 Chat Pro Repository MCP is a local-first Model Context Protocol server for
-working with explicitly registered repositories. It gives ChatGPT 63 focused
+working with explicitly registered repositories and owner-approved project
+roots. It gives ChatGPT 63 focused
 tools for repository understanding, bounded edits, validation, local Git,
 task-isolated worktrees, GitHub pull requests, CI, review, and exact-head
 owner-approved merges.
@@ -40,8 +41,25 @@ npm run list
 npm run check:config
 ```
 
-No MCP tool can add, remove, or widen a repository root. Registration is an
-owner CLI operation.
+To approve every direct Git repository under one project directory without
+registering each repository separately:
+
+```bash
+npm run add-project-root -- /path/to/projects
+npm run list-project-roots
+npm run list
+```
+
+Project-root discovery is one directory deep and read-only. It ignores non-Git
+directories, symlinks, and `.git` indirection files used by linked worktrees or
+submodules. Exclusion names are matched case-insensitively. An explicit
+repository entry remains the policy override for the same canonical child root;
+a project root itself cannot be equal to or nested inside an explicit
+repository. Register a repository explicitly with `write` or `ship` when it
+needs mutation or GitHub lifecycle authority.
+
+No MCP tool can add, remove, or widen a repository or project root.
+Registration is an owner CLI operation.
 
 Start the loopback server:
 

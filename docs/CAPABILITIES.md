@@ -28,6 +28,17 @@ Choose an explicit `read`, `write`, or `ship` mode. Registration resolves the
 canonical root and writes local configuration. A tool cannot add a root, change
 its mode, or expand its path policy.
 
+For many sibling repositories, register their owner-controlled parent once:
+
+```bash
+npm run add-project-root -- /path/to/projects
+```
+
+Direct standalone Git children become independent read-only repository ids with
+separate canonical path sandboxes. Symlinks and `.git` indirection files are
+excluded; configured directory exclusions are case-insensitive. Add an explicit
+`write` or `ship` repository entry only where broader authority is required.
+
 ## Task-Isolated Development
 
 `repo_task_open` binds a caller-generated operation id and task id to an exact

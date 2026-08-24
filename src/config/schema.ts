@@ -132,6 +132,18 @@ export const RepoConfigSchema = z.object({
   lifecycle: LifecyclePolicyConfigSchema.optional()
 }).strict();
 
+const ProjectDirectoryNameSchema = z.string().min(1).max(255).refine(
+  (value) => value !== "." && value !== ".." && !value.includes("/") && !value.includes("\\") && !value.includes("\0"),
+  "project root exclusions must be direct directory names"
+);
+
+export const ProjectRootConfigSchema = z.object({
+  project_root_id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,199}$/),
+  root: z.string().min(1).refine(isAbsolute, "project_roots.root must be an absolute path"),
+  repo_id_prefix: z.string().regex(/^[a-z0-9][a-z0-9-]{0,199}$/).optional(),
+  exclude_directories: z.array(ProjectDirectoryNameSchema).max(256).default([])
+}).strict();
+
 export const LimitsConfigSchema = z.object({
   max_files: PositiveIntSchema.optional(),
   max_bytes_per_file: PositiveIntSchema.optional(),
@@ -148,6 +160,7 @@ export const LimitsConfigSchema = z.object({
 
 export const RepoReaderConfigSchema = z.object({
   repos: z.array(RepoConfigSchema).default([]),
+  project_roots: z.array(ProjectRootConfigSchema).default([]),
   limits: LimitsConfigSchema.default({}),
   code_intelligence: CodeIntelligenceConfigSchema.optional(),
   runtime_root: z.string().min(1).refine(isAbsolute, "runtime_root must be an absolute path").default(DEFAULT_RUNTIME_ROOT)
@@ -164,13 +177,16 @@ export type RepoConfig = {
   operations?: OperationsPolicyConfigDocument;
   lifecycle?: z.input<typeof LifecyclePolicyConfigSchema>;
 };
+export type ProjectRootConfig = z.input<typeof ProjectRootConfigSchema>;
 export type RepoReaderConfig = {
   repos: RepoConfig[];
+  project_roots?: ProjectRootConfig[];
   limits: z.input<typeof LimitsConfigSchema>;
   code_intelligence?: z.input<typeof CodeIntelligenceConfigSchema>;
   runtime_root?: string;
 };
 export type ParsedRepoConfig = z.output<typeof RepoConfigSchema>;
+export type ParsedProjectRootConfig = z.output<typeof ProjectRootConfigSchema>;
 export type ParsedRepoReaderConfig = z.output<typeof RepoReaderConfigSchema>;
 
 function migrateLegacyShipValidation(value: unknown): unknown {

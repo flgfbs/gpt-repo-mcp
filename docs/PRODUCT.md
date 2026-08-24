@@ -31,7 +31,8 @@ diagnosis, artifacts, and external-worker evidence remain optional.
 
 ## Product Promises
 
-- Only owner-registered repositories are available.
+- Only owner-registered repositories and exact Git children of
+  owner-registered project roots are available.
 - Repository mode and task authority are explicit and never increased by a
   model or tool.
 - The 63 public tools are focused schemas, not an arbitrary shell or API.

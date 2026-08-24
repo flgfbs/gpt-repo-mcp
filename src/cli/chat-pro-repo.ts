@@ -14,8 +14,11 @@ import {
   type OwnerApprovalCliStore
 } from "./owner-approval.js";
 import {
+  addProjectRoot,
   addRepository,
+  listProjectRoots,
   listRepositories,
+  removeProjectRoot,
   removeRepository
 } from "./repository-config.js";
 import {
@@ -32,6 +35,9 @@ const USAGE = [
   "  chat-pro-repo repo add <path> [--mode read|write|ship] [policy options] [--config <path>]",
   "  chat-pro-repo repo list [--config <path>]",
   "  chat-pro-repo repo remove <repo_id> [--config <path>]",
+  "  chat-pro-repo project-root add <path> [--id <id>] [--repo-id-prefix <prefix>] [--exclude <name>] [--config <path>]",
+  "  chat-pro-repo project-root list [--config <path>]",
+  "  chat-pro-repo project-root remove <project_root_id> [--config <path>]",
   "  chat-pro-repo task list [--limit <1-10000>] [--config <path>]",
   "  chat-pro-repo task inspect <task_id> [--config <path>]",
   "  chat-pro-repo approve-merge --gate-id <opaque-id> [--config <path>]",
@@ -84,6 +90,15 @@ export async function runChatProRepoCli(
     }
     if (args[0] === "repo" && args[1] === "remove") {
       return await removeRepository(args.slice(2), configPath, io, taskReaderFactory);
+    }
+    if (args[0] === "project-root" && args[1] === "add") {
+      return await addProjectRoot(args.slice(2), configPath, io);
+    }
+    if (args[0] === "project-root" && args[1] === "list" && args.length === 2) {
+      return await listProjectRoots(configPath, io);
+    }
+    if (args[0] === "project-root" && args[1] === "remove") {
+      return await removeProjectRoot(args.slice(2), configPath, io);
     }
     if (args[0] === "task" && args[1] === "list") {
       const limit = parseTaskListArgs(args.slice(2));
@@ -151,7 +166,9 @@ async function validateConfig(configPath: string, io: OwnerCliIo): Promise<numbe
     for (const issue of result.issues) io.stderr(`- [${issue.code}] ${issue.message}`);
     return 1;
   }
-  io.stdout(`PASS ${result.config?.repos.length ?? 0} repository(s) validated.`);
+  const approvedCount = result.repositories!.length;
+  io.stdout(`PASS ${approvedCount} repository(s) validated.`);
+  io.stdout(`DISCOVERY explicit=${result.config!.repos.length} discovered=${approvedCount - result.config!.repos.length}`);
   for (const warning of result.warnings) io.stdout(`WARN [${warning.code}] ${warning.message}`);
   return 0;
 }

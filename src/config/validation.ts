@@ -5,6 +5,7 @@ import { realpath } from "node:fs/promises";
 import { promisify } from "node:util";
 import { isNotFoundError } from "../runtime/fs-helpers.js";
 import { RepoReaderConfigSchema, type ParsedRepoReaderConfig, type RepoReaderConfig } from "./schema.js";
+import { expandProjectRepositories, ProjectRootDiscoveryError } from "./project-root-discovery.js";
 import { githubRepositoryFromIdentity, normalizeRemoteIdentity } from "../services/remote-identity.js";
 
 const execFileAsync = promisify(execFile);
@@ -21,6 +22,7 @@ export type ConfigWarning = {
 
 export async function validateConfigDocument(document: unknown): Promise<{
   config?: ParsedRepoReaderConfig;
+  repositories?: ParsedRepoReaderConfig["repos"];
   issues: ConfigIssue[];
   warnings: ConfigWarning[];
 }> {
@@ -145,7 +147,20 @@ export async function validateConfigDocument(document: unknown): Promise<{
 
   validateLifecycleRootSeparation(lifecycleRepoRoots, lifecycleWorktreeRoots, issues);
 
-  return { config, issues, warnings };
+  let repositories: ParsedRepoReaderConfig["repos"] | undefined;
+  if (issues.length === 0) {
+    try {
+      repositories = await expandProjectRepositories(config);
+    } catch (error) {
+      if (error instanceof ProjectRootDiscoveryError) {
+        issues.push({ code: error.code, message: error.message });
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  return { config, repositories, issues, warnings };
 }
 
 function isShipLikeWithoutValidation(operations: RepoReaderConfig["repos"][number]["operations"]): boolean {

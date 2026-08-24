@@ -5,6 +5,7 @@ import {
   RepoReaderConfigSchema,
   type ParsedRepoConfig
 } from "../config/schema.js";
+import { expandProjectRepositories } from "../config/project-root-discovery.js";
 import { DEFAULT_LIMITS } from "../policies/limits.js";
 import { RepoReaderError } from "../runtime/errors.js";
 
@@ -47,10 +48,7 @@ export class RootRegistry {
 
   static async fromConfig(config: RepoReaderConfigInput): Promise<RootRegistry> {
     const parsed = RepoReaderConfigSchema.parse(config);
-    const repos: RuntimeRepoConfig[] = [];
-    for (const repo of parsed.repos) {
-      repos.push({ ...repo, root: await realpath(repo.root) });
-    }
+    const repos: RuntimeRepoConfig[] = await expandProjectRepositories(parsed);
     return new RootRegistry(repos, {
       max_files: parsed.limits.max_files ?? DEFAULT_LIMITS.max_files,
       max_bytes_per_file: parsed.limits.max_bytes_per_file ?? DEFAULT_LIMITS.max_bytes_per_file,

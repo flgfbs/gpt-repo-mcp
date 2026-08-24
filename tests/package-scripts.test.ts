@@ -55,8 +55,11 @@ describe("package and public documentation", () => {
     expect(pkg.scripts?.["security:export"]).toBe("node scripts/export-security-candidate.mjs");
     expect(pkg.scripts?.["security:scan"]).toBe("node scripts/oss-security-scan.mjs");
     expect(pkg.scripts?.add).toBe("node dist/cli/chat-pro-repo.js repo add");
+    expect(pkg.scripts?.["add-project-root"]).toBe("node dist/cli/chat-pro-repo.js project-root add");
     expect(pkg.scripts?.remove).toBe("node dist/cli/chat-pro-repo.js repo remove");
+    expect(pkg.scripts?.["remove-project-root"]).toBe("node dist/cli/chat-pro-repo.js project-root remove");
     expect(pkg.scripts?.list).toBe("node dist/cli/chat-pro-repo.js repo list");
+    expect(pkg.scripts?.["list-project-roots"]).toBe("node dist/cli/chat-pro-repo.js project-root list");
     expect(pkg.scripts?.["check:config"]).toBe("node dist/cli/chat-pro-repo.js config validate");
     expect(pkg.scripts?.doctor).toBe("npm run build && node dist/cli/chat-pro-repo.js doctor");
   });
@@ -103,6 +106,7 @@ describe("package and public documentation", () => {
       expect(text).toContain("npm ci");
       expect(text).toContain("cp config.example.json config.local.json");
       expect(text).toContain("npm run add -- /path/to/your/repo --mode <mode>");
+      expect(text).toContain("npm run add-project-root -- /path/to/projects");
       expect(text).toContain("explicit `read`, `write`, or `ship`");
       expect(text).toContain("npm run doctor");
       expect(text).toContain("curl http://127.0.0.1:8789/health");

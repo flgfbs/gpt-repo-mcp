@@ -33,6 +33,9 @@ describe("chat-pro-repo owner CLI", () => {
       "repo add",
       "repo list",
       "repo remove",
+      "project-root add",
+      "project-root list",
+      "project-root remove",
       "task list",
       "task inspect",
       "approve-merge --gate-id",
@@ -41,6 +44,57 @@ describe("chat-pro-repo owner CLI", () => {
       "server start"
     ]) expect(result.stdout).toContain(command);
     expect(result.stderr).toBe("");
+  });
+
+  test("adds one project root and lists its direct Git repositories", async () => {
+    const fixture = await cliFixture();
+    const projects = join(fixture.root, "Projects");
+    await mkdir(projects);
+    await initializeRepository(join(projects, "alpha"), "origin", "https://github.com/acme/alpha.git");
+    await initializeRepository(join(projects, "beta"), "origin", "https://github.com/acme/beta.git");
+
+    const added = await fixture.run([
+      "project-root", "add", projects,
+      "--id", "projects",
+      "--exclude", "CodexWorktrees"
+    ]);
+    expect(added.code).toBe(0);
+    expect(added.stdout).toContain("approved_repository_count=2");
+    expect(added.stdout).toContain("restart_required=true");
+
+    const validated = await fixture.run(["config", "validate"]);
+    expect(validated.code).toBe(0);
+    expect(validated.stdout).toContain("PASS 2 repository(s) validated.");
+    expect(validated.stdout).toContain("DISCOVERY explicit=0 discovered=2");
+
+    const listed = await fixture.run(["repo", "list"]);
+    expect(listed.stdout).toContain("alpha\talpha\tread");
+    expect(listed.stdout).toContain("beta\tbeta\tread");
+
+    const projectRoots = await fixture.run(["project-root", "list"]);
+    expect(projectRoots.stdout).toContain(`projects\tread\t-\tCodexWorktrees\t${await realpath(projects)}`);
+
+    const removed = await fixture.run(["project-root", "remove", "projects"]);
+    expect(removed.code).toBe(0);
+    expect(removed.stdout).toContain("repository_data_deleted=false");
+  });
+
+  test("lists explicit entries for diagnosis when a registered root is missing", async () => {
+    const fixture = await cliFixture();
+    const missingRoot = join(fixture.root, "deleted-repository");
+    await writeFile(fixture.configPath, `${JSON.stringify({
+      repos: [{ repo_id: "deleted", display_name: "Deleted Repository", root: missingRoot }],
+      limits: {},
+      runtime_root: fixture.runtimeRoot
+    })}\n`, { mode: 0o600 });
+
+    const listed = await fixture.run(["repo", "list"]);
+
+    expect(listed.code).toBe(1);
+    expect(listed.stdout).toContain(`deleted\tDeleted Repository\tread\t-\t-\t${missingRoot}`);
+    expect(listed.stderr).toContain("explicit entries are listed for diagnosis");
+    expect(listed.stderr).toContain("[ROOT_MISSING]");
+    expect(listed.stderr).not.toContain("CLI_FAILED");
   });
 
   test("adds, validates, lists, and removes a complete lifecycle repository policy", async () => {

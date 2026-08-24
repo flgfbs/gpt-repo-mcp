@@ -57,7 +57,13 @@ command, URL, repository selector, branch selector, or credential value.
 
 ## Local Repository Plane
 
-The root registry is the sole repository admission boundary. Sandboxed path
+The root registry is the sole repository admission boundary. Explicit roots
+are canonicalized directly; owner-configured project roots expand read-only to
+their direct, real child directories that are exact standalone Git worktree
+roots. Linked worktree and submodule `.git` indirection files are not admitted.
+Explicit repository entries override a discovered child root; a project root
+inside an explicit repository, an ambiguous id, or a project-root overlap fails
+closed. Sandboxed path
 resolution canonicalizes each target under its root, applies ignore and secret
 classification, rejects traversal and symlink escape, and enforces size limits.
 

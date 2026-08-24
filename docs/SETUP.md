@@ -56,6 +56,35 @@ npm run add -- /path/to/your/repo --mode ship --id project-id --name "Project Na
 Manual configuration remains possible for advanced operators, but the CLI is
 recommended because it performs canonicalization and validation.
 
+## Register A Project Root
+
+Register one owner-controlled directory to discover every direct Git
+repository beneath it:
+
+```bash
+npm run add-project-root -- /path/to/projects
+npm run list-project-roots
+npm run list
+npm run check:config
+```
+
+Discovery is read-only and limited to direct, real child directories that are
+exact standalone Git worktree roots. Non-Git directories, symlinks, `.git`
+indirection files used by linked worktrees or submodules, and deeper nested
+repositories are not admitted. Repeatable `--exclude <directory-name>` values
+are matched case-insensitively. Use `--repo-id-prefix <prefix>` if several
+project roots could produce the same repository id; the resulting repository id
+must not exceed 200 characters.
+
+Register a repository explicitly with `write` or `ship` when it needs file
+mutation, task worktrees, GitHub lifecycle policy, required checks, or merge
+configuration. An explicit entry overrides discovery for the same canonical
+child root. A project root cannot be equal to or nested inside an explicit
+repository root.
+
+Restart the local MCP server after changing project-root registration. The
+Secure MCP Tunnel can remain connected while the loopback server restarts.
+
 ## Validate And Diagnose
 
 ```bash
@@ -140,7 +169,8 @@ To roll back access without deleting repository data:
 1. stop the MCP server;
 2. stop or deactivate its Secure MCP Tunnel;
 3. disable or remove the ChatGPT app;
-4. unregister each root with `npm run remove -- <repo_id>`; and
+4. unregister project roots with `npm run remove-project-root -- <project_root_id>`
+   and explicit roots with `npm run remove -- <repo_id>`; and
 5. run `npm run list` to confirm the registry is empty.
 
 Unregistering a root does not delete the repository. Before removing this

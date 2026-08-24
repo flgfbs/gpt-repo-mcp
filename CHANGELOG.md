@@ -13,6 +13,11 @@ Notable public changes to Chat Pro Repository MCP are recorded here.
   CI handling, exact merge-gate preparation, one-time owner CLI approval, and
   post-merge read-back.
 - OpenAI Secure MCP Tunnel as the documented ChatGPT connection path.
+- Owner-managed project roots that discover direct Git repositories as
+  independent read-only roots without per-repository registration.
+- Project-root fail-closed boundaries for explicit-root containment, linked
+  worktree indirection, case-insensitive exclusions, generated-id length, and
+  structured degraded-list diagnostics.
 
 ### Changed
 
