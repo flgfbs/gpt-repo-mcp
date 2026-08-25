@@ -8,7 +8,7 @@ health, rollback, and uninstall.
 
 - Node.js 20 or newer
 - Git
-- `gh` installed and authenticated for GitHub lifecycle tools
+- `gh` installed and authenticated only when GitHub lifecycle tools are needed
 - an OpenAI workspace where Secure MCP Tunnel and custom ChatGPT apps are
   available
 
@@ -42,7 +42,8 @@ Replace `<mode>` with explicit `read`, `write`, or `ship`:
 
 - `read` enables bounded inspection;
 - `write` additionally enables policy-checked edits; and
-- `ship` additionally admits local Git and task-bound GitHub lifecycle work.
+- `ship` additionally admits reviewed local Git; task-bound GitHub lifecycle
+  work is available only when a GitHub lifecycle policy is configured.
 
 The CLI resolves and records the canonical root. It rejects duplicate ids and
 roots. No MCP tool can register a root or change its mode.
@@ -52,6 +53,17 @@ To choose stable labels:
 ```bash
 npm run add -- /path/to/your/repo --mode ship --id project-id --name "Project Name"
 ```
+
+For a repository with no GitHub remote, register a local-only lifecycle:
+
+```bash
+npm run add -- /path/to/your/repo --mode ship --local-only --id project-id
+```
+
+This admits isolated task worktrees, validation, stage, local commit, close, and
+cleanup. It does not configure a remote, GitHub repository, required checks, or
+merge method. Remote, push, pull-request, CI, review-thread, merge, and
+post-merge tools fail closed with `LIFECYCLE_POLICY_DENIED`.
 
 Manual configuration remains possible for advanced operators, but the CLI is
 recommended because it performs canonicalization and validation.
@@ -77,8 +89,9 @@ project roots could produce the same repository id; the resulting repository id
 must not exceed 200 characters.
 
 Register a repository explicitly with `write` or `ship` when it needs file
-mutation, task worktrees, GitHub lifecycle policy, required checks, or merge
-configuration. An explicit entry overrides discovery for the same canonical
+mutation or task worktrees. Use `--local-only` when those tasks must remain
+local; omit it only when configuring the GitHub lifecycle, required checks, and
+merge behavior. An explicit entry overrides discovery for the same canonical
 child root. A project root cannot be equal to or nested inside an explicit
 repository root.
 
@@ -209,6 +222,9 @@ Do not use `npm audit fix --force`. See
 - Health fails: confirm the server is running and port `8789` is free.
 - Tools are absent in ChatGPT: confirm the Tunnel ID and refresh app metadata.
 - `UNKNOWN_REPO`: run `npm run list`; only the owner CLI can register the root.
+- `LIFECYCLE_POLICY_DENIED`: confirm whether the repository is read-only,
+  local-only, or GitHub-backed. Do not add a remote merely to bypass this
+  policy; use `--local-only` for isolated local tasks.
 - GitHub reads fail: run `gh auth status` in the owner terminal; do not paste
   authentication output or tokens into ChatGPT.
 - A state-bound call is stale: read current task/GitHub state and prepare a new

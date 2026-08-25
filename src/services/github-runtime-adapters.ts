@@ -345,7 +345,7 @@ export class RegistryTaskLookup implements TaskLookup {
       throw new GitHubBoundaryError("TASK_STATE_MISMATCH", "Durable task state does not match the active task registration.");
     }
     const base = this.registry.getBase(binding.base_repo_id);
-    if (!base.lifecycle || base.lifecycle.authority !== "ship") {
+    if (!base.lifecycle || base.lifecycle.kind !== "github" || base.lifecycle.authority !== "ship") {
       throw new GitHubBoundaryError("SHIP_POLICY_REQUIRED", "Owner repository policy does not admit GitHub lifecycle effects.");
     }
     const [owner, name] = base.lifecycle.github_repository.split("/");

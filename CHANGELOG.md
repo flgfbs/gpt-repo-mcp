@@ -6,6 +6,10 @@ Notable public changes to Chat Pro Repository MCP are recorded here.
 
 ### Added
 
+- Local-only lifecycle policy for isolated task worktrees, validation, reviewed
+  local commits, close, and cleanup without any Git remote or GitHub authority.
+- Owner CLI `--local-only` registration with explicit conflict rejection for
+  remote, GitHub, required-check, and merge-method options.
 - Seventeen task and GitHub lifecycle tools appended after the inherited 46,
   producing an exact 63-tool surface with no aliases.
 - Server-bound task worktrees, opaque lifecycle artifacts, exact-state remote
@@ -21,6 +25,14 @@ Notable public changes to Chat Pro Repository MCP are recorded here.
 
 ### Changed
 
+- Legacy lifecycle configuration without a `kind` discriminator remains
+  GitHub-backed; new parsed state records `kind: "github"` without requiring a
+  migration rewrite.
+- External lifecycle tools now fail with `LIFECYCLE_POLICY_DENIED` before
+  contact when invoked for a local-only task.
+- Npm validation prefers the trusted running Node executable directory, so
+  launchd services with a minimal `PATH` can still resolve the matching package
+  manager.
 - Public naming, commands, documentation, and examples now use Chat Pro
   Repository MCP, `chat-pro-repo`, and loopback port `8789`.
 - Push and merge are no longer described as globally absent. They are available

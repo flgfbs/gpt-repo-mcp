@@ -36,6 +36,8 @@ type AddOptions = {
   githubRepository?: string;
   mergeMethod: MergeMethod;
   requiredChecks: string[];
+  localOnly: boolean;
+  githubOptionsExplicit: boolean;
   requireCleanBase: boolean;
   maxConcurrentTasks: number;
   cleanup: {
@@ -70,23 +72,34 @@ export async function addRepository(args: string[], configPath: string, io: Owne
     throw new OwnerCliError("DUPLICATE_ROOT", "Canonical repository root is already registered.");
   }
 
-  const remoteIdentity = await inspectRemoteIdentity(root, options.remoteName);
-  if (options.expectedRemoteIdentity) {
-    const requested = normalizeRemoteIdentity(options.expectedRemoteIdentity);
-    if (requested !== remoteIdentity) {
-      throw new OwnerCliError("REMOTE_IDENTITY_MISMATCH", "Configured Git remote does not match --expected-remote-identity.");
+  if (options.localOnly && options.githubOptionsExplicit) {
+    throw new OwnerCliError(
+      "LOCAL_ONLY_OPTION_CONFLICT",
+      "--local-only cannot be combined with remote, GitHub, merge-method, or required-check options."
+    );
+  }
+
+  let remoteIdentity: string | undefined;
+  let githubRepository: string | undefined;
+  if (!options.localOnly) {
+    remoteIdentity = await inspectRemoteIdentity(root, options.remoteName);
+    if (options.expectedRemoteIdentity) {
+      const requested = normalizeRemoteIdentity(options.expectedRemoteIdentity);
+      if (requested !== remoteIdentity) {
+        throw new OwnerCliError("REMOTE_IDENTITY_MISMATCH", "Configured Git remote does not match --expected-remote-identity.");
+      }
     }
-  }
-  const derivedGitHub = githubRepositoryFromIdentity(remoteIdentity);
-  if (!derivedGitHub) {
-    throw new OwnerCliError("GITHUB_REMOTE_REQUIRED", "Lifecycle registration requires a credential-safe github.com remote identity.");
-  }
-  const githubRepository = options.githubRepository ?? derivedGitHub;
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(githubRepository)) {
-    throw new OwnerCliError("GITHUB_REPOSITORY_REQUIRED", "Use --github-repository <owner/name> for this remote identity.");
-  }
-  if (derivedGitHub.toLowerCase() !== githubRepository.toLowerCase()) {
-    throw new OwnerCliError("GITHUB_REPOSITORY_MISMATCH", "GitHub owner/name does not match the configured remote.");
+    const derivedGitHub = githubRepositoryFromIdentity(remoteIdentity);
+    if (!derivedGitHub) {
+      throw new OwnerCliError("GITHUB_REMOTE_REQUIRED", "GitHub lifecycle registration requires a credential-safe github.com remote identity.");
+    }
+    githubRepository = options.githubRepository ?? derivedGitHub;
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(githubRepository)) {
+      throw new OwnerCliError("GITHUB_REPOSITORY_REQUIRED", "Use --github-repository <owner/name> for this remote identity.");
+    }
+    if (derivedGitHub.toLowerCase() !== githubRepository.toLowerCase()) {
+      throw new OwnerCliError("GITHUB_REPOSITORY_MISMATCH", "GitHub owner/name does not match the configured remote.");
+    }
   }
 
   const baseBranches = options.baseBranches.length > 0
@@ -107,6 +120,31 @@ export async function addRepository(args: string[], configPath: string, io: Owne
   await ensureOwnerDirectory(runtimeRoot, "Runtime root");
   const worktreeRoot = await ensureOwnerDirectory(worktreeRootInput, "Worktree root");
 
+  const lifecycle: NonNullable<RepoReaderConfig["repos"][number]["lifecycle"]> = options.localOnly
+    ? {
+        kind: "local",
+        authority,
+        allowed_base_branches: baseBranches,
+        worktree_root: worktreeRoot,
+        require_clean_base: options.requireCleanBase,
+        max_concurrent_tasks: options.maxConcurrentTasks,
+        cleanup: options.cleanup
+      }
+    : {
+        kind: "github",
+        authority,
+        remote_name: options.remoteName,
+        expected_remote_identity: remoteIdentity!,
+        allowed_base_branches: baseBranches,
+        worktree_root: worktreeRoot,
+        github_repository: githubRepository!,
+        merge_method: options.mergeMethod,
+        required_checks: unique(options.requiredChecks),
+        require_clean_base: options.requireCleanBase,
+        max_concurrent_tasks: options.maxConcurrentTasks,
+        cleanup: options.cleanup
+      };
+
   const next: RepoReaderConfig = {
     ...config,
     runtime_root: runtimeRoot,
@@ -115,19 +153,7 @@ export async function addRepository(args: string[], configPath: string, io: Owne
       display_name: displayName,
       root,
       ...authorityPolicies(authority),
-      lifecycle: {
-        authority,
-        remote_name: options.remoteName,
-        expected_remote_identity: remoteIdentity,
-        allowed_base_branches: baseBranches,
-        worktree_root: worktreeRoot,
-        github_repository: githubRepository,
-        merge_method: options.mergeMethod,
-        required_checks: unique(options.requiredChecks),
-        require_clean_base: options.requireCleanBase,
-        max_concurrent_tasks: options.maxConcurrentTasks,
-        cleanup: options.cleanup
-      }
+      lifecycle
     }]
   };
   const validation = await validateConfigDocument(next);
@@ -143,13 +169,14 @@ export async function addRepository(args: string[], configPath: string, io: Owne
   io.stdout(`display_name=${displayName}`);
   io.stdout(`root=${root}`);
   io.stdout(`authority=${authority}`);
-  io.stdout(`remote_name=${options.remoteName}`);
-  io.stdout(`expected_remote_identity=${remoteIdentity}`);
+  io.stdout(`lifecycle_kind=${options.localOnly ? "local" : "github"}`);
+  io.stdout(`remote_name=${options.localOnly ? "-" : options.remoteName}`);
+  io.stdout(`expected_remote_identity=${remoteIdentity ?? "-"}`);
   io.stdout(`allowed_base_branches=${baseBranches.join(",")}`);
   io.stdout(`worktree_root=${worktreeRoot}`);
-  io.stdout(`github_repository=${githubRepository}`);
-  io.stdout(`merge_method=${options.mergeMethod}`);
-  io.stdout(`required_checks=${unique(options.requiredChecks).join(",")}`);
+  io.stdout(`github_repository=${githubRepository ?? "-"}`);
+  io.stdout(`merge_method=${options.localOnly ? "-" : options.mergeMethod}`);
+  io.stdout(`required_checks=${options.localOnly ? "-" : unique(options.requiredChecks).join(",")}`);
   io.stdout(`cleanup_remove_worktree=${String(options.cleanup.remove_worktree)}`);
   io.stdout(`cleanup_delete_local_branch=${String(options.cleanup.delete_local_branch)}`);
   io.stdout(`cleanup_require_terminal_task=${String(options.cleanup.require_terminal_task)}`);
@@ -169,7 +196,7 @@ export async function listRepositories(configPath: string, io: OwnerCliIo): Prom
         repo.repo_id,
         repo.display_name,
         repo.lifecycle?.authority ?? (repo.writes.enabled ? "write" : "read"),
-        repo.lifecycle?.github_repository ?? "-",
+        repo.lifecycle?.kind === "github" ? repo.lifecycle.github_repository : "-",
         repo.lifecycle?.allowed_base_branches.join(",") ?? "-",
         repo.root
       ].join("\t"));
@@ -305,6 +332,8 @@ function parseAddOptions(args: string[]): AddOptions {
     baseBranches: [],
     mergeMethod: "squash",
     requiredChecks: [],
+    localOnly: false,
+    githubOptionsExplicit: false,
     requireCleanBase: true,
     maxConcurrentTasks: 8,
     cleanup: { remove_worktree: true, delete_local_branch: true, require_terminal_task: true }
@@ -318,6 +347,10 @@ function parseAddOptions(args: string[]): AddOptions {
     }
     if (arg === "--read" || arg === "--write" || arg === "--ship") {
       options.authority = setAuthority(options.authority, arg.slice(2));
+      continue;
+    }
+    if (arg === "--local-only") {
+      options.localOnly = true;
       continue;
     }
     if (arg === "--allow-dirty-base") {
@@ -344,13 +377,13 @@ function parseAddOptions(args: string[]): AddOptions {
       case "--name": options.displayName = value; break;
       case "--mode":
       case "--authority": options.authority = setAuthority(options.authority, value); break;
-      case "--remote-name": options.remoteName = value; break;
-      case "--expected-remote-identity": options.expectedRemoteIdentity = value; break;
+      case "--remote-name": options.remoteName = value; options.githubOptionsExplicit = true; break;
+      case "--expected-remote-identity": options.expectedRemoteIdentity = value; options.githubOptionsExplicit = true; break;
       case "--base": options.baseBranches.push(value); break;
       case "--worktree-root": options.worktreeRoot = value; break;
-      case "--github-repository": options.githubRepository = value; break;
-      case "--merge-method": options.mergeMethod = MergeMethodSchema.parse(value); break;
-      case "--required-check": options.requiredChecks.push(value); break;
+      case "--github-repository": options.githubRepository = value; options.githubOptionsExplicit = true; break;
+      case "--merge-method": options.mergeMethod = MergeMethodSchema.parse(value); options.githubOptionsExplicit = true; break;
+      case "--required-check": options.requiredChecks.push(value); options.githubOptionsExplicit = true; break;
       case "--max-concurrent-tasks": options.maxConcurrentTasks = parsePositiveInteger(value, arg, 64); break;
       default: throw new OwnerCliError("USAGE", `Unknown option: ${arg}`);
     }

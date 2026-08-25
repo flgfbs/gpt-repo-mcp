@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { access, lstat, open, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
-import { basename, delimiter, isAbsolute, join, relative, sep } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, relative, sep } from "node:path";
 import ignore from "ignore";
 import { ValidateInputSchema, type ValidateInput, type ValidateResult, type ValidationProfile } from "../contracts/validation.contract.js";
 import { RepoReaderError } from "../runtime/errors.js";
@@ -53,7 +53,8 @@ export class ValidationService {
   constructor(
     private readonly root: string,
     private readonly policy: OperationsPolicy,
-    private readonly nodeRuntimeOptions: NodeRuntimeResolverOptions = {}
+    private readonly nodeRuntimeOptions: NodeRuntimeResolverOptions = {},
+    private readonly hostNodeExecutable: string = process.execPath
   ) {}
 
   async validate(input: ValidateInput): Promise<ValidateResult> {
@@ -209,7 +210,8 @@ export class ValidationService {
       executable: "npm",
       command: testPaths && candidate === "test" ? `npm run test -- ${testPaths.join(" ")}` : `npm run ${candidate}`,
       args: testPaths && candidate === "test" ? ["run", candidate, "--", ...testPaths] : ["run", candidate],
-      ...(selectedNode ? { pathPrefix: selectedNode.bin_directory, runtime } : {})
+      pathPrefix: selectedNode?.bin_directory ?? dirname(this.hostNodeExecutable),
+      ...(runtime ? { runtime } : {})
     }));
     const needsPytest = !("test" in scripts) && (profile === "test" || profile === "all") && await this.hasPythonTestSuite();
     if (needsPytest) {

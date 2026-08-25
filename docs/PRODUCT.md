@@ -7,9 +7,10 @@ recoverable, and owner controlled.
 ## Intended User
 
 The primary user is a solo developer or small technical team that wants
-ChatGPT to understand, edit, validate, review, commit, and—when explicitly
-configured for `ship`—carry one isolated task through Draft PR, CI, review, and
-an exact owner-approved merge.
+ChatGPT to understand, edit, validate, review, commit, and isolate task
+worktrees. A repository may stop at reviewed local Git or, when explicitly
+configured for GitHub lifecycle, continue through Draft PR, CI, review, and an
+exact owner-approved merge.
 
 ## Expected Experience
 
@@ -19,11 +20,12 @@ Ordinary work should remain simple:
 understand -> edit -> validate -> review -> local commit/recovery
 ```
 
-Task work adds explicit isolation and external state only when needed:
+Task work adds explicit isolation first, and external state only when selected:
 
 ```text
-open task -> implement -> validate/review -> push -> Draft PR
-          -> CI/review -> exact merge gate -> owner approval -> merge/read-back
+local:  open task -> implement -> validate/review -> local commit -> close/cleanup
+github: local path -> push -> Draft PR -> CI/review -> exact merge gate
+                   -> owner approval -> merge/read-back
 ```
 
 Specialist tools such as code indexing, patchsets, work sessions, failure
@@ -35,6 +37,8 @@ diagnosis, artifacts, and external-worker evidence remain optional.
   owner-registered project roots are available.
 - Repository mode and task authority are explicit and never increased by a
   model or tool.
+- Local-only lifecycle never requires or synthesizes a remote and rejects every
+  external lifecycle operation before contact.
 - The 63 public tools are focused schemas, not an arbitrary shell or API.
 - Actual file bytes, Git objects, validation, review, and remote read-back take
   precedence over claims.
@@ -63,9 +67,10 @@ provider credentials or unrestricted worker execution inside this MCP server.
 
 ## Scope Limit
 
-`ship` covers reviewed local Git and the exact task-bound GitHub lifecycle. It
-does not include release, deployment, signing, publication, environment
-mutation, or infrastructure administration.
+`ship` covers reviewed local Git. The exact task-bound GitHub lifecycle is an
+additional repository policy, not an automatic consequence of `ship`. Neither
+form includes release, deployment, signing, publication, environment mutation,
+or infrastructure administration.
 
 Public names, strict payloads, order, error semantics, artifact identities, and
 approval behavior are compatibility contracts. Breaking changes require an

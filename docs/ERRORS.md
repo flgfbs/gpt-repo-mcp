@@ -32,6 +32,7 @@ expected/current object ids, safe counts, warning codes, or a recovery hint.
 | `SIZE_LIMIT_EXCEEDED` | A configured or contract byte/count bound was exceeded. |
 | `WRITE_DISABLED` / write-policy codes | Repository write policy did not admit the target. |
 | `OPERATIONS_DISABLED` / Git-policy codes | Local Git, validation, or cleanup policy was not enabled. |
+| `LIFECYCLE_POLICY_DENIED` | The repository or task does not admit the requested lifecycle authority; local-only tasks use this for every remote or GitHub operation. |
 | `GIT_HEAD_MISMATCH` | Current HEAD differs from the exact expected HEAD. |
 | `GIT_STAGED_PATHS_MISMATCH` | Actual staged paths differ from the reviewed set. |
 | `VALIDATION_DISABLED` / `VALIDATION_PROFILE_UNAVAILABLE` | The requested named validation route is not admitted. |
@@ -42,6 +43,11 @@ Lifecycle services may add stable codes for task binding, operation replay,
 external contact, CI/review staleness, artifact identity, gate expiry, or
 approval consumption. Treat the returned code and `retryable` field as the
 contract; do not infer authority from an error message.
+
+`LIFECYCLE_POLICY_DENIED` is not a prompt to invent a Git remote. For a
+repository without GitHub authority, continue through local validation, review,
+commit, close, and cleanup. External lifecycle requires a separate owner
+configuration decision.
 
 ## Stale State Is A Fresh Read, Not A Bypass
 

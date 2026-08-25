@@ -50,7 +50,7 @@ const USAGE = [
   "  --expected-remote-identity <canonical-identity> --base <branch> (repeatable)",
   "  --worktree-root <absolute-path> --github-repository <owner/name>",
   "  --merge-method merge|squash|rebase --required-check <name> (repeatable)",
-  "  --max-concurrent-tasks <1-64> --allow-dirty-base",
+  "  --max-concurrent-tasks <1-64> --allow-dirty-base --local-only",
   "  --keep-worktree --keep-local-branch --allow-nonterminal-cleanup"
 ].join("\n");
 

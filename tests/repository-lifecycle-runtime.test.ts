@@ -106,6 +106,82 @@ describe("repository lifecycle runtime", () => {
     })).toEqual(cleaned);
   }, 15_000);
 
+  test("opens a local-only task, preserves local ship authority, and rejects every external lifecycle call", async () => {
+    const fixture = await fixtureRegistry({ kind: "local" });
+    const bundle = await createLifecycleRuntimeBundle(fixture.registry);
+    const opened = await bundle.lifecycle.taskOpen({
+      operation_id: "operation-open-local-only",
+      repo_id: "owner",
+      task_id: "task-local-only",
+      base_branch: "main",
+      base_commit_sha: fixture.commit,
+      base_tree_sha: fixture.tree,
+      authority: "ship",
+      goal: "Exercise a local-only task without remote or GitHub effects.",
+      branch_slug: "local-only"
+    });
+    expect(fixture.registry.get(opened.task.repo_id)).toMatchObject({
+      writes: { enabled: true },
+      operations: {
+        enabled: true,
+        git_stage_enabled: true,
+        git_commit_enabled: true,
+        validation_enabled: true
+      }
+    });
+
+    const exact = {
+      operation_id: "operation-local-external-denied",
+      repo_id: opened.task.repo_id,
+      task_id: "task-local-only",
+      expected_head_sha: fixture.commit,
+      expected_tree_sha: fixture.tree
+    };
+    const externalCalls: Array<() => Promise<unknown>> = [
+      () => bundle.lifecycle.remoteStatus(exact),
+      () => bundle.lifecycle.writePush(exact),
+      () => bundle.lifecycle.prCreateOrUpdate({ ...exact, title: "Denied", body: "Denied", draft: true }),
+      () => bundle.lifecycle.prStatus(exact),
+      () => bundle.lifecycle.prReviewThreads(exact),
+      () => bundle.lifecycle.writePrReply({ ...exact, thread_id: "thread-1", body: "Denied" }),
+      () => bundle.lifecycle.writePrResolveThread({
+        ...exact,
+        thread_id: "thread-1",
+        expected_thread_updated_at: "2026-08-23T00:00:00.000Z"
+      }),
+      () => bundle.lifecycle.ciStatus(exact),
+      () => bundle.lifecycle.writeCiRetryFailed({
+        ...exact,
+        ci_status_id: "ci_status_1234567890abcdef",
+        failed_run_ids: ["123"]
+      }),
+      () => bundle.lifecycle.mergeGatePrepare(exact),
+      () => bundle.lifecycle.writeMerge({
+        ...exact,
+        manifest_id: "merge_manifest_1234567890abcdef",
+        manifest_sha256: "a".repeat(64),
+        approval_id: "merge_approval_1234567890abcdef"
+      }),
+      () => bundle.lifecycle.postMergeReadback({ ...exact, merge_operation_id: "operation-local-merge-denied" })
+    ];
+    for (const call of externalCalls) {
+      await expect(call()).rejects.toMatchObject({ code: "LIFECYCLE_POLICY_DENIED" });
+    }
+
+    await bundle.lifecycle.taskClose({
+      ...exact,
+      operation_id: "operation-close-local-only",
+      outcome: "completed",
+      summary: "Local-only lifecycle completed without external effects."
+    });
+    const cleaned = await bundle.lifecycle.taskCleanup({
+      ...exact,
+      operation_id: "operation-cleanup-local-only",
+      cleanup_scope: "workspace_only"
+    });
+    expect(cleaned).toMatchObject({ state: "cleaned", workspace_removed: true });
+  }, 15_000);
+
   test("enforces repository authority, allowed base branch, clean base, and task capacity", async () => {
     const fixture = await fixtureRegistry({ authority: "write", maxConcurrentTasks: 1 });
     const bundle = await createLifecycleRuntimeBundle(fixture.registry);
@@ -169,7 +245,11 @@ describe("repository lifecycle runtime", () => {
   }, 30_000);
 });
 
-async function fixtureRegistry(options: { authority?: "read" | "write" | "ship"; maxConcurrentTasks?: number } = {}) {
+async function fixtureRegistry(options: {
+  authority?: "read" | "write" | "ship";
+  kind?: "github" | "local";
+  maxConcurrentTasks?: number;
+} = {}) {
   const parent = await realpath(await mkdtemp(join(tmpdir(), "repository-lifecycle-")));
   roots.push(parent);
   const ownerRoot = join(parent, "owner");
@@ -184,23 +264,42 @@ async function fixtureRegistry(options: { authority?: "read" | "write" | "ship";
   await git(ownerRoot, "commit", "-m", "Initial fixture");
   const commit = await git(ownerRoot, "rev-parse", "HEAD");
   const tree = await git(ownerRoot, "rev-parse", "HEAD^{tree}");
-  const registry = await RootRegistry.fromConfig({
-    repos: [{
-      repo_id: "owner",
-      display_name: "Owner fixture",
-      root: ownerRoot,
-      lifecycle: {
+  const lifecycle = options.kind === "local"
+    ? {
+        kind: "local" as const,
+        authority: options.authority ?? "ship",
+        allowed_base_branches: ["main"],
+        worktree_root: worktreeRoot,
+        require_clean_base: true,
+        max_concurrent_tasks: options.maxConcurrentTasks ?? 8
+      }
+    : {
+        kind: "github" as const,
         authority: options.authority ?? "ship",
         remote_name: "origin",
         expected_remote_identity: "https://github.com/example/fixture.git",
         allowed_base_branches: ["main"],
         worktree_root: worktreeRoot,
         github_repository: "example/fixture",
-        merge_method: "squash",
+        merge_method: "squash" as const,
         required_checks: ["test"],
         require_clean_base: true,
         max_concurrent_tasks: options.maxConcurrentTasks ?? 8
-      }
+      };
+  const registry = await RootRegistry.fromConfig({
+    repos: [{
+      repo_id: "owner",
+      display_name: "Owner fixture",
+      root: ownerRoot,
+      writes: { enabled: true, allowed_globs: ["**"] },
+      operations: {
+        enabled: true,
+        git_stage_enabled: true,
+        git_commit_enabled: true,
+        validation_enabled: true,
+        cleanup_enabled: true
+      },
+      lifecycle
     }],
     limits: {},
     runtime_root: runtimeRoot

@@ -4,8 +4,8 @@ Chat Pro Repository MCP is a local-first Model Context Protocol server for
 working with explicitly registered repositories and owner-approved project
 roots. It gives ChatGPT 63 focused
 tools for repository understanding, bounded edits, validation, local Git,
-task-isolated worktrees, GitHub pull requests, CI, review, and exact-head
-owner-approved merges.
+task-isolated worktrees, and—when explicitly configured—GitHub pull requests,
+CI, review, and exact-head owner-approved merges.
 
 The server is not a shell and is not a general GitHub client. Repository roots,
 task authority, paths, expected Git state, operation identities, and merge
@@ -56,7 +56,7 @@ submodules. Exclusion names are matched case-insensitively. An explicit
 repository entry remains the policy override for the same canonical child root;
 a project root itself cannot be equal to or nested inside an explicit
 repository. Register a repository explicitly with `write` or `ship` when it
-needs mutation or GitHub lifecycle authority.
+needs mutation, isolated task worktrees, or GitHub lifecycle authority.
 
 No MCP tool can add, remove, or widen a repository or project root.
 Registration is an owner CLI operation.
@@ -87,16 +87,31 @@ Repository registration sets the maximum local capability:
 | --- | --- |
 | `read` | Bounded inspection only. |
 | `write` | Inspection and policy-checked repository edits. |
-| `ship` | Write capability plus local Git and the task-bound GitHub lifecycle. |
+| `ship` | Write capability plus reviewed local Git; GitHub lifecycle is available only under a GitHub lifecycle policy. |
+
+Repositories without a GitHub remote can opt into isolated task worktrees and
+reviewed local commits without granting any external authority:
+
+```bash
+npm run add -- /path/to/your/repo --mode ship --local-only
+```
+
+Existing lifecycle entries without a `kind` field remain GitHub lifecycle
+entries for backward compatibility. The CLI writes `kind: "local"` only when
+`--local-only` is selected.
 
 `repo_task_open` then creates a narrower task binding with `inspect`,
 `implement`, or `ship` authority. It binds the task id, base branch, base commit,
 base tree, goal, and branch slug. The server derives and owns the task branch
 and isolated worktree.
 
-`ship` task authority is required for push and pull-request mutation. A push is
-fast-forward-only to the exact server-owned task branch and never uses force.
-Pull requests are created and updated as Draft.
+`ship` task authority admits reviewed local stage and commit operations.
+`ship` task authority is required for push and pull-request mutation. Push,
+pull-request, CI, review-thread, merge-gate, merge, and post-merge operations
+also require the base repository to have a GitHub lifecycle policy. A
+local-only task rejects every such operation with `LIFECYCLE_POLICY_DENIED`.
+Where enabled, push is fast-forward-only to the exact server-owned task branch
+and never uses force; pull requests remain Draft.
 
 ## How ChatGPT Works
 
@@ -111,10 +126,13 @@ The ordinary path is:
    accepted.
 5. **Review** the actual Git state, semantic risks, validation evidence, review
    threads, and CI for the exact HEAD and tree.
-6. Create a local commit, then use `repo_write_push` and
-   `repo_pr_create_or_update` only under `ship` authority.
-7. Prepare an exact merge manifest with `repo_merge_gate_prepare`.
-8. The repository owner runs the one command printed by the gate:
+6. Create a reviewed local commit. A local-only task can then be closed and
+   cleaned without any remote.
+7. Only for a GitHub lifecycle task, use `repo_write_push` and
+   `repo_pr_create_or_update` under `ship` authority, then prepare an exact
+   merge manifest with `repo_merge_gate_prepare`.
+8. For that GitHub merge path, the repository owner runs the one command printed
+   by the gate:
 
    ```bash
    chat-pro-repo approve-merge --gate-id <opaque-id>
@@ -136,8 +154,10 @@ merge only.
   environment secrets, or the GitHub CLI authentication material.
 - Repository paths remain relative to a registered canonical root; traversal,
   symlink escape, secret-like paths, and hard-denied outputs fail closed.
-- External calls require task identity, an `operation_id`, and the exact
-  expected HEAD and tree where applicable.
+- Local-only lifecycle policy rejects every remote and GitHub operation before
+  external contact. Where GitHub lifecycle is configured, external calls
+  require task identity, an `operation_id`, and the exact expected HEAD and
+  tree where applicable.
 - Unknown push effects are durably classified and read back; they are not
   blindly replayed.
 - Release, deployment, signing, package publication, and infrastructure change

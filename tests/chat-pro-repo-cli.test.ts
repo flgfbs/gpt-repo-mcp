@@ -43,6 +43,7 @@ describe("chat-pro-repo owner CLI", () => {
       "doctor",
       "server start"
     ]) expect(result.stdout).toContain(command);
+    expect(result.stdout).toContain("--local-only");
     expect(result.stderr).toBe("");
   });
 
@@ -135,6 +136,7 @@ describe("chat-pro-repo owner CLI", () => {
       root: await realpath(repository),
       operations: { validation_profiles: {} },
       lifecycle: {
+        kind: "github",
         authority: "ship",
         remote_name: "upstream",
         expected_remote_identity: "github.com/acme/demo",
@@ -167,6 +169,64 @@ describe("chat-pro-repo owner CLI", () => {
     expect(removed.code).toBe(0);
     expect(removed.stdout).toContain("repository_data_deleted=false");
     expect(JSON.parse(await readFile(fixture.configPath, "utf8"))).toMatchObject({ repos: [] });
+  });
+
+  test("registers a local-only ship lifecycle without a Git remote", async () => {
+    const fixture = await cliFixture();
+    const repository = join(fixture.root, "local-repository");
+    const worktrees = join(fixture.root, "local-task-worktrees");
+    await initializeLocalRepository(repository);
+
+    const conflict = await fixture.run([
+      "repo", "add", repository,
+      "--id", "local-conflict",
+      "--mode", "ship",
+      "--local-only",
+      "--remote-name", "upstream"
+    ]);
+    expect(conflict.code).toBe(1);
+    expect(conflict.stderr).toContain("LOCAL_ONLY_OPTION_CONFLICT");
+
+    const added = await fixture.run([
+      "repo", "add", repository,
+      "--id", "local-demo",
+      "--name", "Local Demo",
+      "--mode", "ship",
+      "--local-only",
+      "--base", "main",
+      "--worktree-root", worktrees
+    ]);
+
+    expect(added.code).toBe(0);
+    expect(added.stdout).toContain("lifecycle_kind=local");
+    expect(added.stdout).toContain("expected_remote_identity=-");
+    expect(added.stdout).toContain("github_repository=-");
+    const document = JSON.parse(await readFile(fixture.configPath, "utf8")) as {
+      repos: Array<{
+        writes: { enabled: boolean };
+        operations: { enabled: boolean; validation_enabled: boolean };
+        lifecycle: Record<string, unknown>;
+      }>;
+    };
+    expect(document.repos[0]).toMatchObject({
+      writes: { enabled: true },
+      operations: { enabled: true, validation_enabled: true },
+      lifecycle: {
+        kind: "local",
+        authority: "ship",
+        allowed_base_branches: ["main"],
+        worktree_root: await realpath(worktrees),
+        require_clean_base: true,
+        max_concurrent_tasks: 8
+      }
+    });
+    expect(document.repos[0]!.lifecycle).not.toHaveProperty("remote_name");
+    expect(document.repos[0]!.lifecycle).not.toHaveProperty("github_repository");
+
+    const validated = await fixture.run(["config", "validate"]);
+    expect(validated.code).toBe(0);
+    const listed = await fixture.run(["repo", "list"]);
+    expect(listed.stdout).toContain("local-demo\tLocal Demo\tship\t-\tmain");
   });
 
   test("reads bounded durable tasks and refuses repository removal until cleanup is complete", async () => {
@@ -320,6 +380,11 @@ async function cliFixture() {
 }
 
 async function initializeRepository(root: string, remoteName: string, remoteUrl: string): Promise<void> {
+  await initializeLocalRepository(root);
+  await git(root, "remote", "add", remoteName, remoteUrl);
+}
+
+async function initializeLocalRepository(root: string): Promise<void> {
   await mkdir(root);
   await git(root, "init", "-b", "main");
   await git(root, "config", "user.name", "CLI Fixture");
@@ -327,7 +392,6 @@ async function initializeRepository(root: string, remoteName: string, remoteUrl:
   await writeFile(join(root, "README.md"), "# Fixture\n");
   await git(root, "add", "--", "README.md");
   await git(root, "commit", "-m", "Initial fixture");
-  await git(root, "remote", "add", remoteName, remoteUrl);
 }
 
 async function git(root: string, ...args: string[]): Promise<void> {

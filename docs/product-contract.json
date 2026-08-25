@@ -2,20 +2,20 @@
   "schema_version": 1,
   "product": {
     "name": "Chat Pro Repository MCP",
-    "purpose": "Give ChatGPT bounded local repository development and an exact task-bound GitHub lifecycle while preserving server-side policy, durable recovery, and owner-only merge approval."
+    "purpose": "Give ChatGPT bounded local repository development, isolated local-only task lifecycle, and optional exact task-bound GitHub lifecycle while preserving server-side policy, durable recovery, and owner-only merge approval."
   },
   "primary_users": [
     {
       "id": "solo-developer",
       "role": "Solo developer or small-team technical owner",
       "technical_level": "Comfortable with code and Git but unwilling to grant a model arbitrary machine or GitHub authority.",
-      "work_context": "Uses ChatGPT to understand, change, validate, review, and carry an isolated repository task through Draft pull request, CI, review, and one exact approved merge."
+      "work_context": "Uses ChatGPT to understand, change, validate, review, and carry an isolated repository task either through reviewed local Git or, when explicitly configured, through Draft pull request, CI, review, and one exact approved merge."
     },
     {
       "id": "repo-operator",
       "role": "Developer operating ChatGPT or a separate implementation worker",
       "technical_level": "Able to inspect repository and lifecycle evidence and expects stale state and partial effects to fail safely.",
-      "work_context": "Coordinates local implementation, external-worker evidence, GitHub review, CI, and recovery while the MCP server enforces repository and task boundaries."
+      "work_context": "Coordinates local implementation, external-worker evidence, optional GitHub review and CI, and recovery while the MCP server enforces repository, task, and lifecycle-kind boundaries."
     }
   ],
   "jobs_to_be_done": [
@@ -33,7 +33,7 @@
     },
     {
       "id": "ship-and-recover-safely",
-      "statement": "Open and operate an exact task worktree, push its fixed branch, maintain a Draft pull request, handle CI and review, obtain one exact owner merge approval, and recover without blind replay."
+      "statement": "Open and operate an exact task worktree through reviewed local Git, optionally push its fixed branch and maintain a Draft pull request under GitHub policy, handle CI and review, obtain one exact owner merge approval, and recover without blind replay."
     },
     {
       "id": "preserve-continuity",
@@ -43,6 +43,7 @@
   "must_reduce": [
     "Repeated reconstruction of repository and product context",
     "Unbounded model or tool authority",
+    "Unnecessary GitHub dependency for repositories that must remain local-only",
     "Stale writes and GitHub actions",
     "Blind replay after interrupted external effects",
     "Unreviewed push, pull-request, CI, review, or merge actions",

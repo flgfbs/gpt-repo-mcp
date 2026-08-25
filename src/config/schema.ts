@@ -97,18 +97,19 @@ export const OperationsPolicyConfigSchema = z.preprocess(
 );
 
 export const LifecyclePolicyConfigSchema = z.object({
+  kind: z.enum(["local", "github"]).default("github"),
   authority: RepositoryAuthoritySchema,
-  remote_name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).default("origin"),
-  expected_remote_identity: z.string().min(1).max(1_024),
+  remote_name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional(),
+  expected_remote_identity: z.string().min(1).max(1_024).optional(),
   allowed_base_branches: z.array(
     z.string().regex(/^(?!\/|.*(?:\.\.|@\{|\\|\s))[A-Za-z0-9._/-]{1,200}$/)
   ).min(1).max(16),
   worktree_root: z.string().min(1).refine(isAbsolute, "lifecycle.worktree_root must be an absolute path"),
-  github_repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
-  merge_method: MergeMethodSchema,
-  required_checks: z.array(RequiredCheckConfigSchema).max(64).default([]),
-  transient_ci_conclusions: z.array(TransientCiConclusionSchema).max(3).default(["timed_out", "startup_failure", "stale"]),
-  independent_review_required: z.boolean().default(false),
+  github_repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/).optional(),
+  merge_method: MergeMethodSchema.optional(),
+  required_checks: z.array(RequiredCheckConfigSchema).max(64).optional(),
+  transient_ci_conclusions: z.array(TransientCiConclusionSchema).max(3).optional(),
+  independent_review_required: z.boolean().optional(),
   require_clean_base: z.boolean().default(true),
   max_concurrent_tasks: PositiveIntSchema.max(64).default(8),
   cleanup: z.object({
@@ -120,7 +121,60 @@ export const LifecyclePolicyConfigSchema = z.object({
     delete_local_branch: true,
     require_terminal_task: true
   })
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (value.kind === "local") {
+    for (const field of [
+      "remote_name",
+      "expected_remote_identity",
+      "github_repository",
+      "merge_method",
+      "required_checks",
+      "transient_ci_conclusions",
+      "independent_review_required"
+    ] as const) {
+      if (value[field] !== undefined) {
+        context.addIssue({
+          code: "custom",
+          path: [field],
+          message: `Local lifecycle policy cannot configure ${field}.`
+        });
+      }
+    }
+    return;
+  }
+  for (const field of ["expected_remote_identity", "github_repository", "merge_method"] as const) {
+    if (value[field] === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: [field],
+        message: `GitHub lifecycle policy requires ${field}.`
+      });
+    }
+  }
+}).transform((value) => {
+  const local = {
+    authority: value.authority,
+    allowed_base_branches: value.allowed_base_branches,
+    worktree_root: value.worktree_root,
+    require_clean_base: value.require_clean_base,
+    max_concurrent_tasks: value.max_concurrent_tasks,
+    cleanup: value.cleanup
+  };
+  if (value.kind === "local") {
+    return { kind: "local" as const, ...local };
+  }
+  return {
+    kind: "github" as const,
+    ...local,
+    remote_name: value.remote_name ?? "origin",
+    expected_remote_identity: value.expected_remote_identity!,
+    github_repository: value.github_repository!,
+    merge_method: value.merge_method!,
+    required_checks: value.required_checks ?? [],
+    transient_ci_conclusions: value.transient_ci_conclusions ?? ["timed_out", "startup_failure", "stale"],
+    independent_review_required: value.independent_review_required ?? false
+  };
+});
 
 export const RepoConfigSchema = z.object({
   repo_id: z.string().min(1),

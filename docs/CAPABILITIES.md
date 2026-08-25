@@ -1,8 +1,8 @@
 # Capability Guide
 
 Chat Pro Repository MCP exposes exactly 63 repository tools. The first 46 keep
-their inherited order and semantics; 17 task and GitHub lifecycle tools are
-appended in one canonical order. There are no aliases.
+their inherited order and semantics; 17 task and optional GitHub lifecycle
+tools are appended in one canonical order. There are no aliases.
 
 ## Everyday Repository Work
 
@@ -22,6 +22,13 @@ Repository roots are registered by the owner CLI, never by an MCP tool:
 
 ```bash
 npm run add -- /path/to/your/repo --mode <mode>
+```
+
+Use `--local-only` for a repository that needs isolated task worktrees and local
+Git but must not gain any remote or GitHub authority:
+
+```bash
+npm run add -- /path/to/your/repo --mode ship --local-only
 ```
 
 Choose an explicit `read`, `write`, or `ship` mode. Registration resolves the
@@ -50,6 +57,11 @@ Task status, terminal close outcomes (`completed`, `blocked`, `abandoned`, or
 `superseded`), and cleanup are explicit. Cleanup acts only on eligible closed,
 server-owned task resources and preserves a durable receipt.
 
+The lifecycle policy has two forms. `kind: "local"` admits task open/status,
+local implementation, validation, review, stage, commit, close, and cleanup.
+`kind: "github"` adds the external lifecycle. Legacy entries without `kind`
+parse as `kind: "github"`, preserving existing configuration behavior.
+
 ## Validation, Git, And Recovery
 
 Local mutation remains deny-first:
@@ -67,8 +79,11 @@ unknown external effect is queried and classified before any retry.
 
 ## GitHub, Pull Requests, CI, And Review
 
-GitHub lifecycle calls use an installed authenticated `gh` process through a
-strict adapter with fixed subcommands and JSON parsing. Tests use a deterministic
+These capabilities require a `kind: "github"` lifecycle and `ship` task
+authority. A local-only task rejects every external lifecycle call with
+`LIFECYCLE_POLICY_DENIED` before remote contact. GitHub lifecycle calls use an
+installed authenticated `gh` process through a strict adapter with fixed
+subcommands and JSON parsing. Tests use a deterministic
 fake; implementation tests do not contact GitHub.
 
 For a `ship` task, the server can:

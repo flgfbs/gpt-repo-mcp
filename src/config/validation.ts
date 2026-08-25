@@ -233,29 +233,31 @@ async function validateLifecycleRepository(
     return undefined;
   }
 
-  try {
-    const urls = (await runGit(canonicalRoot, ["remote", "get-url", "--all", lifecycle.remote_name]))
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-    if (urls.length !== 1) {
-      issues.push({ code: "REMOTE_IDENTITY_AMBIGUOUS", message: `Lifecycle remote must resolve to exactly one fetch URL for repo_id "${repo.repo_id}".` });
-    } else {
-      const configured = normalizeRemoteIdentity(urls[0]!);
-      const expected = normalizeRemoteIdentity(lifecycle.expected_remote_identity);
-      if (expected !== lifecycle.expected_remote_identity) {
-        issues.push({ code: "REMOTE_IDENTITY_NOT_CANONICAL", message: `expected_remote_identity is not canonical for repo_id "${repo.repo_id}".` });
+  if (lifecycle.kind === "github") {
+    try {
+      const urls = (await runGit(canonicalRoot, ["remote", "get-url", "--all", lifecycle.remote_name]))
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      if (urls.length !== 1) {
+        issues.push({ code: "REMOTE_IDENTITY_AMBIGUOUS", message: `Lifecycle remote must resolve to exactly one fetch URL for repo_id "${repo.repo_id}".` });
+      } else {
+        const configured = normalizeRemoteIdentity(urls[0]!);
+        const expected = normalizeRemoteIdentity(lifecycle.expected_remote_identity);
+        if (expected !== lifecycle.expected_remote_identity) {
+          issues.push({ code: "REMOTE_IDENTITY_NOT_CANONICAL", message: `expected_remote_identity is not canonical for repo_id "${repo.repo_id}".` });
+        }
+        if (configured !== expected) {
+          issues.push({ code: "REMOTE_IDENTITY_MISMATCH", message: `Configured Git remote does not match expected_remote_identity for repo_id "${repo.repo_id}".` });
+        }
+        const githubRepository = githubRepositoryFromIdentity(configured);
+        if (githubRepository && githubRepository.toLowerCase() !== lifecycle.github_repository.toLowerCase()) {
+          issues.push({ code: "GITHUB_REPOSITORY_MISMATCH", message: `GitHub repository identity does not match the configured remote for repo_id "${repo.repo_id}".` });
+        }
       }
-      if (configured !== expected) {
-        issues.push({ code: "REMOTE_IDENTITY_MISMATCH", message: `Configured Git remote does not match expected_remote_identity for repo_id "${repo.repo_id}".` });
-      }
-      const githubRepository = githubRepositoryFromIdentity(configured);
-      if (githubRepository && githubRepository.toLowerCase() !== lifecycle.github_repository.toLowerCase()) {
-        issues.push({ code: "GITHUB_REPOSITORY_MISMATCH", message: `GitHub repository identity does not match the configured remote for repo_id "${repo.repo_id}".` });
-      }
+    } catch {
+      issues.push({ code: "REMOTE_IDENTITY_UNAVAILABLE", message: `Lifecycle remote identity could not be read safely for repo_id "${repo.repo_id}".` });
     }
-  } catch {
-    issues.push({ code: "REMOTE_IDENTITY_UNAVAILABLE", message: `Lifecycle remote identity could not be read safely for repo_id "${repo.repo_id}".` });
   }
 
   for (const branch of lifecycle.allowed_base_branches) {

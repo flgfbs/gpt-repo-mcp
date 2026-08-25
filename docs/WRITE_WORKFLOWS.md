@@ -11,6 +11,12 @@ Registration is owner CLI only:
 npm run add -- /path/to/your/repo --mode <mode>
 ```
 
+For isolated worktrees and reviewed local Git without a remote:
+
+```bash
+npm run add -- /path/to/your/repo --mode ship --local-only
+```
+
 Use explicit `read`, `write`, or `ship`. No MCP tool can add a root or raise its
 mode. Manual config remains supported for advanced operators, but CLI
 registration is preferred because it canonicalizes and validates the root.
@@ -33,8 +39,8 @@ Direct write tools never run Git. Git tools never accept a shell command.
 
 ## 3. Open An Isolated Task
 
-Use `repo_task_open` when work needs an isolated branch/worktree or any GitHub
-lifecycle operation. Bind:
+Use `repo_task_open` whenever work needs an isolated branch/worktree. The same
+task tools serve local-only and GitHub lifecycle policies. Bind:
 
 - `operation_id` and `task_id`;
 - base `repo_id`, branch, commit SHA, and tree SHA;
@@ -44,6 +50,11 @@ lifecycle operation. Bind:
 
 The server derives the task repository id, branch, and worktree. An exact replay
 of the same operation is idempotent. A conflicting replay fails.
+
+A local-only lifecycle supports the complete local path through validation,
+review, stage, commit, close, and cleanup. It rejects remote status, push,
+pull-request, review-thread, CI, merge-gate, merge, and post-merge tools with
+`LIFECYCLE_POLICY_DENIED`.
 
 Use `repo_task_status` to resume. It returns the bound base, current exact
 HEAD/tree, task state, lifecycle artifacts, and cleanup eligibility. The public
@@ -68,6 +79,9 @@ opaque and cannot be converted into source paths by a caller. Full validation
 captures redact host absolute paths before the task artifact can be served.
 
 ## 5. Observe And Push
+
+This section and sections 6–10 apply only to a GitHub lifecycle policy. Do not
+add a remote to a local-only repository merely to enter this path.
 
 GitHub contact and push require a task-bound `operation_id`, `repo_id`,
 `task_id`, expected HEAD, and expected tree. Push and pull-request mutation also
@@ -193,7 +207,8 @@ changes.
 
 ## Out Of Scope
 
-`ship` means authority for reviewed local Git plus the documented task-bound
-push, Draft PR, CI/review, and exact merge path. It does not authorize release,
+`ship` means authority for reviewed local Git. A separate GitHub lifecycle
+policy adds the documented task-bound push, Draft PR, CI/review, and exact merge
+path. It does not authorize release,
 deployment, signing, package publication, environment mutation, or
 infrastructure change.

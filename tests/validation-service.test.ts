@@ -142,6 +142,25 @@ describe("ValidationService", () => {
     expect(result.commands[0]?.runtime).toBeUndefined();
   });
 
+  test.skipIf(process.platform === "win32")("finds npm beside the trusted running Node executable when the service PATH omits it", async () => {
+    const root = await fixtureRepo({ scripts: { smoke: "should-not-be-read-by-fake-npm" } });
+    const runtimeBin = await mkdtemp(join(tmpdir(), "gpt-host-node-bin-"));
+    const npm = join(runtimeBin, "npm");
+    await writeFile(npm, `#!${process.execPath}\nconsole.log(process.argv.slice(2).join("|"));\n`);
+    await chmod(npm, 0o755);
+
+    const result = await service(root, {}, {}, join(runtimeBin, "node"))
+      .validate({ repo_id: "fixture", profile: "smoke" });
+
+    expect(result).toMatchObject({
+      status: "passed",
+      commands: [{
+        command: "npm run smoke",
+        stdout_tail: "run|smoke"
+      }]
+    });
+  });
+
   test("fails safely when an exact requested Node runtime is not installed", async () => {
     const root = await fixtureRepo({ scripts: { test: "echo ok" }, nvmrc: "24.18.0" });
     await expect(service(root, {}, { home: await mkdtemp(join(tmpdir(), "gpt-empty-runtime-")), env: {} })
@@ -356,13 +375,14 @@ describe("ValidationService", () => {
 function service(
   root: string,
   operations: Partial<ConstructorParameters<typeof OperationsPolicy>[0]> = {},
-  runtimeOptions: NodeRuntimeResolverOptions = {}
+  runtimeOptions: NodeRuntimeResolverOptions = {},
+  hostNodeExecutable: string = process.execPath
 ): ValidationService {
   return new ValidationService(root, new OperationsPolicy({
     enabled: true,
     validation_enabled: true,
     ...operations
-  }), runtimeOptions);
+  }), runtimeOptions, hostNodeExecutable);
 }
 
 async function fixtureRepo(options: {

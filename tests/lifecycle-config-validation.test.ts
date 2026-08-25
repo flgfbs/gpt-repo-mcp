@@ -15,9 +15,40 @@ describe("lifecycle repository config validation", () => {
 
     expect(result.issues).toEqual([]);
     expect(result.config?.repos[0]?.lifecycle).toMatchObject({
+      kind: "github",
       expected_remote_identity: `file:${fixture.remote}`,
       allowed_base_branches: ["main"]
     });
+  });
+
+  test("accepts a local-only lifecycle without any configured remote", async () => {
+    const fixture = await lifecycleFixture();
+    await runGit(fixture.repo, ["remote", "remove", "origin"]);
+
+    const result = await validateConfigDocument(localDocumentFor(fixture));
+
+    expect(result.issues).toEqual([]);
+    expect(result.config?.repos[0]?.lifecycle).toMatchObject({
+      kind: "local",
+      authority: "ship",
+      allowed_base_branches: ["main"],
+      worktree_root: fixture.worktrees
+    });
+  });
+
+  test("rejects GitHub-only fields under a local lifecycle policy", async () => {
+    const fixture = await lifecycleFixture();
+    const document = localDocumentFor(fixture);
+    Object.assign(document.repos[0]!.lifecycle, { remote_name: "origin" });
+
+    const result = await validateConfigDocument(document);
+
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "SCHEMA_INVALID",
+        message: expect.stringContaining("Local lifecycle policy cannot configure remote_name")
+      })
+    ]));
   });
 
   test("rejects a remote identity mismatch", async () => {
@@ -118,6 +149,23 @@ function documentFor(fixture: LifecycleFixture) {
         worktree_root: fixture.worktrees,
         github_repository: "fixture/repository",
         merge_method: "squash" as const
+      }
+    }],
+    limits: {}
+  };
+}
+
+function localDocumentFor(fixture: LifecycleFixture) {
+  return {
+    repos: [{
+      repo_id: "fixture-local",
+      display_name: "Local Fixture",
+      root: fixture.repo,
+      lifecycle: {
+        kind: "local" as const,
+        authority: "ship" as const,
+        allowed_base_branches: ["main"],
+        worktree_root: fixture.worktrees
       }
     }],
     limits: {}

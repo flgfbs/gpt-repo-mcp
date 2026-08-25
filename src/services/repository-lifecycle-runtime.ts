@@ -264,56 +264,68 @@ export class RepositoryLifecycleRuntime implements LifecycleRuntime {
     });
   }
 
-  remoteStatus(input: RepoRemoteStatusInput): Promise<RepoRemoteStatusResult> {
-    return this.requireExternal().remoteStatus(input);
+  async remoteStatus(input: RepoRemoteStatusInput): Promise<RepoRemoteStatusResult> {
+    return this.requireExternal(input.repo_id).remoteStatus(input);
   }
 
-  writePush(input: RepoWritePushInput): Promise<RepoWritePushResult> {
-    return this.requireExternal().writePush(input);
+  async writePush(input: RepoWritePushInput): Promise<RepoWritePushResult> {
+    return this.requireExternal(input.repo_id).writePush(input);
   }
 
-  prCreateOrUpdate(input: RepoPrCreateOrUpdateInput): Promise<RepoPrCreateOrUpdateResult> {
-    return this.requireExternal().prCreateOrUpdate(input);
+  async prCreateOrUpdate(input: RepoPrCreateOrUpdateInput): Promise<RepoPrCreateOrUpdateResult> {
+    return this.requireExternal(input.repo_id).prCreateOrUpdate(input);
   }
 
-  prStatus(input: RepoPrStatusInput): Promise<RepoPrStatusResult> {
-    return this.requireExternal().prStatus(input);
+  async prStatus(input: RepoPrStatusInput): Promise<RepoPrStatusResult> {
+    return this.requireExternal(input.repo_id).prStatus(input);
   }
 
-  prReviewThreads(input: RepoPrReviewThreadsInput): Promise<RepoPrReviewThreadsResult> {
-    return this.requireExternal().prReviewThreads(input);
+  async prReviewThreads(input: RepoPrReviewThreadsInput): Promise<RepoPrReviewThreadsResult> {
+    return this.requireExternal(input.repo_id).prReviewThreads(input);
   }
 
-  writePrReply(input: RepoWritePrReplyInput): Promise<RepoWritePrReplyResult> {
-    return this.requireExternal().writePrReply(input);
+  async writePrReply(input: RepoWritePrReplyInput): Promise<RepoWritePrReplyResult> {
+    return this.requireExternal(input.repo_id).writePrReply(input);
   }
 
-  writePrResolveThread(input: RepoWritePrResolveThreadInput): Promise<RepoWritePrResolveThreadResult> {
-    return this.requireExternal().writePrResolveThread(input);
+  async writePrResolveThread(input: RepoWritePrResolveThreadInput): Promise<RepoWritePrResolveThreadResult> {
+    return this.requireExternal(input.repo_id).writePrResolveThread(input);
   }
 
-  ciStatus(input: RepoCiStatusInput): Promise<RepoCiStatusResult> {
-    return this.requireExternal().ciStatus(input);
+  async ciStatus(input: RepoCiStatusInput): Promise<RepoCiStatusResult> {
+    return this.requireExternal(input.repo_id).ciStatus(input);
   }
 
-  writeCiRetryFailed(input: RepoWriteCiRetryFailedInput): Promise<RepoWriteCiRetryFailedResult> {
-    return this.requireExternal().writeCiRetryFailed(input);
+  async writeCiRetryFailed(input: RepoWriteCiRetryFailedInput): Promise<RepoWriteCiRetryFailedResult> {
+    return this.requireExternal(input.repo_id).writeCiRetryFailed(input);
   }
 
-  mergeGatePrepare(input: RepoMergeGatePrepareInput): Promise<RepoMergeGatePrepareResult> {
-    return this.requireExternal().mergeGatePrepare(input);
+  async mergeGatePrepare(input: RepoMergeGatePrepareInput): Promise<RepoMergeGatePrepareResult> {
+    return this.requireExternal(input.repo_id).mergeGatePrepare(input);
   }
 
-  writeMerge(input: RepoWriteMergeInput): Promise<RepoWriteMergeResult> {
-    return this.requireExternal().writeMerge(input);
+  async writeMerge(input: RepoWriteMergeInput): Promise<RepoWriteMergeResult> {
+    return this.requireExternal(input.repo_id).writeMerge(input);
   }
 
-  postMergeReadback(input: RepoPostMergeReadbackInput): Promise<RepoPostMergeReadbackResult> {
-    return this.requireExternal().postMergeReadback(input);
+  async postMergeReadback(input: RepoPostMergeReadbackInput): Promise<RepoPostMergeReadbackResult> {
+    return this.requireExternal(input.repo_id).postMergeReadback(input);
   }
 
-  private requireExternal(): ExternalLifecycleRuntime {
-    if (!this.external) throw new RepoReaderError("INTERNAL_ERROR", "GitHub lifecycle runtime is not configured.");
+  private requireExternal(repoId: string): ExternalLifecycleRuntime {
+    const task = this.registry.taskBinding(repoId);
+    if (task) {
+      const lifecycle = this.registry.getBase(task.base_repo_id).lifecycle;
+      if (!lifecycle || lifecycle.kind !== "github") {
+        throw new RepoReaderError(
+          "LIFECYCLE_POLICY_DENIED",
+          "Repository lifecycle is local-only; remote and GitHub lifecycle operations are not configured."
+        );
+      }
+    }
+    if (!this.external) {
+      throw new RepoReaderError("LIFECYCLE_POLICY_DENIED", "Remote and GitHub lifecycle runtime is not configured.");
+    }
     return this.external;
   }
 

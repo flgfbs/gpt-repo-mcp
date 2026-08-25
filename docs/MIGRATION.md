@@ -49,6 +49,26 @@ The following 17 names are appended after the inherited 46, in this order:
 The total is exactly 63. No old or alternate lifecycle names are accepted as
 aliases.
 
+## Local-Only Lifecycle Policy
+
+Lifecycle configuration now has an explicit policy kind:
+
+- `kind: "local"` admits isolated task worktrees and reviewed local Git without
+  requiring a remote; and
+- `kind: "github"` admits the existing task-bound remote and GitHub lifecycle.
+
+Existing lifecycle entries that omit `kind` are parsed as `kind: "github"`.
+Their remote identity, required checks, merge method, task behavior, and public
+tool contracts are unchanged, so no configuration rewrite is required. New
+local-only entries should be created with:
+
+```bash
+npm run add -- /path/to/your/repo --mode ship --local-only
+```
+
+The public tool count, names, order, and payload schemas remain exactly 63.
+Local-only policy changes admission behavior, not the MCP tool catalog.
+
 ## Workflow Change
 
 Push and pull-request work now requires a server-bound task with `ship`

@@ -1,9 +1,9 @@
 # Architecture
 
 Chat Pro Repository MCP is a contract-first, local-first MCP server. The public
-surface is a closed catalog of exactly 63 tools; only the lifecycle subset is
-open-world because it deliberately contacts the configured Git remote and
-GitHub.
+surface is a closed catalog of exactly 63 tools. Task/worktree lifecycle is
+local; only the GitHub-enabled external subset is open-world because it
+contacts the configured Git remote and GitHub.
 
 ## Contract-First Tool Path
 
@@ -46,10 +46,10 @@ registered handler. Its dependencies are deliberately explicit:
 - `LifecycleRuntime` is the strict handler boundary for the 17 lifecycle tools;
 - task-state/worktree storage owns task bindings and terminal state;
 - the artifact store owns content-addressed bytes and opaque public ids;
-- the Git push boundary accepts a fixed argument shape for the server-owned
-  task branch only; and
-- `GitHubAdapter` owns repository, pull-request, CI, review, merge, and
-  post-merge operations using installed `gh` fixed subcommands and JSON.
+- the optional Git push boundary accepts a fixed argument shape for the
+  server-owned task branch only; and
+- the optional `GitHubAdapter` owns repository, pull-request, CI, review, merge,
+  and post-merge operations using installed `gh` fixed subcommands and JSON.
 
 Production wiring uses the real fixed boundaries. Tests inject deterministic
 fakes and make no live GitHub contact. Neither interface exposes an arbitrary
@@ -85,9 +85,18 @@ The task cannot escape its registered base repository or increase its bound
 authority. State transitions are open -> closed -> cleaned; cleanup is limited
 to server-owned resources.
 
+A lifecycle policy is either `local` or `github`. Both share task authority,
+allowed base branches, worktree root, clean-base admission, concurrency, and
+cleanup rules. The local form ends at reviewed local Git. The GitHub form adds
+remote identity, repository identity, checks, merge method, and external-effect
+policy. Legacy policy objects without a discriminator are parsed as GitHub
+policies.
+
 ## External Effect Plane
 
-Local push and GitHub API work are separate seams:
+This plane exists only for a GitHub lifecycle policy. A local lifecycle is
+rejected with `LIFECYCLE_POLICY_DENIED` before any adapter call. When enabled,
+push and GitHub API work are separate seams:
 
 ```text
 exact task state -> durable pre-contact record -> fixed external call
