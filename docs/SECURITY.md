@@ -82,6 +82,15 @@ Validation accepts named profiles such as test, build, lint, typecheck, smoke,
 or all. Resolution is constrained to configured targets and supported safe
 project runners, never caller-supplied shell text.
 
+Exact terminal Delegation v3 finalization has a separate default-off repository
+capability, `operations.codex_run_finalize_enabled`. It does not depend on or
+enable generic Git operations. The finalizer accepts no command string and is
+bound to one run, terminal status revision, branch, HEAD, tree, exact regular
+UTF-8 changed files and SHA-256 values, manifest authorization, commit message,
+and archive label. It runs only the fixed provider-free unittest route, creates
+one unsigned local commit, verifies the complete committed regular-file tree
+and tar membership, and fails closed on replay or partial-effect ambiguity.
+
 ## External And Merge Boundaries
 
 `ship` is required for push and pull-request mutation. External requests bind

@@ -39,7 +39,7 @@ diagnosis, artifacts, and external-worker evidence remain optional.
   model or tool.
 - Local-only lifecycle never requires or synthesizes a remote and rejects every
   external lifecycle operation before contact.
-- The 63 public tools are focused schemas, not an arbitrary shell or API.
+- The 64 public tools are focused schemas, not an arbitrary shell or API.
 - Actual file bytes, Git objects, validation, review, and remote read-back take
   precedence over claims.
 - Push is task-branch-only, fast-forward-only, and non-force.

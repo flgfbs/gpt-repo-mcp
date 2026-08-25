@@ -83,6 +83,7 @@ const OperationsPolicyConfigObjectSchema = z.object({
   enabled: z.boolean().default(DEFAULT_OPERATIONS_POLICY.enabled),
   git_stage_enabled: z.boolean().default(DEFAULT_OPERATIONS_POLICY.git_stage_enabled),
   git_commit_enabled: z.boolean().default(DEFAULT_OPERATIONS_POLICY.git_commit_enabled),
+  codex_run_finalize_enabled: z.boolean().default(DEFAULT_OPERATIONS_POLICY.codex_run_finalize_enabled),
   validation_enabled: z.boolean().default(DEFAULT_OPERATIONS_POLICY.validation_enabled),
   validation_test_path_globs: z.array(z.string()).default([]),
   validation_profiles: ValidationProfilesSchema.optional(),

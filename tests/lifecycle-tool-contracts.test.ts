@@ -56,6 +56,7 @@ const INHERITED_TOOL_ORDER = [
   "repo_codex_review",
   "repo_write_codex_review",
   "repo_write_integration_review",
+  "repo_finalize_codex_run",
   "repo_prepare_patchset",
   "repo_apply_patchset",
   "repo_review_patchset",
@@ -140,11 +141,11 @@ const validInputs = {
 
 describe("lifecycle tool contracts", () => {
   test("preserves the inherited prefix and appends exactly 17 canonical names without aliases", () => {
-    expect(CANONICAL_TOOL_ORDER).toHaveLength(63);
-    expect(CANONICAL_TOOL_ORDER.slice(0, 46)).toEqual(INHERITED_TOOL_ORDER);
-    expect(CANONICAL_TOOL_ORDER.slice(46)).toEqual(LIFECYCLE_TOOL_ORDER);
-    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(63);
-    expect(Object.keys(toolContracts)).toHaveLength(63);
+    expect(CANONICAL_TOOL_ORDER).toHaveLength(64);
+    expect(CANONICAL_TOOL_ORDER.slice(0, 47)).toEqual(INHERITED_TOOL_ORDER);
+    expect(CANONICAL_TOOL_ORDER.slice(47)).toEqual(LIFECYCLE_TOOL_ORDER);
+    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(64);
+    expect(Object.keys(toolContracts)).toHaveLength(64);
     expect([...CANONICAL_TOOL_ORDER].sort()).toEqual(Object.keys(toolContracts).sort());
     expect(toolRegistry.map(({ name }) => name)).toEqual(CANONICAL_TOOL_ORDER);
     expect(toolsForPackage("lifecycle").map(({ name }) => name)).toEqual(LIFECYCLE_TOOL_ORDER);

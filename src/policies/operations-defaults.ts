@@ -2,6 +2,7 @@ export const DEFAULT_OPERATIONS_POLICY = {
   enabled: false,
   git_stage_enabled: false,
   git_commit_enabled: false,
+  codex_run_finalize_enabled: false,
   validation_enabled: false,
   validation_test_path_globs: [],
   validation_profiles: {},

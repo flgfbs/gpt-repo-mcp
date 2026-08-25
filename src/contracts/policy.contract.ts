@@ -28,6 +28,7 @@ export const PolicyExplainResultSchema = z.object({
     enabled: z.boolean().describe("Whether local repository operations are enabled."),
     git_stage_enabled: z.boolean().describe("Whether local git stage and unstage operations are enabled."),
     git_commit_enabled: z.boolean().describe("Whether local git commit operations are enabled."),
+    codex_run_finalize_enabled: z.boolean().describe("Whether exact terminal Delegation v3 run finalization is enabled independently of generic repository operations."),
     validation_enabled: z.boolean().describe("Whether allowlisted local validation profiles are enabled."),
     cleanup_enabled: z.boolean().describe("Whether local cleanup operations are enabled."),
     max_paths_per_operation: z.number().int().positive().describe("Maximum explicit paths accepted by one local operation.")

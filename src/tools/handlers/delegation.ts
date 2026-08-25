@@ -3,6 +3,7 @@ import { AgentReplyService } from "../../services/agent-reply-service.js";
 import { AgentRunsService } from "../../services/agent-runs-service.js";
 import { CodexResultService } from "../../services/codex-result-service.js";
 import { CodexReviewAttestationService } from "../../services/codex-review-attestation-service.js";
+import { CodexRunFinalizerService } from "../../services/codex-run-finalizer-service.js";
 import { DelegationV3TaskService } from "../../services/delegation-v3-task-service.js";
 import { GitReviewService } from "../../services/git-review-service.js";
 import { IntegrationReviewService } from "../../services/integration-review-service.js";
@@ -15,6 +16,7 @@ import type { AgentReplyInput } from "../../contracts/agent-reply.contract.js";
 import type { AgentRunsInput } from "../../contracts/agent-runs.contract.js";
 import type { CodexReviewWriteInput } from "../../contracts/codex-review-attestation.contract.js";
 import type { CodexReviewInput } from "../../contracts/codex-task.contract.js";
+import type { RepoFinalizeCodexRunInput } from "../../contracts/codex-run-finalizer.contract.js";
 import type { DelegationTaskV3ToolInput, DelegationTaskV3WriteToolInput } from "../../contracts/delegation-v3.contract.js";
 import type { IntegrationReviewWriteInput } from "../../contracts/integration-review.contract.js";
 import { safeTool, type ToolHandler } from "../handler-support.js";
@@ -96,4 +98,24 @@ export const writeIntegrationReviewHandler: ToolHandler = async (input, context)
   ).write(args);
   audit({ tool: "repo_write_integration_review", repo_id: args.repo_id, paths: result.reviewed_paths, counts: { runs: result.run_ids.length, paths: result.path_count }, warnings: result.warnings });
   return createSuccessEnvelope(result, result.dry_run ? `Dry run checked integration review for ${result.run_ids.length} runs.` : `Wrote integration review for ${result.run_ids.length} runs and ${result.path_count} paths.`, { warnings: result.warnings });
+});
+
+export const finalizeCodexRunHandler: ToolHandler = async (input, context) => safeTool<RepoFinalizeCodexRunInput>("repo_finalize_codex_run", input, async (args) => {
+  const repo = context.registry.get(args.repo_id);
+  new OperationsPolicy(repo.operations).assertCodexRunFinalizeAllowed();
+  const result = await new CodexRunFinalizerService(repo.root).finalize(args);
+  audit({
+    tool: "repo_finalize_codex_run",
+    repo_id: args.repo_id,
+    paths: [result.result_json_path, result.runner_status_path, ...result.changed_paths],
+    counts: { changed: result.changed_paths.length, tests: result.validation.tests_run },
+    warnings: result.warnings
+  });
+  return createSuccessEnvelope(
+    result,
+    result.dry_run
+      ? `Validated exact closure for Delegation v3 run ${result.run_id}.`
+      : `Finalized Delegation v3 run ${result.run_id} at ${result.commit_sha}.`,
+    { warnings: result.warnings }
+  );
 });

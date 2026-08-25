@@ -44,6 +44,7 @@ export const OSS_TOOL_ORDER = [
   "repo_codex_review",
   "repo_write_codex_review",
   "repo_write_integration_review",
+  "repo_finalize_codex_run",
   "repo_prepare_patchset",
   "repo_apply_patchset",
   "repo_review_patchset",

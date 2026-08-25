@@ -72,7 +72,7 @@ describe("MCP contract", () => {
     try {
       const listed = await client.listTools();
 
-      expect(listed.tools.slice(0, 46).map((tool) => ({
+      expect(listed.tools.slice(0, 47).map((tool) => ({
         name: tool.name,
         title: tool.title,
         description: tool.description,
@@ -1181,6 +1181,55 @@ describe("MCP contract", () => {
               "written_paths",
             ],
             "title": "Write multi-run integration review",
+          },
+          {
+            "annotations": {
+              "destructiveHint": true,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": false,
+            },
+            "description": "Use this when finalizing an exact terminal technical Delegation v3 run whose source changes already exist and require bounded provider-free closure. It revalidates the manifest-authorized pathset, creates one unsigned local commit, exports one verified committed-source archive, writes RESULT.json and terminal runner state, and never accepts a shell command, pushes, or contacts GitHub or a model.",
+            "inputKeys": [
+              "archive_label",
+              "change_reason",
+              "commit_message",
+              "dry_run",
+              "expected_absent_refs",
+              "expected_branch",
+              "expected_changed_files",
+              "expected_head_sha",
+              "expected_prior_status",
+              "expected_prior_status_revision",
+              "expected_remote_names",
+              "expected_tracked_path_count",
+              "expected_tree_sha",
+              "operation_id",
+              "repo_id",
+              "run_id",
+              "summary",
+              "technical_acceptance_evidence",
+              "terminal_markers",
+            ],
+            "name": "repo_finalize_codex_run",
+            "outputKeys": [
+              "archive",
+              "changed_paths",
+              "commit_sha",
+              "dry_run",
+              "head_after",
+              "head_before",
+              "ok",
+              "operation_id",
+              "repo_id",
+              "result_json_path",
+              "run_id",
+              "runner_status_path",
+              "status",
+              "validation",
+              "warnings",
+            ],
+            "title": "Finalize exact Delegation v3 run",
           },
           {
             "annotations": {

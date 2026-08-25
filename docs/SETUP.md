@@ -68,6 +68,28 @@ post-merge tools fail closed with `LIFECYCLE_POLICY_DENIED`.
 Manual configuration remains possible for advanced operators, but the CLI is
 recommended because it performs canonicalization and validation.
 
+### Enable Exact Delegation Run Finalization Without Ship Mode
+
+`repo_finalize_codex_run` is separately default-off. It does not inherit
+permission from `write` or `ship`, and it does not require enabling generic
+stage, commit, validation, or cleanup operations. For one trusted explicit
+repository that needs manifest-bound recovery of an already-created terminal
+Delegation v3 run, add only this field to that repository entry:
+
+```json
+{
+  "operations": {
+    "codex_run_finalize_enabled": true
+  }
+}
+```
+
+All other operation fields may remain false. Validate the config and restart
+the local MCP service. The finalizer still requires exact run, prior status,
+branch, HEAD, tree, changed-file digest, tracked-path, remote, absent-ref,
+commit-message, and acceptance-evidence bindings. It never accepts a command
+string, pushes, contacts GitHub, or invokes a model.
+
 ## Register A Project Root
 
 Register one owner-controlled directory to discover every direct Git

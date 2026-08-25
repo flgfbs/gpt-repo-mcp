@@ -24,6 +24,7 @@ import {
 } from "../src/contracts/git-operations.contract.js";
 import { CleanupPathsInputSchema, CleanupPathsResultSchema } from "../src/contracts/cleanup.contract.js";
 import { CodexReviewInputSchema, CodexReviewResultSchema } from "../src/contracts/codex-task.contract.js";
+import { RepoFinalizeCodexRunInputSchema, RepoFinalizeCodexRunResultSchema } from "../src/contracts/codex-run-finalizer.contract.js";
 import { CodexReviewWriteInputSchema, CodexReviewWriteResultSchema } from "../src/contracts/codex-review-attestation.contract.js";
 import {
   DelegationPreparedResultV3Schema,
@@ -46,7 +47,7 @@ import { PatchsetApplyInputSchema, PatchsetApplyResultSchema, PatchsetPrepareInp
 import { ValidateInputSchema, ValidateResultSchema } from "../src/contracts/validation.contract.js";
 import { CurrentWorkSessionInputSchema, CurrentWorkSessionResultSchema, StartWorkSessionInputSchema, StartWorkSessionResultSchema, UpdateWorkSessionInputSchema, UpdateWorkSessionResultSchema } from "../src/contracts/work-session.contract.js";
 import { RepoReaderConfigSchema } from "../src/config/schema.js";
-import { nonDestructiveMutationAnnotations, readOnlyAnnotations, safeMutationAnnotations, writeAnnotations } from "../src/tools/annotations.js";
+import { idempotentWriteAnnotations, nonDestructiveMutationAnnotations, readOnlyAnnotations, safeMutationAnnotations, writeAnnotations } from "../src/tools/annotations.js";
 import { toolCatalog } from "../src/tools/catalog.js";
 import { CANONICAL_TOOL_ORDER, toolRegistry, toolsForPackage } from "../src/tools/registry.js";
 import * as handlerExports from "../src/tools/handlers.js";
@@ -118,6 +119,7 @@ describe("tool catalog contracts", () => {
       "repo_codex_review",
       "repo_write_codex_review",
       "repo_write_integration_review",
+      "repo_finalize_codex_run",
       "repo_prepare_patchset",
       "repo_apply_patchset",
       "repo_review_patchset",
@@ -161,7 +163,9 @@ describe("tool catalog contracts", () => {
             ? safeMutationAnnotations
             : tool.name === "repo_prepare_patchset"
               ? nonDestructiveMutationAnnotations
-              : writeAnnotations
+              : tool.name === "repo_finalize_codex_run"
+                ? idempotentWriteAnnotations
+                : writeAnnotations
         );
       } else {
         expect(tool.annotations).toEqual(readOnlyAnnotations);
@@ -208,6 +212,7 @@ describe("tool catalog contracts", () => {
       "repo_write_agent_reply",
       "repo_write_codex_review",
       "repo_write_integration_review",
+      "repo_finalize_codex_run",
       "repo_prepare_patchset",
       "repo_apply_patchset",
       "repo_rollback_patchset",
@@ -238,6 +243,7 @@ describe("tool catalog contracts", () => {
     const writeAgentReply = toolCatalog.find((tool) => tool.name === "repo_write_agent_reply");
     const codexReview = toolCatalog.find((tool) => tool.name === "repo_codex_review");
     const writeCodexReview = toolCatalog.find((tool) => tool.name === "repo_write_codex_review");
+    const finalizeCodexRun = toolCatalog.find((tool) => tool.name === "repo_finalize_codex_run");
     const writeChanges = toolCatalog.find((tool) => tool.name === "repo_write_changes");
     const writeHandoff = toolCatalog.find((tool) => tool.name === "repo_write_handoff");
     const stageCommit = toolCatalog.find((tool) => tool.name === "repo_write_stage_commit");
@@ -282,6 +288,10 @@ describe("tool catalog contracts", () => {
     expectTaskAwareInput(writeCodexReview?.inputSchema, CodexReviewWriteInputSchema);
     expect(writeCodexReview?.outputSchema).toBe(CodexReviewWriteResultSchema);
     expect(writeCodexReview?.annotations).toEqual(writeAnnotations);
+    expect(finalizeCodexRun).toBeDefined();
+    expect(finalizeCodexRun?.inputSchema).toBe(RepoFinalizeCodexRunInputSchema);
+    expect(finalizeCodexRun?.outputSchema).toBe(RepoFinalizeCodexRunResultSchema);
+    expect(finalizeCodexRun?.annotations).toEqual(idempotentWriteAnnotations);
     expect(lastWrite).toBeDefined();
     expect(lastWrite?.inputSchema).toBe(LastWriteInputSchema);
     expect(lastWrite?.outputSchema).toBe(LastWriteResultSchema);
@@ -368,7 +378,7 @@ describe("tool catalog contracts", () => {
   test("internal registry composes exact packages without changing the canonical surface", () => {
     expect(toolRegistry).toBe(toolCatalog);
     expect(toolRegistry.map((tool) => tool.name)).toEqual(CANONICAL_TOOL_ORDER);
-    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(63);
+    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(64);
     expect([...CANONICAL_TOOL_ORDER].sort()).toEqual(Object.keys(toolContracts).sort());
 
     expect(toolsForPackage("developer").map((tool) => tool.name)).toEqual([
@@ -397,7 +407,7 @@ describe("tool catalog contracts", () => {
       "repo_write_changes",
       "repo_write_handoff"
     ]);
-    expect(toolsForPackage("delegation")).toHaveLength(7);
+    expect(toolsForPackage("delegation")).toHaveLength(8);
     expect(toolsForPackage("patchsets")).toHaveLength(4);
     expect(toolsForPackage("advanced_operations")).toHaveLength(6);
     expect(toolsForPackage("diagnostics_and_discovery")).toHaveLength(4);
@@ -948,6 +958,7 @@ describe("tool catalog contracts", () => {
 
     expect(parsed.data?.repos[0]?.operations).toMatchObject({
       cleanup_enabled: false,
+      codex_run_finalize_enabled: false,
       cleanup_allowed_globs: [
         ".chatgpt/tool-tests/**",
         ".chatgpt/backups/**",
@@ -966,6 +977,7 @@ describe("tool catalog contracts", () => {
       enabled: false,
       git_stage_enabled: false,
       git_commit_enabled: false,
+      codex_run_finalize_enabled: false,
       max_paths_per_operation: 50,
       validation_enabled: false,
       validation_test_path_globs: [],
@@ -1202,7 +1214,7 @@ describe("tool catalog contracts", () => {
   });
 
   test("inherited exposed tool surface shape stays stable", () => {
-    expect(toolCatalog.slice(0, 46).map((tool) => ({
+    expect(toolCatalog.slice(0, 47).map((tool) => ({
       name: tool.name,
       title: tool.title,
       description: tool.description,
@@ -2314,6 +2326,55 @@ describe("tool catalog contracts", () => {
         },
         {
           "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": false,
+          },
+          "description": "Use this when finalizing an exact terminal technical Delegation v3 run whose source changes already exist and require bounded provider-free closure. It revalidates the manifest-authorized pathset, creates one unsigned local commit, exports one verified committed-source archive, writes RESULT.json and terminal runner state, and never accepts a shell command, pushes, or contacts GitHub or a model.",
+          "inputKeys": [
+            "archive_label",
+            "change_reason",
+            "commit_message",
+            "dry_run",
+            "expected_absent_refs",
+            "expected_branch",
+            "expected_changed_files",
+            "expected_head_sha",
+            "expected_prior_status",
+            "expected_prior_status_revision",
+            "expected_remote_names",
+            "expected_tracked_path_count",
+            "expected_tree_sha",
+            "operation_id",
+            "repo_id",
+            "run_id",
+            "summary",
+            "technical_acceptance_evidence",
+            "terminal_markers",
+          ],
+          "name": "repo_finalize_codex_run",
+          "outputKeys": [
+            "archive",
+            "changed_paths",
+            "commit_sha",
+            "dry_run",
+            "head_after",
+            "head_before",
+            "ok",
+            "operation_id",
+            "repo_id",
+            "result_json_path",
+            "run_id",
+            "runner_status_path",
+            "status",
+            "validation",
+            "warnings",
+          ],
+          "title": "Finalize exact Delegation v3 run",
+        },
+        {
+          "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
             "openWorldHint": false,
@@ -2710,6 +2771,7 @@ describe("tool catalog contracts", () => {
       "decisionMemoryHandler",
       "failureDiagnoseHandler",
       "fetchFileHandler",
+      "finalizeCodexRunHandler",
       "gitDiffHandler",
       "gitRestorePathsHandler",
       "gitReviewHandler",

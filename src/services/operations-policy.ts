@@ -8,6 +8,7 @@ export type OperationsPolicyConfig = {
   enabled?: boolean;
   git_stage_enabled?: boolean;
   git_commit_enabled?: boolean;
+  codex_run_finalize_enabled?: boolean;
   validation_enabled?: boolean;
   validation_test_path_globs?: string[];
   validation_profiles?: Partial<Record<ValidationProfileName, ValidationProfileCommand>>;
@@ -20,6 +21,7 @@ export type EffectiveOperationsPolicy = {
   enabled: boolean;
   git_stage_enabled: boolean;
   git_commit_enabled: boolean;
+  codex_run_finalize_enabled: boolean;
   validation_enabled: boolean;
   validation_test_path_globs: string[];
   validation_profiles: Partial<Record<ValidationProfileName, ValidationProfileCommand>>;
@@ -36,6 +38,7 @@ export class OperationsPolicy {
       enabled: config.enabled ?? DEFAULT_OPERATIONS_POLICY.enabled,
       git_stage_enabled: config.git_stage_enabled ?? DEFAULT_OPERATIONS_POLICY.git_stage_enabled,
       git_commit_enabled: config.git_commit_enabled ?? DEFAULT_OPERATIONS_POLICY.git_commit_enabled,
+      codex_run_finalize_enabled: config.codex_run_finalize_enabled ?? DEFAULT_OPERATIONS_POLICY.codex_run_finalize_enabled,
       validation_enabled: config.validation_enabled ?? DEFAULT_OPERATIONS_POLICY.validation_enabled,
       validation_test_path_globs: config.validation_test_path_globs ?? [],
       validation_profiles: config.validation_profiles ?? {},
@@ -43,6 +46,15 @@ export class OperationsPolicy {
       cleanup_enabled: config.cleanup_enabled ?? DEFAULT_OPERATIONS_POLICY.cleanup_enabled,
       cleanup_allowed_globs: config.cleanup_allowed_globs ?? [...DEFAULT_OPERATIONS_POLICY.cleanup_allowed_globs]
     };
+  }
+
+  assertCodexRunFinalizeAllowed(): void {
+    if (!this.config.codex_run_finalize_enabled) {
+      throw new RepoReaderError(
+        "CODEX_RUN_FINALIZE_DISABLED",
+        "Exact Delegation v3 run finalization is disabled for this repository."
+      );
+    }
   }
 
   assertStageAllowed(paths: string[]): void {

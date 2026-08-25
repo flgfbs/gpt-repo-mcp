@@ -1,7 +1,7 @@
 # Capability Guide
 
-Chat Pro Repository MCP exposes exactly 63 repository tools. The first 46 keep
-their inherited order and semantics; 17 task and optional GitHub lifecycle
+Chat Pro Repository MCP exposes exactly 64 repository tools. The first 47 keep
+their canonical local order and semantics; 17 task and optional GitHub lifecycle
 tools are appended in one canonical order. There are no aliases.
 
 ## Everyday Repository Work

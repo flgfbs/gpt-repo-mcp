@@ -95,7 +95,7 @@ describe("package and public documentation", () => {
     const connection = await readFile("docs/CHATGPT_CONNECT.md", "utf8");
     expect(connection).toContain("OpenAI Secure MCP Tunnel");
     expect(connection).toContain("http://127.0.0.1:8789/mcp");
-    expect(connection).toContain("Confirm that exactly 63 tools are listed.");
+    expect(connection).toContain("Confirm that exactly 64 tools are listed.");
   });
 
   test("documents installation, registration, operations, and uninstall", async () => {

@@ -2,7 +2,7 @@
 
 Chat Pro Repository MCP is a local-first Model Context Protocol server for
 working with explicitly registered repositories and owner-approved project
-roots. It gives ChatGPT 63 focused
+roots. It gives ChatGPT 64 focused
 tools for repository understanding, bounded edits, validation, local Git,
 task-isolated worktrees, and—when explicitly configured—GitHub pull requests,
 CI, review, and exact-head owner-approved merges.
@@ -167,8 +167,8 @@ See the full [security and threat model](docs/SECURITY.md).
 
 ## Tool Surface
 
-The public surface is exactly 63 canonical names: the inherited 46 tools in
-their original order followed by 17 lifecycle tools. There are no aliases.
+The public surface is exactly 64 canonical names: 47 canonical local tools
+followed by 17 lifecycle tools. There are no aliases.
 See [Tool Surface](docs/TOOL_SURFACE.md) for the complete ordered catalog and
 [Capability Guide](docs/CAPABILITIES.md) for task-oriented guidance.
 

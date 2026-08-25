@@ -32,6 +32,7 @@ expected/current object ids, safe counts, warning codes, or a recovery hint.
 | `SIZE_LIMIT_EXCEEDED` | A configured or contract byte/count bound was exceeded. |
 | `WRITE_DISABLED` / write-policy codes | Repository write policy did not admit the target. |
 | `OPERATIONS_DISABLED` / Git-policy codes | Local Git, validation, or cleanup policy was not enabled. |
+| `CODEX_RUN_FINALIZE_DISABLED` | The separate default-off exact Delegation v3 run finalizer capability is not enabled for this repository. |
 | `LIFECYCLE_POLICY_DENIED` | The repository or task does not admit the requested lifecycle authority; local-only tasks use this for every remote or GitHub operation. |
 | `GIT_HEAD_MISMATCH` | Current HEAD differs from the exact expected HEAD. |
 | `GIT_STAGED_PATHS_MISMATCH` | Actual staged paths differ from the reviewed set. |

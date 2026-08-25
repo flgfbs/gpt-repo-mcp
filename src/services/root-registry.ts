@@ -157,6 +157,7 @@ function effectiveOperations(base: RuntimeRepoConfig, authority: TaskRepoBinding
       git_stage_enabled: false,
       git_commit_enabled: false,
       validation_enabled: false,
+      codex_run_finalize_enabled: false,
       cleanup_enabled: false
     };
   }
@@ -165,7 +166,8 @@ function effectiveOperations(base: RuntimeRepoConfig, authority: TaskRepoBinding
       ...base.operations,
       git_stage_enabled: false,
       git_commit_enabled: false,
-      validation_enabled: false
+      validation_enabled: false,
+      codex_run_finalize_enabled: false,
     };
   }
   return base.operations;

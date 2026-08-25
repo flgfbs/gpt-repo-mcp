@@ -5,6 +5,7 @@ import { ChangePlanInputSchema, ChangePlanResultSchema } from "../contracts/chan
 import { CodeIndexInputSchema, CodeIndexResultSchema } from "../contracts/code-index.contract.js";
 import { CleanupPathsInputSchema, CleanupPathsResultSchema } from "../contracts/cleanup.contract.js";
 import { CodexReviewInputSchema, CodexReviewResultSchema } from "../contracts/codex-task.contract.js";
+import { RepoFinalizeCodexRunInputSchema, RepoFinalizeCodexRunResultSchema } from "../contracts/codex-run-finalizer.contract.js";
 import { CodexReviewWriteInputSchema, CodexReviewWriteResultSchema } from "../contracts/codex-review-attestation.contract.js";
 import {
   DelegationPreparedResultV3Schema,
@@ -234,6 +235,10 @@ export const toolContracts = {
   repo_write_integration_review: {
     input: taskAwareMutationInput(IntegrationReviewWriteInputSchema),
     output: IntegrationReviewWriteResultSchema
+  },
+  repo_finalize_codex_run: {
+    input: RepoFinalizeCodexRunInputSchema,
+    output: RepoFinalizeCodexRunResultSchema
   },
   repo_prepare_patchset: {
     input: taskAwareMutationInput(PatchsetPrepareInputSchema),

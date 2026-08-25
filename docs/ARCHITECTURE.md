@@ -1,7 +1,7 @@
 # Architecture
 
 Chat Pro Repository MCP is a contract-first, local-first MCP server. The public
-surface is a closed catalog of exactly 63 tools. Task/worktree lifecycle is
+surface is a closed catalog of exactly 64 tools. Task/worktree lifecycle is
 local; only the GitHub-enabled external subset is open-world because it
 contacts the configured Git remote and GitHub.
 
@@ -24,7 +24,7 @@ src/contracts/*.contract.ts
 - Package modules attach title, description, annotations, tier, capability, and
   thin handler.
 - `src/tools/registry.ts` rejects duplicates, missing definitions, and unknown
-  definitions, then constructs the canonical 63-tool order.
+  definitions, then constructs the canonical 64-tool order.
 - `src/register.ts` iterates that registry and registers each tool through
   `src/tools/define-tool.ts`.
 - Handlers parse, call one runtime/service boundary, audit safe metadata, and

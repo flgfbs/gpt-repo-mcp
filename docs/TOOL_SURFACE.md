@@ -1,17 +1,17 @@
 # Tool Surface
 
-Chat Pro Repository MCP publishes exactly 63 tools in the order below. The
-first 46 are inherited unchanged in order; the final 17 are the task and GitHub
+Chat Pro Repository MCP publishes exactly 64 tools in the order below. The
+first 47 are canonical local tools; the final 17 are the task and GitHub
 lifecycle package. No aliases are registered.
 
 ## Tool Groups
 
 - 1-14: repository discovery, code intelligence, diagnostics, and review
 - 15-24: local Git, commit, recovery, and cleanup
-- 25-35: product context, planning, work inventory, and delegation
-- 36-39: transactional patchsets
-- 40-46: validation, work sessions, direct writes, and handoff
-- 47-63: task worktrees, Git/GitHub/CI/review/merge lifecycle
+- 25-36: product context, planning, work inventory, and delegation
+- 37-40: transactional patchsets
+- 41-47: validation, work sessions, direct writes, and handoff
+- 48-64: task worktrees, Git/GitHub/CI/review/merge lifecycle
 
 MCP annotations describe expected effects; they do not grant authority.
 External reads and writes have `openWorldHint: true`. Lifecycle mutations are
@@ -160,129 +160,142 @@ task authority, exact state, and owner approval still decide admission.
 
 35. Bind several currently attested runs into one exact integration pathset.
 
+### `repo_finalize_codex_run`
+
+36. Finalize one exact terminal technical Delegation v3 run without generic
+shell authority. The server rechecks the manifest-authorized pathset, exact
+source hashes, Git binding, fixed provider-free validation, and terminal run
+state before creating one unsigned local commit. It then exports and verifies
+one committed-source archive, writes `RESULT.json`, records terminal runner
+state, and performs post-operation read-back. It never pushes or contacts
+GitHub, a model, or another repository.
+It is additionally gated by the default-off per-repository
+`operations.codex_run_finalize_enabled` capability; generic `ship` operations
+may remain disabled.
+
 ### `repo_prepare_patchset`
 
-36. Prepare an atomic create, modify, edit, delete, or rename manifest.
+37. Prepare an atomic create, modify, edit, delete, or rename manifest.
 
 ### `repo_apply_patchset`
 
-37. Apply a prepared patchset with stale-state guards and rollback guidance.
+38. Apply a prepared patchset with stale-state guards and rollback guidance.
 
 ### `repo_review_patchset`
 
-38. Review patchset, ledger, and Git state without mutation.
+39. Review patchset, ledger, and Git state without mutation.
 
 ### `repo_rollback_patchset`
 
-39. Roll back an eligible unchanged, uncommitted applied patchset.
+40. Roll back an eligible unchanged, uncommitted applied patchset.
 
 ### `repo_validate`
 
-40. Run a named allowlisted validation profile without arbitrary shell input.
+41. Run a named allowlisted validation profile without arbitrary shell input.
 
 ### `repo_start_work_session`
 
-41. Start content-free local progress state for a focused work slice.
+42. Start content-free local progress state for a focused work slice.
 
 ### `repo_update_work_session`
 
-42. Append bounded decisions, paths, evidence, risks, status, or next action.
+43. Append bounded decisions, paths, evidence, risks, status, or next action.
 
 ### `repo_current_work_session`
 
-43. Read the current or selected work-session state.
+44. Read the current or selected work-session state.
 
 ### `repo_write_file`
 
-44. Create or precisely edit one policy-allowed repository file.
+45. Create or precisely edit one policy-allowed repository file.
 
 ### `repo_write_changes`
 
-45. Apply one cohesive, policy-allowed multi-file change pack.
+46. Apply one cohesive, policy-allowed multi-file change pack.
 
 ### `repo_write_handoff`
 
-46. Write a local-only ChatGPT handoff without Git mutation.
+47. Write a local-only ChatGPT handoff without Git mutation.
 
 ### `repo_task_open`
 
-47. Idempotently open a server-bound task from exact base branch, commit, tree,
+48. Idempotently open a server-bound task from exact base branch, commit, tree,
 authority, goal, and branch slug. This is a local non-destructive mutation.
 
 ### `repo_task_status`
 
-48. Read the task binding, current HEAD/tree, artifacts, and cleanup eligibility.
+49. Read the task binding, current HEAD/tree, artifacts, and cleanup eligibility.
 
 ### `repo_task_close`
 
-49. Idempotently close an exact unchanged task as `completed`, `blocked`,
+50. Idempotently close an exact unchanged task as `completed`, `blocked`,
 `abandoned`, or `superseded`.
 
 ### `repo_task_cleanup`
 
-50. Idempotently delete eligible closed server-owned task workspace resources
+51. Idempotently delete eligible closed server-owned task workspace resources
 and optionally its artifact set while retaining a receipt.
 
 ### `repo_artifact_read`
 
-51. Read at most 65,536 bytes from an opaque artifact id at a byte offset; no
+52. Read at most 65,536 bytes from an opaque artifact id at a byte offset; no
 path is accepted.
 
 ### `repo_remote_status`
 
-52. Read exact remote base/task refs and their relationship to the bound task
+53. Read exact remote base/task refs and their relationship to the bound task
 HEAD/tree. This is an open-world read with an operation id.
 
 ### `repo_write_push`
 
-53. Idempotently fast-forward push the exact server-owned task branch through
+54. Idempotently fast-forward push the exact server-owned task branch through
 the fixed Git boundary. Requires `ship`; force is impossible.
 
 ### `repo_pr_create_or_update`
 
-54. Idempotently create or update the task-derived pull request while keeping
+55. Idempotently create or update the task-derived pull request while keeping
 it Draft. Requires `ship`.
 
 ### `repo_pr_status`
 
-55. Read current GitHub pull-request state for the exact task.
+56. Read current GitHub pull-request state for the exact task.
 
 ### `repo_pr_review_threads`
 
-56. Read bounded paginated review threads for the task pull request.
+57. Read bounded paginated review threads for the task pull request.
 
 ### `repo_write_pr_reply`
 
-57. Idempotently post one operation-bound reply to an exact review thread.
+58. Idempotently post one operation-bound reply to an exact review thread.
 
 ### `repo_write_pr_resolve_thread`
 
-58. Idempotently resolve an exact review thread at its expected update time.
+59. Idempotently resolve an exact review thread at its expected update time.
 Requires passed exact validation and either corrected-head evidence or a durable
 same-head reply followed by fresh exact validation.
 
 ### `repo_ci_status`
 
-59. Read GitHub Actions runs and checks for the exact task HEAD/tree and return
+60. Read GitHub Actions runs and checks for the exact task HEAD/tree and return
 a bound CI snapshot id.
 
 ### `repo_write_ci_retry_failed`
 
-60. Idempotently retry only exact failed run ids from a bound CI snapshot.
+61. Idempotently retry only exact failed run ids from a bound CI snapshot.
 
 ### `repo_merge_gate_prepare`
 
-61. Read fresh PR, review, CI, and Git state and return blockers or an expiring
+62. Read fresh PR, review, CI, and Git state and return blockers or an expiring
 exact merge manifest plus the owner CLI command.
 
 ### `repo_write_merge`
 
-62. Idempotently consume one exact, unexpired, one-time owner approval and merge
+63. Idempotently consume one exact, unexpired, one-time owner approval and merge
 the bound manifest.
 
 ### `repo_post_merge_readback`
 
-63. Read authoritative post-merge PR, base-ref, task-ref, and commit state.
+64. Read authoritative post-merge PR, base-ref, task-ref, and commit state.
 
 ## Lifecycle Contract Pattern
 

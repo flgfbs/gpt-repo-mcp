@@ -37,7 +37,29 @@ inspect -> repo_write_file/repo_write_changes -> repo_validate
 
 Direct write tools never run Git. Git tools never accept a shell command.
 
-## 3. Open An Isolated Task
+## 3. Finalize One Exact Terminal Delegation Run
+
+Use `repo_finalize_codex_run` only when an already-created technical
+Delegation v3 run is terminal before commit but its exact authorized source
+changes remain in the registered repository. The owner must separately enable
+`operations.codex_run_finalize_enabled` for that repository; generic `ship`
+operations can remain disabled.
+
+First call the finalizer with `dry_run: true`. It verifies the bound prior run
+status, branch, HEAD, tree, changed-file SHA-256 values, authorization globs,
+tracked-path count, remotes, absent refs, clean index, provider-free unittest
+route, and unchanged source state. The actual call uses the same exact bindings
+to create one unsigned local commit, export and verify one committed-source tar
+archive, write `RESULT.json`, update terminal runner state, and perform a final
+read-back.
+
+The tool accepts no shell command, arbitrary validation command, archive path,
+remote URL, or provider selection. A pre-commit failure leaves the original
+run status and source changes intact for an exact retry with the same operation
+binding. Any failure after commit is `EXTERNAL_EFFECT_UNKNOWN`; do not replay
+until Git, result, status, and archive state are read back.
+
+## 4. Open An Isolated Task
 
 Use `repo_task_open` whenever work needs an isolated branch/worktree. The same
 task tools serve local-only and GitHub lifecycle policies. Bind:
@@ -61,7 +83,7 @@ HEAD/tree, task state, lifecycle artifacts, and cleanup eligibility. The public
 artifact window is capped at 200 references; `ARTIFACTS_TRUNCATED` means
 additional durable artifacts remain available by their opaque ids.
 
-## 4. Implement, Validate, And Review
+## 5. Implement, Validate, And Review
 
 Within `implement` or `ship` authority:
 
@@ -78,9 +100,9 @@ artifact. A large diff can become a `large_diff` artifact. Artifact ids are
 opaque and cannot be converted into source paths by a caller. Full validation
 captures redact host absolute paths before the task artifact can be served.
 
-## 5. Observe And Push
+## 6. Observe And Push
 
-This section and sections 6–10 apply only to a GitHub lifecycle policy. Do not
+This section and sections 7–11 apply only to a GitHub lifecycle policy. Do not
 add a remote to a local-only repository merely to enter this path.
 
 GitHub contact and push require a task-bound `operation_id`, `repo_id`,
@@ -99,7 +121,7 @@ If the response is interrupted, do not repeat with a new operation id. Resume
 with the same task and inspect its receipt/remote state so the original effect
 can be classified.
 
-## 6. Create Or Update The Draft Pull Request
+## 7. Create Or Update The Draft Pull Request
 
 Call `repo_pr_create_or_update` with the exact task state, title, body, and the
 required literal Draft setting. The server derives repository, base branch, and
@@ -108,7 +130,7 @@ head branch from the task. It cannot create a non-Draft pull request.
 Use `repo_pr_status` to read current PR state. A changed local HEAD/tree makes
 previous state-bound evidence stale and requires a new observation/push.
 
-## 7. Handle Review
+## 8. Handle Review
 
 1. Read bounded threads with `repo_pr_review_threads`.
 2. Correct the task worktree and repeat local validation/review, or preserve the
@@ -125,7 +147,7 @@ the bound pull request, not arbitrary caller-selected PR coordinates. A reply
 alone never authorizes resolution, and an unresolved unknown external effect
 blocks both evidence paths.
 
-## 8. Handle CI
+## 9. Handle CI
 
 `repo_ci_status` returns runs and checks for the exact task HEAD plus an opaque
 `ci_status_id`. If failed runs are safely retryable, pass only their exact run
@@ -137,7 +159,7 @@ run id, so concurrent operation ids cannot consume the same permitted retry.
 A code correction creates a new HEAD and requires new validation, push, PR,
 review, CI, and merge-gate evidence.
 
-## 9. Prepare And Approve The Exact Merge Gate
+## 10. Prepare And Approve The Exact Merge Gate
 
 Call `repo_merge_gate_prepare` with the expected task HEAD/tree. The server
 binds the configured merge method (`merge`, `squash`, or `rebase`) and mandatory
@@ -160,7 +182,7 @@ Merge requires one exact, unexpired, one-time owner approval.
 ChatGPT cannot mint this approval. **Allow all actions** does not substitute for
 it.
 
-## 10. Merge And Read Back
+## 11. Merge And Read Back
 
 `repo_write_merge` receives the original operation/task state plus manifest id,
 manifest digest, and owner approval id. It revalidates the unexpired exact
@@ -171,7 +193,7 @@ Always finish with `repo_post_merge_readback`. It confirms the PR, merged head,
 merge commit, base ref, task ref, and task-branch retention. An incomplete
 read-back is reported as incomplete, not silently upgraded to success.
 
-## 11. Close And Clean The Task
+## 12. Close And Clean The Task
 
 Close at the exact final HEAD/tree with one outcome:
 
