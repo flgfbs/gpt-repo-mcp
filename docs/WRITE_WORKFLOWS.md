@@ -53,6 +53,15 @@ to create one unsigned local commit, export and verify one committed-source tar
 archive, write `RESULT.json`, update terminal runner state, and perform a final
 read-back.
 
+The finalizer does not use repository `status`, clean filters, ordinary
+`git add`, commit hooks, or `git archive`. It compares the exact HEAD tree with
+the index, hashes admitted worktree bytes without filters, constructs the
+candidate tree in a temporary index, creates an unsigned commit with plumbing,
+advances the bound branch by compare-and-swap, and writes a deterministic exact
+USTAR archive whose member bytes are checked against committed blob ids.
+Repository fsmonitor, replacement refs, lazy fetch, hooks, pagers, textconv,
+and export attributes are disabled or bypassed.
+
 The tool accepts no shell command, arbitrary validation command, archive path,
 remote URL, or provider selection. A pre-commit failure leaves the original
 run status and source changes intact for an exact retry with the same operation

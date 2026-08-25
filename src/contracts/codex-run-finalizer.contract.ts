@@ -10,7 +10,7 @@ const RepositoryPathSchema = z.string()
     !value.startsWith("/")
     && !/^[A-Za-z]:[\\/]/.test(value)
     && !value.includes("\\")
-    && !value.includes("\0")
+    && !hasControlCharacters(value)
     && value.split("/").every((part) => part.length > 0 && part !== "." && part !== "..")
   ), "Path must be a safe repository-relative path.");
 const BranchNameSchema = z.string()
@@ -41,6 +41,13 @@ const TerminalMarkerSchema = z.string()
   .min(3)
   .max(500)
   .regex(/^[A-Z][A-Z0-9_.-]{0,79}=[A-Za-z0-9_./:@+,-]{1,400}$/);
+
+function hasControlCharacters(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f);
+  });
+}
 
 export const CodexRunFinalizerChangedFileSchema = z.object({
   path: RepositoryPathSchema,

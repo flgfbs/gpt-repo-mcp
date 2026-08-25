@@ -87,9 +87,18 @@ capability, `operations.codex_run_finalize_enabled`. It does not depend on or
 enable generic Git operations. The finalizer accepts no command string and is
 bound to one run, terminal status revision, branch, HEAD, tree, exact regular
 UTF-8 changed files and SHA-256 values, manifest authorization, commit message,
-and archive label. It runs only the fixed provider-free unittest route, creates
-one unsigned local commit, verifies the complete committed regular-file tree
-and tar membership, and fails closed on replay or partial-effect ambiguity.
+and archive label. It runs only the fixed provider-free unittest route. Git
+children disable repository fsmonitor, maintenance, submodule recursion, hooks,
+lazy fetch, replacement objects, pagers, external diff, and text conversion.
+The finalizer compares the bound tree and index directly, hashes no-follow raw
+worktree bytes, writes changed blobs with `hash-object --no-filters`, builds the
+candidate tree in a temporary index, and advances the exact branch only through
+a compare-and-swap `update-ref`. The archive is emitted by a server-owned exact
+USTAR writer from bytes verified against the committed blob ids, so clean
+filters, `export-ignore`, and `export-subst` cannot change its contents. It
+creates one unsigned local commit, verifies the complete committed regular-file
+tree and exact archive bytes, and fails closed on replay or partial-effect
+ambiguity.
 
 ## External And Merge Boundaries
 

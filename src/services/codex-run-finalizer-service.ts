@@ -5,9 +5,11 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  open,
   readFile,
   rm,
-  stat
+  stat,
+  type FileHandle
 } from "node:fs/promises";
 import { delimiter, dirname, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -57,6 +59,14 @@ const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const MAX_WALK_ENTRIES = 100_000;
 const GIT_EXECUTABLE = process.platform === "win32" ? "git" : "/usr/bin/git";
 const FIXED_PROCESS_PATH = process.platform === "win32" ? (process.env.PATH ?? "") : "/usr/bin:/bin";
+const FIXED_HOOKS_PATH = process.platform === "win32" ? "NUL" : "/dev/null";
+const FIXED_GIT_CONFIG_ARGS = [
+  "-c", "core.fsmonitor=false",
+  "-c", "core.untrackedCache=false",
+  "-c", "maintenance.auto=false",
+  "-c", `core.hooksPath=${FIXED_HOOKS_PATH}`,
+  "-c", "submodule.recurse=false"
+] as const;
 
 const TERMINAL_PRECOMMIT_STATUSES = new Set(["failed", "timed_out", "blocked_verification"]);
 
@@ -87,6 +97,26 @@ type ArchiveEvidence = {
   sha256: string;
   prefix: string;
   regular_file_count: number;
+};
+
+type RegularTreeEntry = {
+  path: string;
+  mode: "100644" | "100755";
+  object_id: string;
+  size: number;
+};
+
+type IndexEntry = {
+  path: string;
+  mode: "100644" | "100755";
+  object_id: string;
+};
+
+type ExactTarEntry = {
+  path: string;
+  mode: "100644" | "100755";
+  size: number;
+  sha256: string;
 };
 
 type FinalizerState = {
@@ -219,7 +249,7 @@ export class CodexRunFinalizerService {
         event_type: "commit_started",
         summary: "Exact manifest-authorized stage and unsigned commit started."
       });
-      commitSha = await this.commit(input, preflight.changedPaths);
+      commitSha = await this.commit(input, preflight.changedPaths, preflight.trackedEntries);
       await this.runStore.appendEvent({
         repo_id: input.repo_id,
         run_id: input.run_id,
@@ -323,7 +353,7 @@ export class CodexRunFinalizerService {
       const afterCommit = currentHead !== input.expected_head_sha;
       const reason = sanitizeError(error);
       if (!afterCommit) {
-        await this.restoreIndex(preflight.changedPaths).catch(() => undefined);
+        await this.restoreIndex().catch(() => undefined);
       }
       const failedAt = this.now().toISOString();
       await this.writeState(statePath, {
@@ -418,7 +448,7 @@ export class CodexRunFinalizerService {
     input: RepoFinalizeCodexRunInput,
     manifest: DelegationRunManifestV3,
     status: AgentRunnerStatus
-  ): Promise<{ changedPaths: string[]; trackedPaths: string[] }> {
+  ): Promise<{ changedPaths: string[]; trackedPaths: string[]; trackedEntries: RegularTreeEntry[] }> {
     if (
       manifest.baseline.head_sha !== input.expected_head_sha
       || status.head_before !== input.expected_head_sha
@@ -453,26 +483,25 @@ export class CodexRunFinalizerService {
       });
     }
     await this.assertNoGitOperation();
-    const trackedPaths = await this.gitZeroList(["ls-files", "-z"]);
-    if (trackedPaths.length !== input.expected_tracked_path_count) {
+    const sourceState = await this.inspectSourceState(input.expected_head_sha);
+    if (sourceState.trackedPaths.length !== input.expected_tracked_path_count) {
       throw new RepoReaderError("TASK_STATE_MISMATCH", "Tracked-path count does not match the exact finalizer binding.", {
-        diagnostics: { expected: input.expected_tracked_path_count, actual: trackedPaths.length }
+        diagnostics: { expected: input.expected_tracked_path_count, actual: sourceState.trackedPaths.length }
       });
     }
-    const changedPaths = await this.gitZeroList(["diff", "--name-only", "-z", "--"]);
+    const previewPrefix = archivePrefix(input.repo_id, "0".repeat(12));
+    const estimatedArchiveBytes = estimateTarSize(previewPrefix, sourceState.trackedEntries);
+    if (estimatedArchiveBytes > MAX_ARCHIVE_BYTES) {
+      throw new RepoReaderError("SIZE_LIMIT_EXCEEDED", "Exact committed-source archive would exceed the configured byte bound.", {
+        diagnostics: { estimated_archive_bytes: estimatedArchiveBytes, max_archive_bytes: MAX_ARCHIVE_BYTES }
+      });
+    }
     const expectedPaths = input.expected_changed_files.map(({ path }) => path).sort((a, b) => a.localeCompare(b));
-    if (!sameStrings(changedPaths, expectedPaths)) {
-      throw new RepoReaderError("TASK_STATE_MISMATCH", "Tracked changed-path set does not match expected_changed_files.", {
-        diagnostics: { expected_paths: expectedPaths, actual_paths: changedPaths }
+    if (!sameStrings(sourceState.changedPaths, expectedPaths)) {
+      throw new RepoReaderError("TASK_STATE_MISMATCH", "Raw tracked changed-path set does not match expected_changed_files.", {
+        diagnostics: { expected_paths: expectedPaths, actual_paths: sourceState.changedPaths }
       });
     }
-    if ((await this.gitZeroList(["diff", "--cached", "--name-only", "-z", "--"])).length > 0) {
-      throw new RepoReaderError("GIT_STAGED_PATHS_MISMATCH", "Index must be clean before exact-run finalization.");
-    }
-    if ((await this.gitText(["diff", "--summary", "--"])).length > 0) {
-      throw new RepoReaderError("TASK_STATE_MISMATCH", "Exact-run finalizer refuses create, delete, rename, or mode changes.");
-    }
-    await this.assertStatusSurface(expectedPaths);
     for (const file of input.expected_changed_files) {
       if (!manifest.authorization.effective_scope.some((pattern) => matchesGlob(file.path, pattern))) {
         throw new RepoReaderError("TASK_OPERATION_BLOCKED", `Changed path is outside manifest authorization: ${file.path}`);
@@ -482,7 +511,11 @@ export class CodexRunFinalizerService {
       }
       await this.assertSafeChangedFile(file.path, file.sha256, input.expected_head_sha);
     }
-    return { changedPaths: expectedPaths, trackedPaths };
+    return {
+      changedPaths: expectedPaths,
+      trackedPaths: sourceState.trackedPaths,
+      trackedEntries: sourceState.trackedEntries
+    };
   }
 
   private async runValidation(
@@ -546,10 +579,7 @@ export class CodexRunFinalizerService {
           }
         });
       }
-      const diffCheck = await this.git(["diff", "--check", "--"]);
-      if (diffCheck.stdout.length > 0 || diffCheck.stderr.length > 0) {
-        throw new RepoReaderError("VALIDATION_ERROR", "git diff --check returned unexpected output.");
-      }
+      await this.assertRawWhitespaceClean(changedPaths);
       const generated = await findPythonArtifacts(this.root);
       if (generated.length > 0) {
         throw new RepoReaderError("VALIDATION_ERROR", "Validation created Python bytecode inside the repository.", {
@@ -595,14 +625,14 @@ export class CodexRunFinalizerService {
       connected_changes: changedPaths.map((path) => ({ path, reason: input.change_reason })),
       commands_run: [
         validation.command,
-        "git diff --check --",
-        `git add -- <${changedPaths.length} exact manifest-authorized paths>`,
-        `git commit --no-gpg-sign -m ${JSON.stringify(input.commit_message)}`,
-        `git archive --format=tar --prefix=${archive.prefix} -o ${archive.path} ${commitSha}`
+        "server no-follow raw-source whitespace audit",
+        `git hash-object -w --no-filters plus temporary-index update for ${changedPaths.length} exact manifest-authorized paths`,
+        `git commit-tree plus compare-and-swap update-ref -m ${JSON.stringify(input.commit_message)}`,
+        `server exact USTAR writer --prefix=${archive.prefix} --output=${archive.path} --commit=${commitSha}`
       ],
       tests: [
         `Fixed provider-free unittest validation: PASS (${validation.tests_run} tests).`,
-        "Git diff whitespace check: PASS.",
+        "No-follow raw-source whitespace audit: PASS.",
         `Exact source hashes, index, commit, and archive read-back: PASS (${archive.byte_length} bytes; ${archive.sha256}).`
       ],
       product_acceptance_criteria: [],
@@ -617,7 +647,11 @@ export class CodexRunFinalizerService {
     });
   }
 
-  private async commit(input: RepoFinalizeCodexRunInput, changedPaths: string[]): Promise<string> {
+  private async commit(
+    input: RepoFinalizeCodexRunInput,
+    changedPaths: string[],
+    baselineEntries: RegularTreeEntry[]
+  ): Promise<string> {
     const identity = (await this.gitText(["show", "-s", "--format=%an%x00%ae%x00%cn%x00%ce", input.expected_head_sha])).split("\0");
     if (identity.length !== 4 || identity.some((value) => value.length === 0)) {
       throw new RepoReaderError("GIT_ERROR", "Parent commit identity is unavailable for exact local commit.");
@@ -629,38 +663,108 @@ export class CodexRunFinalizerService {
       GIT_COMMITTER_NAME: identity[2],
       GIT_COMMITTER_EMAIL: identity[3]
     };
-    await this.git(["-c", "core.hooksPath=/dev/null", "add", "--", ...changedPaths], commitEnv);
-    const staged = await this.gitZeroList(["diff", "--cached", "--name-only", "-z", "--"]);
-    if (!sameStrings(staged, changedPaths)) {
-      throw new RepoReaderError("GIT_STAGED_PATHS_MISMATCH", "Staged paths do not match the exact finalizer path set.", {
-        diagnostics: { expected_paths: changedPaths, actual_paths: staged }
-      });
+    await mkdir(this.archiveRoot, { recursive: true, mode: 0o700 });
+    const temporaryRoot = await mkdtemp(join(this.archiveRoot, "chat-pro-exact-run-index-"));
+    const indexEnv = { ...commitEnv, GIT_INDEX_FILE: join(temporaryRoot, "index") };
+    try {
+      await this.verifySourceHashes(input, changedPaths);
+      await this.git(["read-tree", input.expected_head_sha], indexEnv);
+      const objectFormat = await this.gitText(["rev-parse", "--show-object-format"]);
+      if (objectFormat !== "sha1" && objectFormat !== "sha256") {
+        throw new RepoReaderError("GIT_ERROR", `Unsupported Git object format: ${objectFormat}`);
+      }
+      const modes = new Map(baselineEntries.map((entry) => [entry.path, entry.mode]));
+      const replacements = new Map<string, RegularTreeEntry>();
+      for (const path of changedPaths) {
+        const mode = modes.get(path);
+        if (!mode) throw new RepoReaderError("TASK_STATE_MISMATCH", `Changed path is absent from the bound tracked tree: ${path}`);
+        const bytes = await readWorktreeRegularFile(this.root, path, mode);
+        const expectedObjectId = gitBlobObjectId(bytes, objectFormat);
+        const writtenObjectId = (await this.git(["hash-object", "-w", "--no-filters", "--", path], commitEnv)).stdout.replace(/\n$/, "");
+        if (writtenObjectId !== expectedObjectId) {
+          throw new RepoReaderError("TASK_STATE_MISMATCH", `Raw source bytes changed while writing the Git blob: ${path}`);
+        }
+        await this.git(["update-index", "--cacheinfo", mode, writtenObjectId, path], indexEnv);
+        replacements.set(path, { path, mode, object_id: writtenObjectId, size: bytes.length });
+      }
+      await this.verifySourceHashes(input, changedPaths);
+      const sourceState = await this.inspectSourceState(input.expected_head_sha);
+      if (!sameStrings(sourceState.changedPaths, changedPaths)) {
+        throw new RepoReaderError("TASK_STATE_MISMATCH", "Raw source state changed before commit creation.");
+      }
+      const candidateTree = (await this.git(["write-tree"], indexEnv)).stdout.replace(/\n$/, "");
+      if (!/^[a-f0-9]{40,64}$/.test(candidateTree)) {
+        throw new RepoReaderError("GIT_ERROR", "Temporary index produced an invalid tree id.");
+      }
+      const expectedEntries = baselineEntries.map((entry) => replacements.get(entry.path) ?? entry);
+      const candidateArchiveBytes = estimateTarSize(
+        archivePrefix(input.repo_id, "0".repeat(12)),
+        expectedEntries
+      );
+      if (candidateArchiveBytes > MAX_ARCHIVE_BYTES) {
+        throw new RepoReaderError("SIZE_LIMIT_EXCEEDED", "Exact candidate archive would exceed the configured byte bound.", {
+          diagnostics: { estimated_archive_bytes: candidateArchiveBytes, max_archive_bytes: MAX_ARCHIVE_BYTES }
+        });
+      }
+      const candidateEntries = await this.readRegularTree(candidateTree);
+      if (!sameRegularTreeEntries(candidateEntries, expectedEntries)) {
+        throw new RepoReaderError("TASK_STATE_MISMATCH", "Temporary index tree does not match the exact raw source replacement set.");
+      }
+      const commitResult = await this.git([
+        "-c", "commit.gpgsign=false",
+        "commit-tree", candidateTree,
+        "-p", input.expected_head_sha,
+        "-m", input.commit_message
+      ], commitEnv);
+      const newHead = commitResult.stdout.replace(/\n$/, "");
+      if (!/^[a-f0-9]{40,64}$/.test(newHead)) {
+        throw new RepoReaderError("GIT_ERROR", "git commit-tree returned an invalid commit id.");
+      }
+      const archiveDestination = join(
+        this.archiveRoot,
+        `${input.repo_id.replace(/[^A-Za-z0-9._-]/g, "-")}-${newHead.slice(0, 12)}-${input.archive_label}.tar`
+      );
+      try {
+        await lstat(archiveDestination);
+        throw new RepoReaderError("TASK_OPERATION_CONFLICT", "Exact archive destination already exists before branch advancement.", {
+          diagnostics: { archive_path: archiveDestination }
+        });
+      } catch (error) {
+        if (!isNotFoundError(error)) throw error;
+      }
+      const headRef = await this.gitText(["symbolic-ref", "--quiet", "HEAD"]);
+      if (headRef !== `refs/heads/${input.expected_branch}`) {
+        throw new RepoReaderError("GIT_HEAD_MISMATCH", "Current symbolic HEAD no longer matches the exact branch binding.");
+      }
+      await this.git(["update-ref", headRef, newHead, input.expected_head_sha], commitEnv);
+      await this.git(["read-tree", newHead], commitEnv);
+      const parents = (await this.gitText(["rev-list", "--parents", "-n", "1", newHead])).split(/\s+/);
+      if (parents.length !== 2 || parents[1] !== input.expected_head_sha) {
+        throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Commit parent does not match the bound baseline.");
+      }
+      if ((await this.gitText(["log", "-1", "--format=%s"])) !== input.commit_message) {
+        throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Commit message read-back does not match the bound message.");
+      }
+      const rawCommit = (await this.git(["cat-file", "commit", newHead])).stdout;
+      if (`\n${rawCommit}`.includes("\ngpgsig ")) {
+        throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Commit was unexpectedly signed.");
+      }
+      const committed = await this.gitZeroList(["diff-tree", "--no-commit-id", "--name-only", "-r", "-z", newHead]);
+      if (!sameStrings(committed, changedPaths)) {
+        throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Committed path set does not match the exact finalizer path set.");
+      }
+      const committedEntries = await this.readRegularTree(newHead);
+      if (!sameRegularTreeEntries(committedEntries, expectedEntries)) {
+        throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Committed tree does not match the exact raw source replacement set.");
+      }
+      const finalSourceState = await this.inspectSourceState(newHead);
+      if (finalSourceState.changedPaths.length > 0) {
+        throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Worktree does not match the exact committed raw source tree.");
+      }
+      return newHead;
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
     }
-    const commitResult = await this.git([
-      "-c", "core.hooksPath=/dev/null",
-      "-c", "commit.gpgsign=false",
-      "commit", "--no-gpg-sign", "-m", input.commit_message
-    ], commitEnv, [0]);
-    if (commitResult.exit_code !== 0) {
-      throw new RepoReaderError("GIT_ERROR", "Exact local commit failed.");
-    }
-    const newHead = await this.gitText(["rev-parse", "HEAD"]);
-    const parents = (await this.gitText(["rev-list", "--parents", "-n", "1", newHead])).split(/\s+/);
-    if (parents.length !== 2 || parents[1] !== input.expected_head_sha) {
-      throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Commit parent does not match the bound baseline.");
-    }
-    if ((await this.gitText(["log", "-1", "--format=%s"])) !== input.commit_message) {
-      throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Commit message read-back does not match the bound message.");
-    }
-    const rawCommit = (await this.git(["cat-file", "commit", newHead])).stdout;
-    if (`\n${rawCommit}`.includes("\ngpgsig ")) {
-      throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Commit was unexpectedly signed.");
-    }
-    const committed = await this.gitZeroList(["diff-tree", "--no-commit-id", "--name-only", "-r", "-z", newHead]);
-    if (!sameStrings(committed, changedPaths)) {
-      throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Committed path set does not match the exact finalizer path set.");
-    }
-    return newHead;
   }
 
   private async createArchive(input: RepoFinalizeCodexRunInput, commitSha: string, trackedPaths: string[]): Promise<ArchiveEvidence> {
@@ -676,22 +780,20 @@ export class CodexRunFinalizerService {
     } catch (error) {
       if (!isNotFoundError(error)) throw error;
     }
-    const prefix = `${safeRepoId}-${short}/`;
+    const prefix = archivePrefix(input.repo_id, short);
     const treeEntries = await this.readRegularTree(commitSha);
-    if (!sameStrings(treeEntries, trackedPaths)) {
+    if (!sameStrings(treeEntries.map(({ path }) => path), trackedPaths)) {
       throw new RepoReaderError("TASK_STATE_MISMATCH", "Committed tree does not contain the exact tracked regular-file set.");
     }
-    await this.git([
-      "archive", "--format=tar", `--prefix=${prefix}`, "-o", destination, commitSha
-    ]);
+    const expectedEntries = await this.writeExactArchive(destination, prefix, treeEntries);
     const archiveStat = await lstat(destination);
     if (!archiveStat.isFile() || archiveStat.isSymbolicLink() || archiveStat.size <= 0 || archiveStat.size > MAX_ARCHIVE_BYTES) {
       throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Committed-source archive is missing, unsafe, empty, or oversized.");
     }
-    const members = parseTar(await readFile(destination), prefix);
-    if (!sameStrings(members, trackedPaths)) {
-      throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Archive regular-file membership does not match the committed tree.", {
-        diagnostics: { expected_count: trackedPaths.length, actual_count: members.length }
+    const members = parseExactTar(await readFile(destination), prefix);
+    if (JSON.stringify(members) !== JSON.stringify(expectedEntries)) {
+      throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Archive bytes do not match the exact committed regular-file tree.", {
+        diagnostics: { expected_count: expectedEntries.length, actual_count: members.length }
       });
     }
     return {
@@ -703,6 +805,64 @@ export class CodexRunFinalizerService {
     };
   }
 
+  private async writeExactArchive(
+    destination: string,
+    prefix: string,
+    treeEntries: RegularTreeEntry[]
+  ): Promise<ExactTarEntry[]> {
+    const estimatedBytes = estimateTarSize(prefix, treeEntries);
+    if (estimatedBytes > MAX_ARCHIVE_BYTES) {
+      throw new RepoReaderError("SIZE_LIMIT_EXCEEDED", "Exact committed-source archive exceeds the configured byte bound.");
+    }
+    const handle = await open(destination, "wx", 0o600);
+    const archived: ExactTarEntry[] = [];
+    try {
+      for (const entry of treeEntries) {
+        const bytes = await readWorktreeRegularFile(this.root, entry.path, entry.mode);
+        const objectFormat = entry.object_id.length === 64 ? "sha256" : "sha1";
+        if (bytes.length !== entry.size || gitBlobObjectId(bytes, objectFormat) !== entry.object_id) {
+          throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", `Worktree bytes do not match the committed blob: ${entry.path}`);
+        }
+        await writeAll(handle, createTarHeader(`${prefix}${entry.path}`, entry.mode, bytes.length));
+        await writeAll(handle, bytes);
+        const padding = (512 - (bytes.length % 512)) % 512;
+        if (padding > 0) await writeAll(handle, Buffer.alloc(padding));
+        archived.push({ path: entry.path, mode: entry.mode, size: bytes.length, sha256: sha256(bytes) });
+      }
+      await writeAll(handle, Buffer.alloc(1_024));
+      await handle.sync();
+    } catch (error) {
+      await handle.close().catch(() => undefined);
+      await rm(destination, { force: true }).catch(() => undefined);
+      throw error;
+    }
+    await handle.close();
+    return archived;
+  }
+
+  private async verifyArchiveContents(archive: ArchiveEvidence, commitSha: string): Promise<void> {
+    const treeEntries = await this.readRegularTree(commitSha);
+    const parsed = parseExactTar(await readFile(archive.path), archive.prefix);
+    if (parsed.length !== treeEntries.length || archive.regular_file_count !== treeEntries.length) {
+      throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Archive regular-file count no longer matches the committed tree.");
+    }
+    const parsedByPath = new Map(parsed.map((entry) => [entry.path, entry]));
+    for (const entry of treeEntries) {
+      const archived = parsedByPath.get(entry.path);
+      const bytes = await readWorktreeRegularFile(this.root, entry.path, entry.mode);
+      const objectFormat = entry.object_id.length === 64 ? "sha256" : "sha1";
+      if (
+        !archived
+        || archived.mode !== entry.mode
+        || archived.size !== entry.size
+        || archived.sha256 !== sha256(bytes)
+        || gitBlobObjectId(bytes, objectFormat) !== entry.object_id
+      ) {
+        throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", `Archive member no longer matches the exact committed blob: ${entry.path}`);
+      }
+    }
+  }
+
   private async verifySuccessReadback(
     input: RepoFinalizeCodexRunInput,
     changedPaths: string[],
@@ -710,23 +870,20 @@ export class CodexRunFinalizerService {
     archive: ArchiveEvidence,
     resultPath: string
   ): Promise<void> {
-    const [branch, head, remotes, tracked, staged, unstaged] = await Promise.all([
+    const [branch, head, remotes, sourceState] = await Promise.all([
       this.gitText(["symbolic-ref", "--quiet", "--short", "HEAD"]),
       this.gitText(["rev-parse", "HEAD"]),
       this.gitLineList(["remote"]),
-      this.gitZeroList(["ls-files", "-z"]),
-      this.gitZeroList(["diff", "--cached", "--name-only", "-z", "--"]),
-      this.gitZeroList(["diff", "--name-only", "-z", "--"])
+      this.inspectSourceState(commitSha)
     ]);
     if (
       branch !== input.expected_branch
       || head !== commitSha
       || !sameStrings(remotes, input.expected_remote_names)
-      || tracked.length !== input.expected_tracked_path_count
-      || staged.length > 0
-      || unstaged.length > 0
+      || sourceState.trackedPaths.length !== input.expected_tracked_path_count
+      || sourceState.changedPaths.length > 0
     ) {
-      throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Post-commit Git read-back does not match the exact finalizer contract.");
+      throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Post-commit raw Git read-back does not match the exact finalizer contract.");
     }
     await this.verifyAbsentRefs(input.expected_absent_refs);
     await this.assertNoGitOperation();
@@ -787,6 +944,7 @@ export class CodexRunFinalizerService {
     if (archiveStat.size !== archive.byte_length || await sha256File(archive.path) !== archive.sha256) {
       throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Archive digest or byte length changed after creation.");
     }
+    await this.verifyArchiveContents(archive, commitSha);
     for (const sidecar of [`${archive.path}.sha256`, archive.path.replace(/\.tar$/, ".sha256"), `${archive.path}.json`]) {
       try {
         await access(sidecar);
@@ -798,15 +956,11 @@ export class CodexRunFinalizerService {
   }
 
   private async verifyPostValidationGit(input: RepoFinalizeCodexRunInput, changedPaths: string[]): Promise<void> {
-    const [head, staged, changed] = await Promise.all([
-      this.gitText(["rev-parse", "HEAD"]),
-      this.gitZeroList(["diff", "--cached", "--name-only", "-z", "--"]),
-      this.gitZeroList(["diff", "--name-only", "-z", "--"])
-    ]);
-    if (head !== input.expected_head_sha || staged.length > 0 || !sameStrings(changed, changedPaths)) {
-      throw new RepoReaderError("TASK_STATE_MISMATCH", "Validation changed the bound Git source state.");
+    const head = await this.gitText(["rev-parse", "HEAD"]);
+    const sourceState = await this.inspectSourceState(input.expected_head_sha);
+    if (head !== input.expected_head_sha || !sameStrings(sourceState.changedPaths, changedPaths)) {
+      throw new RepoReaderError("TASK_STATE_MISMATCH", "Validation changed the bound raw Git source state.");
     }
-    await this.assertStatusSurface(changedPaths);
   }
 
   private async assertSafeChangedFile(path: string, expectedSha256: string, headSha: string): Promise<void> {
@@ -837,41 +991,76 @@ export class CodexRunFinalizerService {
 
   private async verifySourceHashes(input: RepoFinalizeCodexRunInput, changedPaths: string[]): Promise<void> {
     const expected = new Map(input.expected_changed_files.map((entry) => [entry.path, entry.sha256]));
+    const modes = new Map((await this.readRegularTree(input.expected_head_sha)).map((entry) => [entry.path, entry.mode]));
     for (const path of changedPaths) {
-      const digest = await sha256File(join(this.root, path));
+      const mode = modes.get(path);
+      if (!mode) throw new RepoReaderError("TASK_STATE_MISMATCH", `Changed path is absent from the bound tree: ${path}`);
+      const digest = sha256(await readWorktreeRegularFile(this.root, path, mode));
       if (digest !== expected.get(path)) {
         throw new RepoReaderError("TASK_STATE_MISMATCH", `Source hash changed during finalization: ${path}`);
       }
     }
   }
 
-  private async assertStatusSurface(expectedChangedPaths: string[]): Promise<void> {
-    const status = await this.git(["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
-    const records = status.stdout.split("\0").filter(Boolean);
-    const tracked = new Set<string>();
-    for (let index = 0; index < records.length; index += 1) {
-      const record = records[index]!;
-      if (record.length < 4) throw new RepoReaderError("TASK_STATE_MISMATCH", "Git status record is malformed.");
-      const state = record.slice(0, 2);
-      const path = record.slice(3);
-      if (/[\0\r\n]/.test(path)) throw new RepoReaderError("TASK_STATE_MISMATCH", "Git status path contains control characters.");
-      if (state.includes("R") || state.includes("C")) {
-        throw new RepoReaderError("TASK_STATE_MISMATCH", "Exact-run finalizer refuses rename or copy status.");
+  private async assertRawWhitespaceClean(changedPaths: string[]): Promise<void> {
+    const head = await this.gitText(["rev-parse", "HEAD"]);
+    const modes = new Map((await this.readRegularTree(head)).map((entry) => [entry.path, entry.mode]));
+    for (const path of changedPaths) {
+      const mode = modes.get(path);
+      if (!mode) throw new RepoReaderError("TASK_STATE_MISMATCH", `Changed path is absent from the current tree: ${path}`);
+      const bytes = await readWorktreeRegularFile(this.root, path, mode);
+      let text: string;
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      } catch {
+        throw new RepoReaderError("BINARY_FILE_REJECTED", `Whitespace audit requires strict UTF-8 source text: ${path}`);
       }
-      if (state === "??") {
-        if (!path.startsWith(".chatgpt/")) {
-          throw new RepoReaderError("TASK_STATE_MISMATCH", `Unexpected untracked path outside run control: ${path}`);
+      for (const [index, rawLine] of text.split("\n").entries()) {
+        const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+        if (/[ \t]+$/.test(line) || /^ +\t/.test(line) || /^(?:<<<<<<<|=======|>>>>>>>)(?: |$)/.test(line)) {
+          throw new RepoReaderError("VALIDATION_ERROR", `Raw-source whitespace or conflict-marker audit failed: ${path}:${index + 1}`);
         }
-        continue;
       }
-      if (state[0] !== " ") {
-        throw new RepoReaderError("GIT_STAGED_PATHS_MISMATCH", "Index must remain clean before commit.");
+    }
+  }
+
+  private async inspectSourceState(expectedHead: string): Promise<{
+    trackedEntries: RegularTreeEntry[];
+    trackedPaths: string[];
+    changedPaths: string[];
+  }> {
+    const [trackedEntries, indexEntries, objectFormat, untrackedPaths] = await Promise.all([
+      this.readRegularTree(expectedHead),
+      this.readIndexEntries(),
+      this.gitText(["rev-parse", "--show-object-format"]),
+      this.gitZeroList(["ls-files", "--others", "-z", "--"])
+    ]);
+    if (objectFormat !== "sha1" && objectFormat !== "sha256") {
+      throw new RepoReaderError("GIT_ERROR", `Unsupported Git object format: ${objectFormat}`);
+    }
+    if (!sameIndexAndTreeEntries(indexEntries, trackedEntries)) {
+      throw new RepoReaderError("GIT_STAGED_PATHS_MISMATCH", "Index does not match the exact bound HEAD tree.");
+    }
+    for (const path of untrackedPaths) {
+      assertSafeArchiveRelativePath(path);
+      if (!path.startsWith(".chatgpt/")) {
+        throw new RepoReaderError("TASK_STATE_MISMATCH", `Unexpected untracked path outside run control: ${path}`);
       }
-      tracked.add(path);
     }
-    if (!sameStrings([...tracked], expectedChangedPaths)) {
-      throw new RepoReaderError("TASK_STATE_MISMATCH", "Git status tracked path set does not match the exact finalizer binding.");
+    const changedPaths: string[] = [];
+    for (const entry of trackedEntries) {
+      const bytes = await readWorktreeRegularFile(this.root, entry.path, entry.mode);
+      if (gitBlobObjectId(bytes, objectFormat) !== entry.object_id) changedPaths.push(entry.path);
     }
+    return {
+      trackedEntries,
+      trackedPaths: trackedEntries.map(({ path }) => path),
+      changedPaths: changedPaths.sort((left, right) => left.localeCompare(right))
+    };
+  }
+
+  private async readIndexEntries(): Promise<IndexEntry[]> {
+    return parseIndexEntries((await this.git(["ls-files", "-s", "-z"])).stdout);
   }
 
   private async assertNoGitOperation(): Promise<void> {
@@ -905,19 +1094,24 @@ export class CodexRunFinalizerService {
     }
   }
 
-  private async readRegularTree(commitSha: string): Promise<string[]> {
-    const output = await this.git(["ls-tree", "-rz", "--full-tree", commitSha]);
-    const paths: string[] = [];
+  private async readRegularTree(commitSha: string): Promise<RegularTreeEntry[]> {
+    const output = await this.git(["ls-tree", "-rz", "--full-tree", "-l", commitSha]);
+    const entries: RegularTreeEntry[] = [];
     for (const record of output.stdout.split("\0").filter(Boolean)) {
-      const match = record.match(/^(\d{6})\s+(\w+)\s+[a-f0-9]{40}\t(.+)$/s);
+      const match = record.match(/^(\d{6})\s+(\w+)\s+([a-f0-9]{40,64})\s+(\d+|-)\t(.+)$/s);
       if (!match) throw new RepoReaderError("GIT_ERROR", "git ls-tree returned an unexpected record.");
-      const [, mode, type, path] = match;
-      if ((mode !== "100644" && mode !== "100755") || type !== "blob") {
+      const [, mode, type, objectId, sizeText, path] = match;
+      if ((mode !== "100644" && mode !== "100755") || type !== "blob" || sizeText === "-") {
         throw new RepoReaderError("TASK_OPERATION_BLOCKED", `Archive source contains a non-regular tracked entry: ${path}`);
       }
-      paths.push(path);
+      assertSafeArchiveRelativePath(path);
+      const size = Number.parseInt(sizeText, 10);
+      if (!Number.isSafeInteger(size) || size < 0) {
+        throw new RepoReaderError("SIZE_LIMIT_EXCEEDED", `Tracked file size is invalid or exceeds safe bounds: ${path}`);
+      }
+      entries.push({ path, mode, object_id: objectId, size });
     }
-    return paths.sort((a, b) => a.localeCompare(b));
+    return entries.sort((left, right) => left.path.localeCompare(right.path));
   }
 
   private async resolvePython(): Promise<string> {
@@ -933,13 +1127,18 @@ export class CodexRunFinalizerService {
     throw new RepoReaderError("VALIDATION_NODE_RUNTIME_UNAVAILABLE", "No fixed absolute Python 3 executable is available for unittest validation.");
   }
 
-  private async restoreIndex(paths: string[]): Promise<void> {
-    const staged = await this.gitZeroList(["diff", "--cached", "--name-only", "-z", "--"]);
-    if (staged.length === 0) return;
-    if (!sameStrings(staged, paths)) {
-      throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Cannot safely restore an unexpected staged path set.");
+  private async restoreIndex(): Promise<void> {
+    const currentHead = await this.gitText(["rev-parse", "HEAD"]);
+    const [treeEntries, indexEntries] = await Promise.all([
+      this.readRegularTree(currentHead),
+      this.readIndexEntries()
+    ]);
+    if (sameIndexAndTreeEntries(indexEntries, treeEntries)) return;
+    await this.git(["read-tree", currentHead]);
+    const restored = await this.readIndexEntries();
+    if (!sameIndexAndTreeEntries(restored, treeEntries)) {
+      throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Exact-run finalizer could not restore the pre-commit index.");
     }
-    await this.git(["restore", "--staged", "--", ...staged]);
   }
 
   private async writeFailureStatus(
@@ -1080,7 +1279,7 @@ export class CodexRunFinalizerService {
   private async git(args: string[], env: NodeJS.ProcessEnv = gitEnvironment(), allowedExitCodes: number[] = [0]): Promise<GitResult> {
     const result = await runProcessWithTail({
       executable: GIT_EXECUTABLE,
-      args,
+      args: [...FIXED_GIT_CONFIG_ARGS, ...args],
       cwd: this.root,
       env,
       timeout_ms: 120_000,
@@ -1167,42 +1366,14 @@ function gitEnvironment(): NodeJS.ProcessEnv {
     PATH: FIXED_PROCESS_PATH,
     GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
+    GIT_NO_LAZY_FETCH: "1",
+    GIT_NO_REPLACE_OBJECTS: "1",
     GIT_OPTIONAL_LOCKS: "0",
+    GIT_PAGER: "cat",
     GIT_TERMINAL_PROMPT: "0",
     LANG: "C",
     LC_ALL: "C"
   };
-}
-
-function parseTar(data: Buffer, expectedPrefix: string): string[] {
-  const regular: string[] = [];
-  let offset = 0;
-  while (offset + 512 <= data.length) {
-    const header = data.subarray(offset, offset + 512);
-    if (header.every((byte) => byte === 0)) break;
-    const name = tarString(header.subarray(0, 100));
-    const prefix = tarString(header.subarray(345, 500));
-    const fullName = prefix ? `${prefix}/${name}` : name;
-    const size = tarOctal(header.subarray(124, 136));
-    const typeFlag = header[156] === 0 ? "0" : String.fromCharCode(header[156]!);
-    if (fullName.startsWith("/") || fullName.includes("\0") || fullName.split("/").some((part) => part === ".." || part === ".git")) {
-      throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", `Archive contains an unsafe path: ${fullName}`);
-    }
-    if (!fullName.startsWith(expectedPrefix) && typeFlag !== "g" && typeFlag !== "x") {
-      throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", `Archive member is outside the exact prefix: ${fullName}`);
-    }
-    if (typeFlag === "0") {
-      const relativePath = fullName.slice(expectedPrefix.length);
-      if (!relativePath || relativePath.endsWith("/")) {
-        throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Archive contains an invalid regular-file path.");
-      }
-      regular.push(relativePath);
-    } else if (typeFlag !== "5" && typeFlag !== "g" && typeFlag !== "x") {
-      throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", `Archive contains a non-regular member type: ${typeFlag}`);
-    }
-    offset += 512 + Math.ceil(size / 512) * 512;
-  }
-  return regular.sort((a, b) => a.localeCompare(b));
 }
 
 function tarString(value: Buffer): string {
@@ -1216,6 +1387,245 @@ function tarOctal(value: Buffer): number {
   const parsed = Number.parseInt(text, 8);
   if (!Number.isSafeInteger(parsed) || parsed < 0) throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Archive size exceeds safe bounds.");
   return parsed;
+}
+
+function archivePrefix(repoId: string, shortCommit: string): string {
+  const safeRepoId = repoId.replace(/[^A-Za-z0-9._-]/g, "-");
+  return `${safeRepoId}-${shortCommit}/`;
+}
+
+function assertSafeArchiveRelativePath(path: string): void {
+  if (
+    path.length === 0
+    || path.startsWith("/")
+    || path.includes("\\")
+    || Array.from(path).some((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f);
+    })
+    || path.split("/").some((part) => part.length === 0 || part === "." || part === ".." || part === ".git")
+  ) {
+    throw new RepoReaderError("TASK_OPERATION_BLOCKED", `Unsafe tracked or archive path: ${path}`);
+  }
+}
+
+function parseIndexEntries(output: string): IndexEntry[] {
+  const entries: IndexEntry[] = [];
+  for (const record of output.split("\0").filter(Boolean)) {
+    const match = record.match(/^(100644|100755)\s+([a-f0-9]{40,64})\s+0\t(.+)$/s);
+    if (!match) {
+      throw new RepoReaderError("GIT_STAGED_PATHS_MISMATCH", "Index contains an unsupported mode, stage, object id, or path record.");
+    }
+    const mode = match[1] as "100644" | "100755";
+    const objectId = match[2]!;
+    const path = match[3]!;
+    assertSafeArchiveRelativePath(path);
+    entries.push({ path, mode, object_id: objectId });
+  }
+  return entries.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function sameIndexAndTreeEntries(indexEntries: IndexEntry[], treeEntries: RegularTreeEntry[]): boolean {
+  if (indexEntries.length !== treeEntries.length) return false;
+  return indexEntries.every((entry, index) => {
+    const tree = treeEntries[index];
+    return tree !== undefined
+      && entry.path === tree.path
+      && entry.mode === tree.mode
+      && entry.object_id === tree.object_id;
+  });
+}
+
+function sameRegularTreeEntries(left: RegularTreeEntry[], right: RegularTreeEntry[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((entry, index) => {
+    const other = right[index];
+    return other !== undefined
+      && entry.path === other.path
+      && entry.mode === other.mode
+      && entry.object_id === other.object_id
+      && entry.size === other.size;
+  });
+}
+
+function gitBlobObjectId(bytes: Buffer, objectFormat: "sha1" | "sha256"): string {
+  return createHash(objectFormat)
+    .update(Buffer.from(`blob ${bytes.length}\0`, "utf8"))
+    .update(bytes)
+    .digest("hex");
+}
+
+async function readWorktreeRegularFile(
+  root: string,
+  path: string,
+  expectedMode: "100644" | "100755"
+): Promise<Buffer> {
+  assertSafeArchiveRelativePath(path);
+  const parts = path.split("/");
+  let current = root;
+  for (let index = 0; index < parts.length; index += 1) {
+    current = join(current, parts[index]!);
+    const entryStat = await lstat(current).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        throw new RepoReaderError("TASK_STATE_MISMATCH", `Tracked path is missing from the worktree: ${path}`);
+      }
+      throw error;
+    });
+    if (entryStat.isSymbolicLink()) {
+      throw new RepoReaderError("UNSUPPORTED_FILE_TYPE", `Tracked path contains a symbolic-link component: ${path}`);
+    }
+    if (index < parts.length - 1 && !entryStat.isDirectory()) {
+      throw new RepoReaderError("UNSUPPORTED_FILE_TYPE", `Tracked path contains a non-directory component: ${path}`);
+    }
+    if (index === parts.length - 1 && !entryStat.isFile()) {
+      throw new RepoReaderError("UNSUPPORTED_FILE_TYPE", `Tracked path is not a regular file: ${path}`);
+    }
+  }
+  const absolute = join(root, path);
+  await assertRealPathWithinRoot(root, absolute);
+  const noFollow = process.platform === "win32" ? 0 : fsConstants.O_NOFOLLOW;
+  const handle = await open(absolute, fsConstants.O_RDONLY | noFollow);
+  try {
+    const before = await handle.stat();
+    if (!before.isFile()) throw new RepoReaderError("UNSUPPORTED_FILE_TYPE", `Tracked path is not a regular file: ${path}`);
+    const actualMode: "100644" | "100755" = process.platform === "win32"
+      ? expectedMode
+      : (before.mode & 0o111) === 0 ? "100644" : "100755";
+    if (actualMode !== expectedMode) {
+      throw new RepoReaderError("TASK_STATE_MISMATCH", `Tracked executable mode changed: ${path}`);
+    }
+    const bytes = await handle.readFile();
+    const after = await handle.stat();
+    if (
+      before.dev !== after.dev
+      || before.ino !== after.ino
+      || before.size !== after.size
+      || after.size !== bytes.length
+    ) {
+      throw new RepoReaderError("TASK_STATE_MISMATCH", `Tracked file identity changed during read: ${path}`);
+    }
+    return bytes;
+  } finally {
+    await handle.close();
+  }
+}
+
+function estimateTarSize(prefix: string, entries: RegularTreeEntry[]): number {
+  let total = 1_024;
+  for (const entry of entries) {
+    splitTarPath(`${prefix}${entry.path}`);
+    total += 512 + Math.ceil(entry.size / 512) * 512;
+    if (!Number.isSafeInteger(total)) {
+      throw new RepoReaderError("SIZE_LIMIT_EXCEEDED", "Exact archive size exceeds safe integer bounds.");
+    }
+  }
+  return total;
+}
+
+function splitTarPath(path: string): { name: string; prefix: string } {
+  const pathBytes = Buffer.byteLength(path, "utf8");
+  if (pathBytes <= 100) return { name: path, prefix: "" };
+  for (let index = path.lastIndexOf("/"); index > 0; index = path.lastIndexOf("/", index - 1)) {
+    const prefix = path.slice(0, index);
+    const name = path.slice(index + 1);
+    if (Buffer.byteLength(prefix, "utf8") <= 155 && Buffer.byteLength(name, "utf8") <= 100) {
+      return { name, prefix };
+    }
+  }
+  throw new RepoReaderError("TASK_OPERATION_BLOCKED", `Tracked path cannot be encoded as portable USTAR: ${path}`);
+}
+
+function createTarHeader(fullPath: string, mode: "100644" | "100755", size: number): Buffer {
+  const { name, prefix } = splitTarPath(fullPath);
+  const header = Buffer.alloc(512);
+  writeTarString(header, 0, 100, name);
+  writeTarOctal(header, 100, 8, mode === "100755" ? 0o755 : 0o644);
+  writeTarOctal(header, 108, 8, 0);
+  writeTarOctal(header, 116, 8, 0);
+  writeTarOctal(header, 124, 12, size);
+  writeTarOctal(header, 136, 12, 0);
+  header.fill(0x20, 148, 156);
+  header[156] = "0".charCodeAt(0);
+  writeTarString(header, 257, 6, "ustar\0");
+  writeTarString(header, 263, 2, "00");
+  writeTarString(header, 345, 155, prefix);
+  const checksum = header.reduce((sum, byte) => sum + byte, 0);
+  const checksumText = `${checksum.toString(8).padStart(6, "0")}\0 `;
+  header.write(checksumText, 148, 8, "ascii");
+  return header;
+}
+
+function writeTarString(buffer: Buffer, offset: number, length: number, value: string): void {
+  const encoded = Buffer.from(value, "utf8");
+  if (encoded.length > length) throw new RepoReaderError("TASK_OPERATION_BLOCKED", "USTAR string field exceeds its fixed bound.");
+  encoded.copy(buffer, offset);
+}
+
+function writeTarOctal(buffer: Buffer, offset: number, length: number, value: number): void {
+  if (!Number.isSafeInteger(value) || value < 0) throw new RepoReaderError("SIZE_LIMIT_EXCEEDED", "USTAR numeric field is invalid.");
+  const digits = value.toString(8);
+  if (digits.length > length - 1) throw new RepoReaderError("SIZE_LIMIT_EXCEEDED", "USTAR numeric field exceeds its fixed bound.");
+  buffer.write(`${digits.padStart(length - 1, "0")}\0`, offset, length, "ascii");
+}
+
+async function writeAll(handle: FileHandle, data: Buffer): Promise<void> {
+  let offset = 0;
+  while (offset < data.length) {
+    const { bytesWritten } = await handle.write(data, offset, data.length - offset, null);
+    if (bytesWritten <= 0) throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Exact archive write made no progress.");
+    offset += bytesWritten;
+  }
+}
+
+function parseExactTar(data: Buffer, expectedPrefix: string): ExactTarEntry[] {
+  if (data.length === 0 || data.length % 512 !== 0 || data.length > MAX_ARCHIVE_BYTES) {
+    throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Exact archive byte length is invalid.");
+  }
+  const entries: ExactTarEntry[] = [];
+  const seen = new Set<string>();
+  let offset = 0;
+  let zeroBlocks = 0;
+  while (offset + 512 <= data.length) {
+    const header = data.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) {
+      zeroBlocks += 1;
+      offset += 512;
+      if (zeroBlocks === 2) break;
+      continue;
+    }
+    if (zeroBlocks > 0) throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Exact archive has a non-zero block after its terminator.");
+    const storedChecksum = tarOctal(header.subarray(148, 156));
+    const checksumHeader = Buffer.from(header);
+    checksumHeader.fill(0x20, 148, 156);
+    const actualChecksum = checksumHeader.reduce((sum, byte) => sum + byte, 0);
+    if (storedChecksum !== actualChecksum) throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Exact archive header checksum is invalid.");
+    const name = tarString(header.subarray(0, 100));
+    const headerPrefix = tarString(header.subarray(345, 500));
+    const fullName = headerPrefix ? `${headerPrefix}/${name}` : name;
+    const size = tarOctal(header.subarray(124, 136));
+    const numericMode = tarOctal(header.subarray(100, 108));
+    const typeFlag = header[156] === 0 ? "0" : String.fromCharCode(header[156]!);
+    if (typeFlag !== "0" || !fullName.startsWith(expectedPrefix)) {
+      throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", `Exact archive contains an unsupported member: ${fullName}`);
+    }
+    const path = fullName.slice(expectedPrefix.length);
+    assertSafeArchiveRelativePath(path);
+    if (seen.has(path)) throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", `Exact archive contains a duplicate path: ${path}`);
+    seen.add(path);
+    const contentStart = offset + 512;
+    const contentEnd = contentStart + size;
+    if (contentEnd > data.length) throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Exact archive member exceeds the archive byte length.");
+    const mode: "100644" | "100755" = numericMode === 0o755 ? "100755" : numericMode === 0o644 ? "100644" : (() => {
+      throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", `Exact archive member mode is invalid: ${path}`);
+    })();
+    const content = data.subarray(contentStart, contentEnd);
+    entries.push({ path, mode, size, sha256: sha256(content) });
+    offset = contentStart + Math.ceil(size / 512) * 512;
+  }
+  if (zeroBlocks !== 2 || data.subarray(offset).some((byte) => byte !== 0)) {
+    throw new RepoReaderError("EXTERNAL_EFFECT_UNKNOWN", "Exact archive does not end with two zero blocks.");
+  }
+  return entries.sort((left, right) => left.path.localeCompare(right.path));
 }
 
 async function findPythonArtifacts(root: string): Promise<string[]> {

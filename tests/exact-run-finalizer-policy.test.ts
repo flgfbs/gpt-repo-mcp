@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { CodexRunFinalizerChangedFileSchema } from "../src/contracts/codex-run-finalizer.contract.js";
 import { OperationsPolicy } from "../src/services/operations-policy.js";
 
 describe("exact-run finalizer policy", () => {
@@ -13,6 +14,15 @@ describe("exact-run finalizer policy", () => {
     expect(() => policy.assertCodexRunFinalizeAllowed()).toThrowError(
       expect.objectContaining({ code: "CODEX_RUN_FINALIZE_DISABLED" })
     );
+  });
+
+  test("rejects repository paths containing control characters", () => {
+    for (const path of ["src/value.py\nother", "src/value.py\r", "src/\u0001value.py", "src/\u007fvalue.py", "src/\u0085value.py"]) {
+      expect(CodexRunFinalizerChangedFileSchema.safeParse({
+        path,
+        sha256: "a".repeat(64)
+      }).success).toBe(false);
+    }
   });
 
   test("can be enabled without enabling generic repository operations", () => {

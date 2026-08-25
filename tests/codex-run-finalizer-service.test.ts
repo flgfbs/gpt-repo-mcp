@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -119,6 +119,62 @@ describe("CodexRunFinalizerService", () => {
     }).finalize(fixture.input)).rejects.toMatchObject({
       code: "EXTERNAL_EFFECT_UNKNOWN"
     } satisfies Partial<RepoReaderError>);
+  });
+
+  test("does not execute repository fsmonitor or clean filters and preserves literal export-subst bytes", async () => {
+    const fixture = await createFinalizerFixture();
+    const sentinel = join(fixture.root, ".git", "repository-helper-executed");
+    const helper = join(fixture.root, ".git", "repository-helper.sh");
+    await writeFile(
+      helper,
+      `#!/bin/sh\n/usr/bin/touch ${shellQuote(sentinel)}\n/bin/cat\n`,
+      "utf8"
+    );
+    await chmod(helper, 0o700);
+    const referenceHook = join(fixture.root, ".git", "hooks", "reference-transaction");
+    await writeFile(referenceHook, await readFile(helper));
+    await chmod(referenceHook, 0o700);
+    await git(fixture.root, "config", "core.fsmonitor", helper);
+    await git(fixture.root, "config", "filter.trap.clean", helper);
+    await git(fixture.root, "config", "filter.trap.required", "true");
+
+    const literalSource = "VALUE = \"$Format:%H$\"\n";
+    await writeFile(join(fixture.root, "src", "value.py"), literalSource, "utf8");
+    const exactInput: RepoFinalizeCodexRunInput = {
+      ...fixture.input,
+      expected_changed_files: [{
+        path: "src/value.py",
+        sha256: createHash("sha256").update(literalSource).digest("hex")
+      }]
+    };
+    const result = await new CodexRunFinalizerService(fixture.root, {
+      archive_root: fixture.archiveRoot,
+      now: () => NOW,
+      validate: async () => passingValidation()
+    }).finalize(exactInput);
+
+    await expect(readFile(sentinel)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await git(fixture.root, "show", `${result.commit_sha}:src/value.py`)).toBe(literalSource.trimEnd());
+    const archived = readTarEntry(
+      await readFile(result.archive!.path),
+      `${result.archive!.prefix}src/value.py`
+    );
+    expect(archived.toString("utf8")).toBe(literalSource);
+  });
+
+  test("ignores replacement objects when binding and creating the exact commit", async () => {
+    const fixture = await createFinalizerFixture();
+    const replacement = await git(fixture.root, "commit-tree", fixture.tree, "-m", "replacement commit");
+    await git(fixture.root, "replace", fixture.head, replacement);
+
+    const result = await new CodexRunFinalizerService(fixture.root, {
+      archive_root: fixture.archiveRoot,
+      now: () => NOW,
+      validate: async () => passingValidation()
+    }).finalize(fixture.input);
+
+    expect(await git(fixture.root, "--no-replace-objects", "rev-parse", `${result.commit_sha}^`)).toBe(fixture.head);
+    expect(await git(fixture.root, "--no-replace-objects", "diff-tree", "--no-commit-id", "--name-only", "-r", result.commit_sha!)).toBe("src/value.py");
   });
 
   test("runs the fixed provider-free unittest validation path without an injected validator", async () => {
@@ -249,6 +305,7 @@ async function createFinalizerFixture(): Promise<{
   await mkdir(join(root, "src"), { recursive: true });
   await mkdir(join(root, "tests"), { recursive: true });
   await writeFile(join(root, "README.md"), "# Fixture\n", "utf8");
+  await writeFile(join(root, ".gitattributes"), "src/value.py filter=trap export-subst\n", "utf8");
   await writeFile(join(root, "pyproject.toml"), "[tool.unittest]\nstart-directory = \"tests\"\n", "utf8");
   await writeFile(join(root, "src", "value.py"), "VALUE = 1\n", "utf8");
   await writeFile(join(root, "tests", "__init__.py"), "", "utf8");
@@ -257,7 +314,7 @@ async function createFinalizerFixture(): Promise<{
   await git(root, "init", "--initial-branch=work");
   await git(root, "config", "user.name", "Fixture");
   await git(root, "config", "user.email", "fixture@example.invalid");
-  await git(root, "add", "README.md", "pyproject.toml", "src/value.py", "tests/__init__.py", "tests/test_value.py");
+  await git(root, "add", ".gitattributes", "README.md", "pyproject.toml", "src/value.py", "tests/__init__.py", "tests/test_value.py");
   await git(root, "-c", "core.hooksPath=/dev/null", "commit", "--no-gpg-sign", "-m", "fixture baseline");
   const head = await git(root, "rev-parse", "HEAD");
   const tree = await git(root, "rev-parse", "HEAD^{tree}");
@@ -340,6 +397,33 @@ function passingValidation(): CodexRunFinalizerValidation {
     stdout_tail: "Ran 1 test in 0.001s\n\nOK\n",
     stderr_tail: ""
   };
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function readTarEntry(data: Buffer, expectedName: string): Buffer {
+  let offset = 0;
+  while (offset + 512 <= data.length) {
+    const header = data.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+    const name = tarText(header.subarray(0, 100));
+    const prefix = tarText(header.subarray(345, 500));
+    const fullName = prefix ? `${prefix}/${name}` : name;
+    const sizeText = tarText(header.subarray(124, 136)).trim().replace(/^0+/, "") || "0";
+    const size = Number.parseInt(sizeText, 8);
+    const contentStart = offset + 512;
+    const contentEnd = contentStart + size;
+    if (fullName === expectedName) return Buffer.from(data.subarray(contentStart, contentEnd));
+    offset = contentStart + Math.ceil(size / 512) * 512;
+  }
+  throw new Error(`Tar entry not found: ${expectedName}`);
+}
+
+function tarText(value: Buffer): string {
+  const end = value.indexOf(0);
+  return value.subarray(0, end < 0 ? value.length : end).toString("utf8");
 }
 
 async function git(root: string, ...args: string[]): Promise<string> {

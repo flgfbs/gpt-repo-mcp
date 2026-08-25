@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -33,6 +33,7 @@ describe("chat-pro-repo owner CLI", () => {
       "repo add",
       "repo list",
       "repo remove",
+      "repo finalizer enable|disable",
       "project-root add",
       "project-root list",
       "project-root remove",
@@ -227,6 +228,60 @@ describe("chat-pro-repo owner CLI", () => {
     expect(validated.code).toBe(0);
     const listed = await fixture.run(["repo", "list"]);
     expect(listed.stdout).toContain("local-demo\tLocal Demo\tship\t-\tmain");
+  });
+
+  test("toggles the exact-run finalizer through a symlinked external config without enabling generic operations", async () => {
+    const fixture = await cliFixture();
+    const repository = join(fixture.root, "finalizer-repository");
+    await initializeLocalRepository(repository);
+    const targetConfig = join(fixture.root, "external-config.json");
+    await writeFile(targetConfig, `${JSON.stringify({
+      repos: [{
+        repo_id: "finalizer-demo",
+        display_name: "Finalizer Demo",
+        root: await realpath(repository),
+        writes: { enabled: true, allowed_globs: [".chatgpt/**"] },
+        operations: {
+          enabled: false,
+          git_stage_enabled: false,
+          git_commit_enabled: false,
+          validation_enabled: false,
+          cleanup_enabled: false
+        }
+      }],
+      limits: {},
+      runtime_root: fixture.runtimeRoot
+    }, null, 2)}\n`, { mode: 0o600 });
+    await rm(fixture.configPath);
+    await symlink(targetConfig, fixture.configPath);
+
+    const enabled = await fixture.run(["repo", "finalizer", "enable", "finalizer-demo"]);
+    expect(enabled).toMatchObject({ code: 0, stderr: "" });
+    expect(enabled.stdout).toContain("codex_run_finalize_enabled=true");
+    expect(enabled.stdout).toContain("generic_operations_changed=false");
+    expect(enabled.stdout).toContain("restart_required=true");
+    expect((await lstat(fixture.configPath)).isSymbolicLink()).toBe(true);
+    expect(JSON.parse(await readFile(targetConfig, "utf8"))).toMatchObject({
+      repos: [{
+        repo_id: "finalizer-demo",
+        operations: {
+          enabled: false,
+          git_stage_enabled: false,
+          git_commit_enabled: false,
+          validation_enabled: false,
+          cleanup_enabled: false,
+          codex_run_finalize_enabled: true
+        }
+      }]
+    });
+    expect((await stat(targetConfig)).mode & 0o777).toBe(0o600);
+
+    const disabled = await fixture.run(["repo", "finalizer", "disable", "finalizer-demo"]);
+    expect(disabled).toMatchObject({ code: 0, stderr: "" });
+    expect(disabled.stdout).toContain("codex_run_finalize_enabled=false");
+    expect(JSON.parse(await readFile(targetConfig, "utf8"))).toMatchObject({
+      repos: [{ operations: { codex_run_finalize_enabled: false, enabled: false } }]
+    });
   });
 
   test("reads bounded durable tasks and refuses repository removal until cleanup is complete", async () => {

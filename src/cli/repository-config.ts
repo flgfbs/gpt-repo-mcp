@@ -10,7 +10,7 @@ import {
   RepositoryAuthoritySchema,
   type RepoReaderConfig
 } from "../config/schema.js";
-import { loadConfig } from "../config/store.js";
+import { loadConfig, readConfigDocument } from "../config/store.js";
 import { validateConfigDocument } from "../config/validation.js";
 import { DEFAULT_OPERATIONS_POLICY, SHIP_VALIDATION_TEST_PATH_GLOBS } from "../policies/operations-defaults.js";
 import { DEFAULT_WRITE_POLICY } from "../policies/write-defaults.js";
@@ -207,6 +207,62 @@ export async function listRepositories(configPath: string, io: OwnerCliIo): Prom
     for (const issue of validation.issues) io.stderr(`- [${issue.code}] ${issue.message}`);
     return 1;
   }
+  return 0;
+}
+
+export async function setRepositoryFinalizer(
+  args: string[],
+  configPath: string,
+  io: OwnerCliIo,
+  enabled: boolean
+): Promise<number> {
+  if (args.length !== 1) {
+    throw new OwnerCliError(
+      "USAGE",
+      "Usage: chat-pro-repo repo finalizer enable|disable <repo_id>"
+    );
+  }
+  const repoId = args[0]!;
+  const document = await readConfigDocument(configPath);
+  const existingValidation = await validateConfigDocument(document);
+  if (existingValidation.issues.length > 0) {
+    throw new OwnerCliError(
+      "CONFIG_VALIDATION_FAILED",
+      `Existing configuration is invalid: ${existingValidation.issues.map((issue) => `[${issue.code}] ${issue.message}`).join("; ")}`
+    );
+  }
+  if (!isRecord(document) || !Array.isArray(document.repos)) {
+    throw new OwnerCliError("CONFIG_VALIDATION_FAILED", "Configuration does not contain an explicit repositories array.");
+  }
+  const matches = document.repos.filter((entry) => isRecord(entry) && entry.repo_id === repoId);
+  if (matches.length !== 1) {
+    throw new OwnerCliError(
+      matches.length === 0 ? "UNKNOWN_REPO" : "DUPLICATE_REPO_ID",
+      `Expected exactly one explicit repository entry for ${repoId}; found ${matches.length}.`
+    );
+  }
+  const next = structuredClone(document) as Record<string, unknown>;
+  const repos = next.repos as unknown[];
+  const entry = repos.find((candidate) => isRecord(candidate) && candidate.repo_id === repoId) as Record<string, unknown>;
+  const operations = isRecord(entry.operations) ? { ...entry.operations } : {};
+  const changed = operations.codex_run_finalize_enabled !== enabled;
+  operations.codex_run_finalize_enabled = enabled;
+  entry.operations = operations;
+
+  const validation = await validateConfigDocument(next);
+  if (validation.issues.length > 0) {
+    throw new OwnerCliError(
+      "CONFIG_VALIDATION_FAILED",
+      `Finalizer capability was not written: ${validation.issues.map((issue) => `[${issue.code}] ${issue.message}`).join("; ")}`
+    );
+  }
+  const target = await resolveConfigWriteTarget(configPath);
+  await writePrivateConfig(target, next as RepoReaderConfig);
+  io.stdout(`repo_id=${repoId}`);
+  io.stdout(`codex_run_finalize_enabled=${String(enabled)}`);
+  io.stdout(`config_changed=${String(changed)}`);
+  io.stdout("generic_operations_changed=false");
+  io.stdout("restart_required=true");
   return 0;
 }
 
@@ -566,6 +622,27 @@ export async function writePrivateConfig(configPath: string, config: RepoReaderC
   } finally {
     await parentHandle.close();
   }
+}
+
+async function resolveConfigWriteTarget(configPath: string): Promise<string> {
+  const direct = await lstat(configPath);
+  if (direct.isSymbolicLink()) {
+    const target = await realpath(configPath);
+    const targetStats = await lstat(target);
+    const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
+    if (!targetStats.isFile() || targetStats.isSymbolicLink() || (uid !== undefined && targetStats.uid !== uid)) {
+      throw new OwnerCliError("CONFIG_PATH_UNSAFE", "Configuration symlink must resolve to a current-user regular file.");
+    }
+    return target;
+  }
+  if (!direct.isFile()) {
+    throw new OwnerCliError("CONFIG_PATH_UNSAFE", "Configuration path must be a regular file or a symlink to one.");
+  }
+  return configPath;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function canonicalOwnerDirectory(path: string, label: string): Promise<string> {

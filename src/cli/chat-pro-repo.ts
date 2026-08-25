@@ -19,7 +19,8 @@ import {
   listProjectRoots,
   listRepositories,
   removeProjectRoot,
-  removeRepository
+  removeRepository,
+  setRepositoryFinalizer
 } from "./repository-config.js";
 import {
   DurableOwnerTaskStateReader,
@@ -35,6 +36,7 @@ const USAGE = [
   "  chat-pro-repo repo add <path> [--mode read|write|ship] [policy options] [--config <path>]",
   "  chat-pro-repo repo list [--config <path>]",
   "  chat-pro-repo repo remove <repo_id> [--config <path>]",
+  "  chat-pro-repo repo finalizer enable|disable <repo_id> [--config <path>]",
   "  chat-pro-repo project-root add <path> [--id <id>] [--repo-id-prefix <prefix>] [--exclude <name>] [--config <path>]",
   "  chat-pro-repo project-root list [--config <path>]",
   "  chat-pro-repo project-root remove <project_root_id> [--config <path>]",
@@ -90,6 +92,9 @@ export async function runChatProRepoCli(
     }
     if (args[0] === "repo" && args[1] === "remove") {
       return await removeRepository(args.slice(2), configPath, io, taskReaderFactory);
+    }
+    if (args[0] === "repo" && args[1] === "finalizer" && (args[2] === "enable" || args[2] === "disable")) {
+      return await setRepositoryFinalizer(args.slice(3), configPath, io, args[2] === "enable");
     }
     if (args[0] === "project-root" && args[1] === "add") {
       return await addProjectRoot(args.slice(2), configPath, io);
