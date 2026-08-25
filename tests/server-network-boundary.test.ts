@@ -69,6 +69,31 @@ describe("server network boundary", () => {
     expect(replacement.sessionId).toEqual(expect.any(String));
   });
 
+  test("default capacity admits connector initialization bursts beyond one hundred sessions", async () => {
+    const server = await startServer();
+    await waitForHealth(server);
+    const sessionIds: string[] = [];
+
+    for (let index = 0; index < 101; index += 1) {
+      const initialized = await initializeSession(server.port);
+      expect(initialized.status).toBe(200);
+      expect(initialized.sessionId).toEqual(expect.any(String));
+      sessionIds.push(initialized.sessionId!);
+    }
+
+    await Promise.all(sessionIds.map(async (sessionId) => {
+      const response = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
+        method: "DELETE",
+        headers: {
+          Accept: "application/json, text/event-stream",
+          "mcp-session-id": sessionId
+        }
+      });
+      await response.text();
+      expect(response.ok).toBe(true);
+    }));
+  }, 30_000);
+
   test("audits an invalid session with safe category and request correlation", async () => {
     const server = await startServer();
     await waitForHealth(server);

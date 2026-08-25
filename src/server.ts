@@ -24,7 +24,7 @@ const host = resolveServerHost(process.env);
 const configPath = process.env.CHAT_PRO_REPOSITORY_MCP_CONFIG
   ?? process.env.GPT_REPO_CONFIG
   ?? process.env.REPO_READER_CONFIG;
-const maxSessions = readBoundedInteger("CHAT_PRO_REPOSITORY_MCP_MAX_SESSIONS", 100, 1, 1_000);
+const maxSessions = readBoundedInteger("CHAT_PRO_REPOSITORY_MCP_MAX_SESSIONS", 500, 1, 1_000);
 const sessionIdleTtlMs = readBoundedInteger("CHAT_PRO_REPOSITORY_MCP_SESSION_IDLE_TTL_MS", 30 * 60_000, 1_000, 24 * 60 * 60_000);
 
 const registry = configPath
