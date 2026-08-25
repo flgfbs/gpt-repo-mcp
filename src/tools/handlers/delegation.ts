@@ -19,6 +19,20 @@ import type { DelegationTaskV3ToolInput, DelegationTaskV3WriteToolInput } from "
 import type { IntegrationReviewWriteInput } from "../../contracts/integration-review.contract.js";
 import { safeTool, type ToolHandler } from "../handler-support.js";
 
+type TaskAwareDelegationTaskV3WriteInput = DelegationTaskV3WriteToolInput & {
+  operation_id?: string;
+  expected_head_sha?: string;
+  expected_tree_sha?: string;
+};
+
+function delegationServiceInput(input: TaskAwareDelegationTaskV3WriteInput): DelegationTaskV3WriteToolInput {
+  const serviceInput: Record<string, unknown> = { ...input };
+  delete serviceInput.operation_id;
+  delete serviceInput.expected_head_sha;
+  delete serviceInput.expected_tree_sha;
+  return serviceInput as DelegationTaskV3WriteToolInput;
+}
+
 export const prepareCodexTaskHandler: ToolHandler = async (input, context) => safeTool<DelegationTaskV3ToolInput>("repo_prepare_codex_task", input, async (args) => {
   const repo = context.registry.get(args.repo_id);
   const result = await new DelegationV3TaskService(repo.root, new PathSandbox(repo.root), new WritePolicy(repo.writes)).prepare(args);
@@ -28,7 +42,9 @@ export const prepareCodexTaskHandler: ToolHandler = async (input, context) => sa
 
 export const writeCodexTaskHandler: ToolHandler = async (input, context) => safeTool<DelegationTaskV3WriteToolInput>("repo_write_codex_task", input, async (args) => {
   const repo = context.registry.get(args.repo_id);
-  const result = await new DelegationV3TaskService(repo.root, new PathSandbox(repo.root), new WritePolicy(repo.writes)).write(args);
+  const result = await new DelegationV3TaskService(repo.root, new PathSandbox(repo.root), new WritePolicy(repo.writes)).write(
+    delegationServiceInput(args as TaskAwareDelegationTaskV3WriteInput)
+  );
   audit({ tool: "repo_write_codex_task", repo_id: args.repo_id, paths: result.written_paths, warnings: result.warnings });
   return createSuccessEnvelope(result, result.dry_run ? `Dry run checked Delegation v3 task ${result.run_id}.` : `Wrote Delegation v3 task ${result.run_id}.`, { warnings: result.warnings });
 });
