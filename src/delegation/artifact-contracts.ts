@@ -249,6 +249,7 @@ export const AgentRunnerSessionSchema = z.object({
   run_id: AgentRunnerRunIdSchema,
   provider: AgentRunnerNameSchema,
   thread_id: z.string().min(1).max(1_024).refine((value) => !/[\0\r\n]/.test(value)),
+  model: z.string().min(1).max(512).refine((value) => !/[\0\r\n]/.test(value)).optional(),
   turn_index: z.number().int().min(0).max(32),
   max_runtime_ms: z.number().int().positive().optional(),
   active_runtime_ms: z.number().int().nonnegative().default(0),
@@ -265,6 +266,7 @@ export const AgentRunnerAttemptSchema = z.object({
   operation: z.enum(["start", "resume"]),
   turn_index: z.number().int().min(0).max(32),
   state: z.enum(["in_flight", "settled"]),
+  app_server_turn_id: z.string().min(1).max(1_024).refine((value) => !/[\0\r\n]/.test(value)).optional(),
   started_at: BoundedIsoTimestampSchema,
   updated_at: BoundedIsoTimestampSchema
 }).strict();

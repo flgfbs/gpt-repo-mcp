@@ -1,7 +1,7 @@
 # Architecture
 
 Chat Pro Repository MCP is a contract-first, local-first MCP server. The public
-surface is a closed catalog of exactly 65 tools. Task/worktree lifecycle is
+surface is a closed catalog of exactly 66 tools. Task/worktree lifecycle is
 local; only the GitHub-enabled external subset is open-world because it
 contacts the configured Git remote and GitHub.
 
@@ -24,16 +24,16 @@ src/contracts/*.contract.ts
 - Package modules attach title, description, annotations, tier, capability, and
   thin handler.
 - `src/tools/registry.ts` rejects duplicates, missing definitions, and unknown
-  definitions, then constructs the canonical 65-tool order.
+  definitions, then constructs the canonical 66-tool order.
 - `src/register.ts` iterates that registry and registers each tool through
   `src/tools/define-tool.ts`.
 - Handlers parse, call one runtime/service boundary, audit safe metadata, and
   return a shared envelope.
 - Services own policy, state, Git, filesystem, artifacts, and external effects.
 
-The first 47 local names are preserved exactly. The lifecycle package appends
-the 18 names listed in [Tool Surface](TOOL_SURFACE.md); compatibility aliases
-are not registered.
+The first 47 local names are preserved exactly. Managed-agent continuation is
+position 48, followed by the 18 lifecycle names listed in
+[Tool Surface](TOOL_SURFACE.md); compatibility aliases are not registered.
 
 ## Runtime Construction Seams
 
@@ -43,6 +43,8 @@ registered handler. Its dependencies are deliberately explicit:
 - `RootRegistry` resolves registered repository ids to canonical roots and
   policy;
 - optional code intelligence is injected behind its client factory;
+- optional `AgentContinuationRuntime` is injected behind the one continuation
+  handler and is absent from default server construction;
 - `LifecycleRuntime` is the strict handler boundary for the 18 lifecycle tools;
 - task-state/worktree storage owns task bindings and terminal state;
 - the artifact store owns content-addressed bytes and opaque public ids;
@@ -54,6 +56,14 @@ registered handler. Its dependencies are deliberately explicit:
 Production wiring uses the real fixed boundaries. Tests inject deterministic
 fakes and make no live GitHub contact. Neither interface exposes an arbitrary
 command, URL, repository selector, branch selector, or credential value.
+
+The continuation runtime is constructed only from an owner-supplied, already
+connected Codex App Server RPC boundary whose existing notification/result sink
+owns settlement. It calls `thread/read`, conditionally `thread/resume`, and then
+`turn/start` without model, cwd, sandbox, approval, or machine overrides. It
+requires the returned thread repository and provider to match the private run
+session, while deliberately not requiring the current worktree HEAD or tree to
+equal an earlier baseline. This bridge does not create a second status system.
 
 ## Local Repository Plane
 
@@ -91,6 +101,17 @@ cleanup rules. The local form ends at reviewed local Git. The GitHub form adds
 remote identity, repository identity, checks, merge method, and external-effect
 policy. Legacy policy objects without a discriminator are parsed as GitHub
 policies.
+
+Managed-agent continuation reuses that same task identity and its existing
+operation ledger. Private `runner.session.json` and `runner.attempt.json`
+artifacts bind thread, turn index, and in-flight state. Generic repository reads
+exclude them, and public MCP results contain neither App Server thread nor turn
+identifiers. The in-flight attempt and operation contact state are crash-durable
+before `turn/start`. The injected connection must buffer notification delivery
+until the bridge has persisted accepted running state, after which the owner
+sink advances it monotonically to a terminal revision. Once `turn/start` may
+have been accepted, the operation is unknown/no-replay rather than retried under
+a new id; missing status cannot make an old result reviewable.
 
 ## External Effect Plane
 
@@ -164,9 +185,10 @@ artifacts. The provider-neutral execution substrate adds three bounded layers:
    then accepts one bounded launch outcome. A persisted launch intent without a
    result, or any unknown effect, is terminal no-replay evidence.
 
-The normal server construction does not automatically start that queue consumer
-or select a provider. The launcher is an injected boundary, so provider-free
-tests can qualify admission, dispatch, exactly-once, health, and no-replay
+The normal server construction does not automatically start that queue consumer,
+select a provider, or attach an App Server. The launcher and continuation
+connection are injected boundaries, so provider-free tests can qualify
+admission, dispatch, continuation, exactly-once, health, privacy, and no-replay
 semantics without contacting a model. Provider adapters, credentials, model
 selection, and live execution authority remain outside public MCP inputs and
 default server startup. A worker result is evidence; repository validation and

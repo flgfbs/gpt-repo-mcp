@@ -42,7 +42,11 @@ export class AgentRunRuntimeReader {
     const effectiveStatus = status?.status ?? record.runner.mode;
     try {
       const attempt = await this.attempts.read(record.repo_id, record.run_id);
-      if (attempt && attempt.provider === status?.runner) {
+      const expectedProvider = status?.runner ?? record.runner.requested_runner;
+      if (attempt && attempt.provider === expectedProvider) {
+        if (attempt.state === "in_flight" && !["claimed", "running", "awaiting_input"].includes(effectiveStatus)) {
+          warnings.push("AGENT_RUN_EFFECT_UNKNOWN_NO_REPLAY");
+        }
         if (attempt.state === "in_flight" && ["claimed", "running"].includes(effectiveStatus)) {
           const elapsed = elapsedMs(attempt.started_at, this.now().getTime());
           const provisional = describeAgentRuntimeBudget(
@@ -55,6 +59,8 @@ export class AgentRunRuntimeReader {
         } else if (attempt.state === "settled" && !sessionFound) {
           activeRuntimeMs += elapsedMs(attempt.started_at, Date.parse(attempt.updated_at));
         }
+      } else if (attempt) {
+        warnings.push("AGENT_RUN_RUNTIME_INVALID");
       }
     } catch {
       warnings.push("AGENT_RUN_RUNTIME_INVALID");

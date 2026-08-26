@@ -43,20 +43,26 @@ export type ToolDefinition = {
   package: ToolPackage;
   tier: ToolTier;
   requiredCapabilities: readonly ToolCapability[];
+  taskMutationBoundary: "inherited" | "self_managed_external";
   handler: ToolHandler;
 };
 
-type ToolDefinitionInput = Omit<ToolDefinition, "description" | "inputSchema" | "outputSchema" | "requiredCapabilities"> & {
+type ToolDefinitionInput = Omit<ToolDefinition, "description" | "inputSchema" | "outputSchema" | "requiredCapabilities" | "taskMutationBoundary"> & {
   requiredCapabilities?: readonly ToolCapability[];
+  taskMutationBoundary?: ToolDefinition["taskMutationBoundary"];
 };
 
 export function defineTool(input: ToolDefinitionInput): ToolDefinition {
+  if (input.taskMutationBoundary === "self_managed_external" && input.name !== "repo_continue_agent_run") {
+    throw new Error("Only repo_continue_agent_run may own a self-managed external task operation.");
+  }
   const contract = toolContracts[input.name];
   return {
     ...input,
     description: descriptions[input.name],
     inputSchema: contract.input,
     outputSchema: contract.output,
-    requiredCapabilities: input.requiredCapabilities ?? []
+    requiredCapabilities: input.requiredCapabilities ?? [],
+    taskMutationBoundary: input.taskMutationBoundary ?? "inherited"
   };
 }

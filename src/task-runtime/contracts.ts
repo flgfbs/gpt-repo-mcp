@@ -2,7 +2,7 @@ import { z } from "zod";
 import { isAbsolute } from "node:path";
 
 export const TaskIdSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
-export const OperationIdSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
+export const OperationIdSchema = z.string().min(1).max(160).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 export const TaskRepoIdSchema = z.string().regex(/^task-[a-f0-9]{40}$/);
 export const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 export const GitObjectIdSchema = z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/);
@@ -38,7 +38,7 @@ export const OperationPhaseSchema = z.enum([
 ]);
 
 export const ObservedEffectStateSchema = z.enum(["NOT_STARTED", "ABSENT", "PRESENT", "PARTIAL", "UNKNOWN"]);
-export const OperationKindSchema = z.enum(["OPEN", "CLOSE", "CLEANUP"]);
+export const OperationKindSchema = z.enum(["OPEN", "CLOSE", "CLEANUP", "AGENT_CONTINUE"]);
 
 const TimestampSchema = z.string().max(64).datetime();
 const RuntimePathSchema = z.string().min(1).max(4096).refine((value) => isAbsolute(value) && !value.includes("\0"));

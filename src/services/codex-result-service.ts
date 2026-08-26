@@ -37,6 +37,8 @@ import {
   buildDelegationV3ProductEvidence,
   deriveCodexProductReview
 } from "./delegation-v3-product-evidence.js";
+import { DelegationRunStore } from "../delegation/run-store.js";
+import { DelegationAttemptStore } from "../delegation/attempt-store.js";
 
 const EMPTY_SCOPE: CodexReviewResult["scope_evidence"] = {
   newly_observed_paths: [],
@@ -78,6 +80,7 @@ export class CodexResultService {
     const paths = codexRunPaths(input.run_id);
     const warnings: string[] = [];
     const manifest = await this.readManifest(paths.manifestPath, input.repo_id, input.run_id, paths, warnings);
+    await this.assertNoActiveContinuation(input);
     const prompt = await this.readOptionalText(paths.promptPath, false);
     const integrityResult = evaluateCodexRunIntegrity(manifest, prompt, paths);
     const integrity = integrityResult.integrity;
@@ -381,6 +384,30 @@ export class CodexResultService {
       ],
       warnings: [...new Set(warnings)]
     };
+  }
+
+  private async assertNoActiveContinuation(input: CodexReviewInput): Promise<void> {
+    if (!this.root) return;
+    const runs = new DelegationRunStore(this.root);
+    const status = await runs.readStatus(input.run_id);
+    const attempt = await new DelegationAttemptStore(this.root).read(input.repo_id, input.run_id);
+    if (
+      attempt?.state === "in_flight"
+      || (
+        status !== undefined
+        && (
+          status.repo_id !== input.repo_id
+          || status.run_id !== input.run_id
+          || ["pending", "claimed", "running", "awaiting_input"].includes(status.status)
+          || !status.result_found
+        )
+      )
+    ) {
+      throw new RepoReaderError(
+        "CODEX_REVIEW_NOT_ELIGIBLE",
+        "The managed run does not have a newly persisted terminal result eligible for review."
+      );
+    }
   }
 
   private async readManifest(

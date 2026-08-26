@@ -1,8 +1,9 @@
 # Capability Guide
 
-Chat Pro Repository MCP exposes exactly 65 repository tools. The first 47 keep
-their canonical local order and semantics; 18 task and optional GitHub lifecycle
-tools are appended in one canonical order. There are no aliases.
+Chat Pro Repository MCP exposes exactly 66 repository tools. The first 47 keep
+their canonical local order and semantics; managed-agent continuation is next;
+18 task and optional GitHub lifecycle tools follow in one canonical order.
+There are no aliases.
 
 ## Everyday Repository Work
 
@@ -65,6 +66,29 @@ The lifecycle policy has two forms. `kind: "local"` admits task open/status,
 local implementation, validation, review, stage, commit, close, and cleanup.
 `kind: "github"` adds the external lifecycle. Legacy entries without `kind`
 parse as `kind: "github"`, preserving existing configuration behavior.
+
+## Continue A Managed Local Child
+
+`repo_continue_agent_run` starts one next turn on the same private Codex App
+Server thread already bound to an existing managed run. The owner runtime must
+have explicitly injected that connection and a notification-delivery barrier
+that stays held through accepted running-state persistence. Default server
+startup does not find, register, spawn, or attach a provider.
+
+Use the exact task `repo_id`, `run_id`, current `repo_agent_runs` revision, a
+fresh `operation_id` in the existing task namespace, and the bounded next-turn
+instruction. The tool does not accept a thread id, model, machine, repository
+path, sandbox, approval, binding id, separate idempotency key, or expected
+HEAD/tree. It validates the private session's repository and provider instead,
+so normal child edits do not create false drift.
+
+Only an idle, terminal, managed run without a state-bound review attestation is
+continuable. Use `repo_write_agent_reply` when the run is awaiting structured
+input. After a formal review attestation, use the bounded corrective-child
+lineage. If `turn/start` disconnects or returns an invalid acknowledgement, the
+result is unknown/no-replay: inspect the same run and do not resend the
+instruction. Missing or invalid managed status also suppresses stale result
+review while in-flight private attempt evidence remains.
 
 ## Validation, Git, And Recovery
 
@@ -144,8 +168,9 @@ The current delegation format interoperates with external workers through
 repository-owned artifacts. Its provider-neutral execution substrate can bind
 one admitted dispatch to one supervisor-owned launch intent, publish typed
 service health, and stop permanently on an unknown effect. The normal MCP server
-does not auto-start the queue consumer or choose a provider, and no public input
-accepts credentials, model identifiers, commands, or retry authority.
+does not auto-start the queue consumer, choose a provider, or attach an App
+Server connection, and no public input accepts credentials, model identifiers,
+commands, private thread ids, or retry authority.
 
 ## What Chat Pro Repository MCP Does Not Do
 

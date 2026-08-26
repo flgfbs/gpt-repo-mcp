@@ -2,6 +2,7 @@ import type { z } from "zod";
 import { RepoTaskAdmissionInputSchema, RepoTaskAdmissionResultSchema } from "../contracts/task-admission.contract.js";
 import { AgentRunsInputSchema, AgentRunsResultSchema } from "../contracts/agent-runs.contract.js";
 import { AgentReplyInputSchema, AgentReplyResultSchema } from "../contracts/agent-reply.contract.js";
+import { AgentContinuationInputSchema, AgentContinuationResultSchema } from "../contracts/agent-continuation.contract.js";
 import { ChangePlanInputSchema, ChangePlanResultSchema } from "../contracts/change-plan.contract.js";
 import { CodeIndexInputSchema, CodeIndexResultSchema } from "../contracts/code-index.contract.js";
 import { CleanupPathsInputSchema, CleanupPathsResultSchema } from "../contracts/cleanup.contract.js";
@@ -224,6 +225,10 @@ export const toolContracts = {
   repo_write_agent_reply: {
     input: taskAwareMutationInput(AgentReplyInputSchema),
     output: AgentReplyResultSchema
+  },
+  repo_continue_agent_run: {
+    input: AgentContinuationInputSchema,
+    output: AgentContinuationResultSchema
   },
   repo_codex_review: {
     input: CodexReviewInputSchema,

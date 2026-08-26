@@ -11,8 +11,10 @@ import { OperationsPolicy } from "../../services/operations-policy.js";
 import { PathSandbox } from "../../services/path-sandbox.js";
 import { WritePolicy } from "../../services/write-policy.js";
 import { createSuccessEnvelope } from "../../runtime/result-envelope.js";
+import { RepoReaderError } from "../../runtime/errors.js";
 import { audit } from "../../runtime/telemetry.js";
 import type { AgentReplyInput } from "../../contracts/agent-reply.contract.js";
+import type { AgentContinuationInput } from "../../contracts/agent-continuation.contract.js";
 import type { AgentRunsInput } from "../../contracts/agent-runs.contract.js";
 import type { CodexReviewWriteInput } from "../../contracts/codex-review-attestation.contract.js";
 import type { CodexReviewInput } from "../../contracts/codex-task.contract.js";
@@ -67,6 +69,25 @@ export const writeAgentReplyHandler: ToolHandler = async (input, context) => saf
   }).write(args);
   audit({ tool: "repo_write_agent_reply", repo_id: args.repo_id, paths: [result.written_path], counts: { answers: args.answers.length }, warnings: result.warnings });
   return createSuccessEnvelope(result, `Wrote structured reply for agent run ${result.run_id}, turn ${result.turn_index}.`);
+});
+
+export const continueAgentRunHandler: ToolHandler = async (input, context) => safeTool<AgentContinuationInput>("repo_continue_agent_run", input, async (args) => {
+  if (!context.agentContinuation) {
+    throw new RepoReaderError(
+      "RUNNER_PROVIDER_UNAVAILABLE",
+      "Codex App Server continuation is not configured in this owner runtime."
+    );
+  }
+  const result = await context.agentContinuation.continue(args);
+  audit({
+    tool: "repo_continue_agent_run",
+    repo_id: args.repo_id,
+    counts: { turn_index: result.turn_index },
+    warnings: result.warnings
+  });
+  return createSuccessEnvelope(result, `Accepted continuation turn ${result.turn_index} for ${result.run_id}.`, {
+    warnings: result.warnings
+  });
 });
 
 export const codexReviewHandler: ToolHandler = async (input, context) => safeTool<CodexReviewInput>("repo_codex_review", input, async (args) => {

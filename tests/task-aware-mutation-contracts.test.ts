@@ -9,6 +9,7 @@ describe("task-aware inherited mutation contracts", () => {
       tool.annotations.readOnlyHint === false
       && !lifecycleNames.has(tool.name)
       && tool.name !== "repo_finalize_codex_run"
+      && tool.taskMutationBoundary === "inherited"
     ));
 
     expect(inheritedMutations).toHaveLength(21);
@@ -22,6 +23,14 @@ describe("task-aware inherited mutation contracts", () => {
       expect(operationField.safeParse(undefined).success, `${tool.name}.operation_id remains optional for base repositories`).toBe(true);
       expect(treeField.safeParse(undefined).success, `${tool.name}.expected_tree_sha remains optional for base repositories`).toBe(true);
     }
+  });
+
+  test("keeps continuation in the existing operation namespace without HEAD or tree inputs", () => {
+    const continuation = toolRegistry.find((tool) => tool.name === "repo_continue_agent_run");
+    expect(continuation?.taskMutationBoundary).toBe("self_managed_external");
+    expect(continuation?.inputSchema.shape.operation_id).toBeDefined();
+    expect(continuation?.inputSchema.shape.expected_head_sha).toBeUndefined();
+    expect(continuation?.inputSchema.shape.expected_tree_sha).toBeUndefined();
   });
 
   test("requires exact operation, HEAD, and tree bindings for repo_finalize_codex_run", () => {

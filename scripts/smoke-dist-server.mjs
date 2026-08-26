@@ -54,8 +54,8 @@ try {
     throw new Error("Built server must advertise tools without a repository resource-discovery surface.");
   }
   const listed = await client.listTools();
-  if (listed.tools.length !== 65 || new Set(listed.tools.map(({ name }) => name)).size !== 65) {
-    throw new Error(`Built server exposed ${listed.tools.length} tools instead of 65 unique tools.`);
+  if (listed.tools.length !== 66 || new Set(listed.tools.map(({ name }) => name)).size !== 66) {
+    throw new Error(`Built server exposed ${listed.tools.length} tools instead of 66 unique tools.`);
   }
   if (!listed.tools.every(({ annotations }) =>
     typeof annotations?.readOnlyHint === "boolean" &&
@@ -69,7 +69,7 @@ try {
       !listed.tools.some(({ annotations }) => annotations?.readOnlyHint === false)) {
     throw new Error("Built server did not expose both read-only and mutating tool annotations.");
   }
-  process.stdout.write("Built server passed health, MCP initialize, 65-tool discovery, annotations, and resource-purity smoke checks.\n");
+  process.stdout.write("Built server passed health, MCP initialize, 66-tool discovery, annotations, and resource-purity smoke checks.\n");
 } finally {
   if (client) {
     await client.close().catch(() => undefined);

@@ -33,7 +33,7 @@ export const DELEGATION_V3_BASELINE_FINGERPRINT = "clean";
 
 export type QueuedV3RunOptions = {
   repo_id?: string;
-  runner?: "codex_sdk" | "opencode_sdk";
+  runner?: "codex_sdk" | "opencode_sdk" | "codex_app_server";
   task_kind?: "technical_infrastructure" | "product_slice" | "product_correction";
   max_runtime_ms?: number;
   validation?: DelegationTaskV3Input["validation"] | null;

@@ -39,7 +39,7 @@ diagnosis, artifacts, and external-worker evidence remain optional.
   model or tool.
 - Local-only lifecycle never requires or synthesizes a remote and rejects every
   external lifecycle operation before contact.
-- The 65 public tools are focused schemas, not an arbitrary shell or API.
+- The 66 public tools are focused schemas, not an arbitrary shell or API.
 - Actual file bytes, Git objects, validation, review, and remote read-back take
   precedence over claims.
 - Push is task-branch-only, fast-forward-only, and non-force.
@@ -66,6 +66,12 @@ admission, an immutable dispatch, one launch intent, supervisor identity and
 health, and deterministic no-replay after an unknown effect. Default server
 startup still selects no provider and starts no worker; credentials and
 unrestricted execution remain outside the public MCP contract.
+
+An owner runtime may explicitly inject its existing Codex App Server
+connection to continue the private session of a managed child. The bridge uses
+the existing task operation ledger and run/session/attempt artifacts, never
+accepts provider or authority overrides, and does not add registration,
+credentials, service management, or a second status plane.
 
 ## Scope Limit
 

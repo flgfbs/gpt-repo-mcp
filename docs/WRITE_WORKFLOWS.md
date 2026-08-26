@@ -99,6 +99,25 @@ HEAD/tree, task state, lifecycle artifacts, and cleanup eligibility. The public
 artifact window is capped at 200 references; `ARTIFACTS_TRUNCATED` means
 additional durable artifacts remain available by their opaque ids.
 
+### Continue An Existing Managed Child
+
+When the owner runtime already owns the same Codex App Server connection and
+its notification/result sink, `repo_continue_agent_run` can start one next turn
+on a terminal idle managed run. Read `repo_agent_runs`, then pass its exact
+`repo_id`, `run_id`, revision, a fresh existing-namespace `operation_id`, and
+the bounded instruction. Do not supply a thread, model, path, machine, sandbox,
+approval override, or HEAD/tree expectation. Structured awaiting-input questions
+still use `repo_write_agent_reply`.
+
+Keep the task open while the continuation is active. The injected sink owns
+`turn/completed`, attempt settlement, runtime accounting, result persistence,
+and terminal status. Its connection must hold notification delivery until the
+bridge durably writes the accepted running revision; the sink then reads that
+revision before advancing terminal state. If turn-start acknowledgement is
+uncertain, inspect the same run and do not replay. A run with a state-bound
+review attestation follows the existing corrective-child workflow instead of
+same-run continuation.
+
 ## 5. Implement, Validate, And Review
 
 Within `implement` or `ship` authority:

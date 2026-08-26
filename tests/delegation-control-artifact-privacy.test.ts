@@ -18,10 +18,13 @@ const execFileAsync = promisify(execFile);
 
 const RUN_ID = "2026-07-13T170000Z-private-artifacts";
 const SESSION_PATH = `.chatgpt/codex-runs/${RUN_ID}/runner.session.json`;
+const ATTEMPT_PATH = `.chatgpt/codex-runs/${RUN_ID}/runner.attempt.json`;
 const REPLY_PATH = `.chatgpt/codex-runs/${RUN_ID}/interactions/turn-0001.reply.json`;
 const REVIEW_PATH = `.chatgpt/codex-runs/${RUN_ID}/review.json`;
 const REVIEW_GATE_PATH = `.chatgpt/codex-runs/${RUN_ID}/review-gate.json`;
 const THREAD_CANARY = "private-thread-canary-must-not-leak";
+const MODEL_CANARY = "private-model-canary-must-not-leak";
+const TURN_CANARY = "private-turn-canary-must-not-leak";
 const ANSWER_CANARY = "private-answer-canary-must-not-leak";
 const REVIEW_CANARY = "private-product-review-canary-must-not-leak";
 const REVIEW_GATE_CANARY = "private-review-gate-canary-must-not-leak";
@@ -113,7 +116,8 @@ describe("generic tool privacy for delegation control artifacts", () => {
   test("fetch, read-many, search, and tree cannot expose private runner session or reply data", async () => {
     const fixture = await createRepoFixture();
     await mkdir(join(fixture.root, `.chatgpt/codex-runs/${RUN_ID}/interactions`), { recursive: true });
-    await writeFile(join(fixture.root, SESSION_PATH), JSON.stringify({ thread_id: THREAD_CANARY }));
+    await writeFile(join(fixture.root, SESSION_PATH), JSON.stringify({ thread_id: THREAD_CANARY, model: MODEL_CANARY }));
+    await writeFile(join(fixture.root, ATTEMPT_PATH), JSON.stringify({ app_server_turn_id: TURN_CANARY }));
     await writeFile(join(fixture.root, REPLY_PATH), JSON.stringify({ answers: [{ answer: ANSWER_CANARY }] }));
     await writeFile(join(fixture.root, REVIEW_PATH), JSON.stringify({ rationale: REVIEW_CANARY }));
     await writeFile(join(fixture.root, REVIEW_GATE_PATH), JSON.stringify({ gate: REVIEW_GATE_CANARY }));
@@ -132,7 +136,7 @@ describe("generic tool privacy for delegation control artifacts", () => {
 
     const many = await readManyHandler({
       repo_id: "fixture",
-      paths: [SESSION_PATH, REPLY_PATH, REVIEW_PATH, REVIEW_GATE_PATH],
+      paths: [SESSION_PATH, ATTEMPT_PATH, REPLY_PATH, REVIEW_PATH, REVIEW_GATE_PATH],
       include_globs: [".chatgpt/codex-runs/**"]
     }, context);
     expect(many.structuredContent).toMatchObject({ files: [], skipped: [], returned_count: 0 });
@@ -156,9 +160,13 @@ describe("generic tool privacy for delegation control artifacts", () => {
     await git(fixture.root, ["init"]);
     await git(fixture.root, ["config", "user.email", "test@example.com"]);
     await git(fixture.root, ["config", "user.name", "Test User"]);
-    await git(fixture.root, ["add", "-f", SESSION_PATH, REPLY_PATH, REVIEW_PATH, REVIEW_GATE_PATH]);
+    await git(fixture.root, ["add", "-f", SESSION_PATH, ATTEMPT_PATH, REPLY_PATH, REVIEW_PATH, REVIEW_GATE_PATH]);
     await git(fixture.root, ["commit", "-m", "private runner baseline"]);
-    await writeFile(join(fixture.root, SESSION_PATH), JSON.stringify({ thread_id: `${THREAD_CANARY}-changed` }));
+    await writeFile(join(fixture.root, SESSION_PATH), JSON.stringify({
+      thread_id: `${THREAD_CANARY}-changed`,
+      model: `${MODEL_CANARY}-changed`
+    }));
+    await writeFile(join(fixture.root, ATTEMPT_PATH), JSON.stringify({ app_server_turn_id: `${TURN_CANARY}-changed` }));
     await writeFile(join(fixture.root, REPLY_PATH), JSON.stringify({ answers: [{ answer: `${ANSWER_CANARY}-changed` }] }));
     await writeFile(join(fixture.root, REVIEW_PATH), JSON.stringify({ rationale: `${REVIEW_CANARY}-changed` }));
     await writeFile(join(fixture.root, REVIEW_GATE_PATH), JSON.stringify({ gate: `${REVIEW_GATE_CANARY}-changed` }));
@@ -168,10 +176,13 @@ describe("generic tool privacy for delegation control artifacts", () => {
     for (const result of [fetched, many, searched, tree, status, diff]) {
       const serialized = JSON.stringify(result);
       expect(serialized).not.toContain(THREAD_CANARY);
+      expect(serialized).not.toContain(MODEL_CANARY);
+      expect(serialized).not.toContain(TURN_CANARY);
       expect(serialized).not.toContain(ANSWER_CANARY);
       expect(serialized).not.toContain(REVIEW_CANARY);
       expect(serialized).not.toContain(REVIEW_GATE_CANARY);
       expect(serialized).not.toContain(SESSION_PATH);
+      expect(serialized).not.toContain(ATTEMPT_PATH);
       expect(serialized).not.toContain(REPLY_PATH);
       expect(serialized).not.toContain(REVIEW_PATH);
       expect(serialized).not.toContain(REVIEW_GATE_PATH);

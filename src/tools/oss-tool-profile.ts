@@ -56,6 +56,7 @@ export const OSS_TOOL_ORDER = [
   "repo_write_file",
   "repo_write_changes",
   "repo_write_handoff",
+  "repo_continue_agent_run",
   "repo_task_open",
   "repo_task_status",
   "repo_task_close",

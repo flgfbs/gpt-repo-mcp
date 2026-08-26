@@ -34,6 +34,8 @@ expected/current object ids, safe counts, warning codes, or a recovery hint.
 | `OPERATIONS_DISABLED` / Git-policy codes | Local Git, validation, or cleanup policy was not enabled. |
 | `CODEX_RUN_FINALIZE_DISABLED` | The separate default-off exact Delegation v3 run finalizer capability is not enabled for this repository. |
 | `LIFECYCLE_POLICY_DENIED` | The repository or task does not admit the requested lifecycle authority; local-only tasks use this for every remote or GitHub operation. |
+| `RUNNER_PROVIDER_UNAVAILABLE` | No owner-supplied managed continuation connection is configured. |
+| `RUNNER_LOCK_ACTIVE` | The selected run or private thread already has an in-flight turn. |
 | `GIT_HEAD_MISMATCH` | Current HEAD differs from the exact expected HEAD. |
 | `GIT_STAGED_PATHS_MISMATCH` | Actual staged paths differ from the reviewed set. |
 | `VALIDATION_DISABLED` / `VALIDATION_PROFILE_UNAVAILABLE` | The requested named validation route is not admitted. |
@@ -82,6 +84,12 @@ same task + original operation id
 Replay only when the service recognizes the exact idempotent operation and
 current state admits it. If state remains incomplete or uncertain, preserve the
 receipt and stop rather than generating a second effect.
+
+Managed-agent continuation is stricter after App Server contact. If
+`turn/start` times out, disconnects, or returns an invalid acknowledgement, the
+service records `UNKNOWN_AFTER_CONTACT` and an in-flight private attempt, then
+returns `EXTERNAL_EFFECT_UNKNOWN`. Inspect the same run with `repo_agent_runs`;
+do not repeat the instruction with either the same or a new `operation_id`.
 
 ## Merge Recovery
 

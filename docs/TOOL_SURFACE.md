@@ -1,8 +1,9 @@
 # Tool Surface
 
-Chat Pro Repository MCP publishes exactly 65 tools in the order below. The
-first 47 are canonical local tools; the final 18 are the task and optional
-GitHub lifecycle package. No aliases are registered.
+Chat Pro Repository MCP publishes exactly 66 tools in the order below. The
+first 47 are the preserved canonical local prefix, position 48 is managed-agent
+continuation, and the final 18 are the task and optional GitHub lifecycle
+package. No aliases are registered.
 
 ## Tool Groups
 
@@ -11,7 +12,8 @@ GitHub lifecycle package. No aliases are registered.
 - 25-36: product context, planning, work inventory, and delegation
 - 37-40: transactional patchsets
 - 41-47: validation, work sessions, direct writes, and handoff
-- 48-65: task worktrees, admission, Git/GitHub/CI/review/merge lifecycle
+- 48: managed Codex App Server continuation
+- 49-66: task worktrees, admission, Git/GitHub/CI/review/merge lifecycle
 
 MCP annotations describe expected effects; they do not grant authority.
 External reads and writes have `openWorldHint: true`. Lifecycle mutations are
@@ -217,98 +219,111 @@ may remain disabled.
 
 47. Write a local-only ChatGPT handoff without Git mutation.
 
+### `repo_continue_agent_run`
+
+48. Start one next turn on the private session of an existing managed Codex App
+Server run. The input binds the existing task repository, run, operation id,
+observed run revision, and bounded instruction. It accepts no thread, model,
+machine, repository-path, sandbox, approval, binding, idempotency, HEAD, or tree
+override. `repo_agent_runs` remains the public status tool, and
+`repo_write_agent_reply` remains the path for structured awaiting-input
+questions. After uncertain `turn/start` contact the operation is no-replay.
+
 ### `repo_task_open`
 
-48. Idempotently open a server-bound task from exact base branch, commit, tree,
+49. Idempotently open a server-bound task from exact base branch, commit, tree,
 authority, goal, and branch slug. This is a local non-destructive mutation.
 
 ### `repo_task_status`
 
-49. Read the task binding, current HEAD/tree, artifacts, and cleanup eligibility.
+50. Read the task binding, current HEAD/tree, artifacts, and cleanup eligibility.
 
 ### `repo_task_close`
 
-50. Idempotently close an exact unchanged task as `completed`, `blocked`,
+51. Idempotently close an exact unchanged task as `completed`, `blocked`,
 `abandoned`, or `superseded`.
 
 ### `repo_task_cleanup`
 
-51. Idempotently delete eligible closed server-owned task workspace resources
+52. Idempotently delete eligible closed server-owned task workspace resources
 and optionally its artifact set while retaining a receipt.
 
 ### `repo_artifact_read`
 
-52. Read at most 65,536 bytes from an opaque artifact id at a byte offset; no
+53. Read at most 65,536 bytes from an opaque artifact id at a byte offset; no
 path is accepted.
 
 ### `repo_remote_status`
 
-53. Read exact remote base/task refs and their relationship to the bound task
+54. Read exact remote base/task refs and their relationship to the bound task
 HEAD/tree. This is an open-world read with an operation id.
 
 ### `repo_write_push`
 
-54. Idempotently fast-forward push the exact server-owned task branch through
+55. Idempotently fast-forward push the exact server-owned task branch through
 the fixed Git boundary. Requires `ship`; force is impossible.
 
 ### `repo_pr_create_or_update`
 
-55. Idempotently create or update the task-derived pull request while keeping
+56. Idempotently create or update the task-derived pull request while keeping
 it Draft. Requires `ship`.
 
 ### `repo_pr_status`
 
-56. Read current GitHub pull-request state for the exact task.
+57. Read current GitHub pull-request state for the exact task.
 
 ### `repo_pr_review_threads`
 
-57. Read bounded paginated review threads for the task pull request.
+58. Read bounded paginated review threads for the task pull request.
 
 ### `repo_write_pr_reply`
 
-58. Idempotently post one operation-bound reply to an exact review thread.
+59. Idempotently post one operation-bound reply to an exact review thread.
 
 ### `repo_write_pr_resolve_thread`
 
-59. Idempotently resolve an exact review thread at its expected update time.
+60. Idempotently resolve an exact review thread at its expected update time.
 Requires passed exact validation and either corrected-head evidence or a durable
 same-head reply followed by fresh exact validation.
 
 ### `repo_ci_status`
 
-60. Read GitHub Actions runs and checks for the exact task HEAD/tree and return
+61. Read GitHub Actions runs and checks for the exact task HEAD/tree and return
 a bound CI snapshot id.
 
 ### `repo_write_ci_retry_failed`
 
-61. Idempotently retry only exact failed run ids from a bound CI snapshot.
+62. Idempotently retry only exact failed run ids from a bound CI snapshot.
 
 ### `repo_merge_gate_prepare`
 
-62. Read fresh PR, review, CI, and Git state and return blockers or an expiring
+63. Read fresh PR, review, CI, and Git state and return blockers or an expiring
 exact merge manifest plus the owner CLI command.
 
 ### `repo_write_merge`
 
-63. Idempotently consume one exact, unexpired, one-time owner approval and merge
+64. Idempotently consume one exact, unexpired, one-time owner approval and merge
 the bound manifest.
 
 ### `repo_post_merge_readback`
 
-64. Read authoritative post-merge PR, base-ref, task-ref, and commit state.
+65. Read authoritative post-merge PR, base-ref, task-ref, and commit state.
 
 ### `repo_task_admission`
 
-65. Read whether an expected exact task is absent, is the sole matching active
+66. Read whether an expected exact task is absent, is the sole matching active
 task, or conflicts with current active task state. It is closed-world,
 read-only, and accepts no operation id or mutation request.
 
 ## Lifecycle Contract Pattern
 
-Except for local task status, task admission, and artifact paging, lifecycle calls bind task
-identity and exact state. Mutating or external calls require a caller-generated
-`operation_id`; external state operations also require the exact expected task
-HEAD and tree as applicable. Inputs are strict: unknown fields, caller-selected
-paths, arbitrary remote URLs, and arbitrary command arguments are rejected.
+Except for local task status, task admission, and artifact paging, lifecycle
+calls bind task identity and exact state. Mutating or external calls require a
+caller-generated `operation_id`; external state operations also require the
+exact expected task HEAD and tree as applicable. Managed-agent continuation is
+the explicit exception to HEAD/tree input because the child may have changed
+its own worktree; it binds task/run/revision and private session identity
+instead. Inputs are strict: unknown fields, caller-selected paths, arbitrary
+remote URLs, and arbitrary command arguments are rejected.
 
 For end-to-end ordering, see [Write Workflows](WRITE_WORKFLOWS.md).

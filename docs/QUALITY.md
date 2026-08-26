@@ -4,7 +4,7 @@
 
 - Preserve `contracts -> tool-contract map -> packages -> registry ->
   registration -> handlers -> services`.
-- Keep exactly 65 canonical names in registry order unless an intentional public
+- Keep exactly 66 canonical names in registry order unless an intentional public
   contract change is approved. Do not add aliases.
 - Keep Zod objects strict and schemas centrally referenced.
 - Keep package definitions metadata-only, handlers thin, and effects in
@@ -29,6 +29,16 @@
   one launch intent is the replay boundary, and unknown effects never retry.
 - Supervisor identity and health attestations are typed and content-bound; the
   default server does not auto-start a provider queue consumer.
+- Managed continuation reuses task `operation_id` state and private
+  runner-session/attempt artifacts; it does not require exact HEAD/tree merely
+  to start the next turn and never exposes private App Server identifiers.
+- Attempt and operation guards are crash-durable before `turn/start`, and an
+  injected notification barrier prevents immediate completion from being
+  overwritten by a late running-state write.
+- An acknowledged or uncertain `turn/start` is no-replay. Deterministic tests
+  cover active-turn rejection, confirmed no-start recovery and persistence
+  failure, disconnect, immediate completion, missing-status stale-result
+  suppression, duplicate operation, strict input, and private-artifact exclusion.
 - Merge preparation is read-only; only the owner CLI writes a one-time exact
   approval.
 
