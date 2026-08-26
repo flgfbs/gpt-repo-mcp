@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -13,8 +13,11 @@ import {
   type CodexRunFinalizerValidation
 } from "../src/services/codex-run-finalizer-service.js";
 import { CodexResultService } from "../src/services/codex-result-service.js";
+import { CodexReviewAttestationService } from "../src/services/codex-review-attestation-service.js";
+import { DelegationGateService } from "../src/services/delegation-gate-service.js";
 import { GitReviewService } from "../src/services/git-review-service.js";
 import { PathSandbox } from "../src/services/path-sandbox.js";
+import { WritePolicy } from "../src/services/write-policy.js";
 import { codexRunPaths } from "../src/services/codex-run-paths.js";
 import { writeQueuedV3Run } from "./fixtures/delegation-v3-run-fixture.js";
 
@@ -131,6 +134,17 @@ describe("CodexRunFinalizerService", () => {
       changed_paths: [],
       recommendation: { risk_level: "low", warnings: ["NO_CHANGES"] }
     });
+    await attestFinalizedRun(fixture.root, review);
+    const passedGate = await finalizerGateDecision(fixture.root, commitSha);
+    expect(passedGate).toMatchObject({
+      status: "passed",
+      applicable_runs: [expect.objectContaining({
+        run_id: RUN_ID,
+        status: "passed",
+        review_status: "valid",
+        product_verdict: "not_applicable"
+      })]
+    });
 
     const replayValidation = vi.fn(async () => {
       throw new Error("replay must not rerun validation");
@@ -171,6 +185,40 @@ describe("CodexRunFinalizerService", () => {
       "CODEX_FINALIZER_ARCHIVE_MISMATCH",
       "CODEX_FINALIZER_EVIDENCE_INVALID",
       "CODEX_BASELINE_HEAD_MISMATCH"
+    ]));
+    const staleGate = await finalizerGateDecision(fixture.root, commitSha);
+    expect(staleGate).toMatchObject({
+      status: "advisory",
+      applicable_runs: [expect.objectContaining({
+        run_id: RUN_ID,
+        status: "stale",
+        review_status: "stale",
+        reasons: ["DELEGATION_REVIEW_STATE_CHANGED"]
+      })]
+    });
+  });
+
+  test("fails closed when a committed archive path is replaced by a symlink", async () => {
+    const fixture = await createFinalizerFixture();
+    const result = await new CodexRunFinalizerService(fixture.root, {
+      archive_root: fixture.archiveRoot,
+      now: () => NOW,
+      validate: async () => passingValidation()
+    }).finalize(fixture.input);
+    const relocated = `${result.archive!.path}.relocated`;
+    await rename(result.archive!.path, relocated);
+    await symlink(relocated, result.archive!.path);
+
+    const review = await reviewFinalizedRun(fixture.root);
+    expect(review.integrity).toMatchObject({
+      head_matches_baseline: false,
+      head_matches_finalizer_commit: false,
+      finalizer_evidence_matches: false
+    });
+    expect(review.technical_readiness.status).toBe("failed");
+    expect(review.warnings).toEqual(expect.arrayContaining([
+      "CODEX_FINALIZER_ARCHIVE_MISMATCH",
+      "CODEX_FINALIZER_EVIDENCE_INVALID"
     ]));
   });
 
@@ -420,7 +468,8 @@ async function createFinalizerFixture(): Promise<{
     baseline: {
       head_sha: head,
       worktree_fingerprint: "clean",
-      initial_changed_paths: []
+      initial_changed_paths: [],
+      initial_path_states: []
     },
     created_at: "2026-08-26T01:00:00.000Z"
   });
@@ -485,6 +534,38 @@ async function reviewFinalizedRun(root: string) {
     new GitReviewService(root),
     root
   ).review({ repo_id: "fixture", run_id: RUN_ID });
+}
+
+async function attestFinalizedRun(
+  root: string,
+  review: Awaited<ReturnType<typeof reviewFinalizedRun>>
+) {
+  if (review.review_state.status !== "available") {
+    throw new Error("Expected available post-finalizer review state.");
+  }
+  return new CodexReviewAttestationService(
+    root,
+    new PathSandbox(root),
+    new GitReviewService(root),
+    new WritePolicy({ enabled: true, allowed_globs: [".chatgpt/codex-runs/**"] }),
+    () => NOW
+  ).write({
+    repo_id: "fixture",
+    run_id: RUN_ID,
+    expected_review_state_sha256: review.review_state.state_sha256,
+    product_verdict: "not_applicable",
+    rationale: "The exact finalized technical run is ready for state-bound review.",
+    evidence: []
+  });
+}
+
+async function finalizerGateDecision(root: string, headSha: string) {
+  return new DelegationGateService(root).evaluate({
+    repo_id: "fixture",
+    paths: ["src/value.py"],
+    operation: "ship",
+    head_sha: headSha
+  });
 }
 
 function passingValidation(): CodexRunFinalizerValidation {

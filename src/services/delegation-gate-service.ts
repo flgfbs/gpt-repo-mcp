@@ -28,6 +28,7 @@ import { hashCanonical } from "./product-contract-service.js";
 import { matchesGlob } from "./glob-service.js";
 import { GitService, type GitPathState } from "./git-service.js";
 import { codexReviewAttestationAnySha256 } from "./codex-review-state.js";
+import { inspectCommittedFinalizerReviewEvidence } from "./codex-finalizer-review-evidence.js";
 import type { WritePolicy } from "./write-policy.js";
 
 const MAX_DISCOVERED_RUNS = 1_000;
@@ -361,8 +362,31 @@ export class DelegationGateService {
       readSafeRunArtifact(this.root, paths.promptPath, MAX_PROMPT_BYTES).catch(() => undefined),
       readSafeRunArtifact(this.root, paths.resultJsonPath, MAX_RESULT_BYTES).catch(() => undefined)
     ]);
+    let parsedResult;
+    try {
+      parsedResult = resultText === undefined
+        ? undefined
+        : DelegationResultV3Schema.parse(JSON.parse(resultText) as unknown);
+    } catch {
+      parsedResult = undefined;
+    }
+    const finalizerEvidence = await inspectCommittedFinalizerReviewEvidence({
+      root: this.root,
+      repo_id: input.manifest.repo_id,
+      run_id: input.manifest.run_id,
+      manifest: input.manifest,
+      result: parsedResult
+    });
+    if (finalizerEvidence.status === "invalid") {
+      return runDecision(input, mode, "stale", "stale", ["DELEGATION_REVIEW_STATE_CHANGED"], attestation.product_verdict);
+    }
+    if (finalizerEvidence.status === "valid" && attestation.binding.binding_version !== 2) {
+      return runDecision(input, mode, "stale", "stale", ["DELEGATION_REVIEW_STATE_CHANGED"], attestation.product_verdict);
+    }
     const currentBindingFingerprint = attestation.binding.binding_version === 2
-      ? await this.git.contentFingerprint(attestation.binding.changed_paths)
+      ? finalizerEvidence.status === "valid"
+        ? finalizerEvidence.review_fingerprint
+        : await this.git.contentFingerprint(attestation.binding.changed_paths)
       : input.legacy_review_state_fingerprint ?? await this.git.reviewStateFingerprint();
     const stateMatches = Boolean(
       promptText !== undefined
@@ -373,6 +397,7 @@ export class DelegationGateService {
       && attestation.binding.prompt_sha256 === sha256Text(promptText)
       && attestation.binding.result_sha256 === sha256Text(resultText)
       && attestation.binding.head_sha === input.head_sha
+      && (finalizerEvidence.status !== "valid" || finalizerEvidence.head_sha === input.head_sha)
       && attestation.binding.worktree_fingerprint === currentBindingFingerprint
       && (attestation.binding.pathset_fingerprint === undefined || attestation.binding.pathset_fingerprint === currentBindingFingerprint)
       && attestation.technical_readiness.status === "passed"

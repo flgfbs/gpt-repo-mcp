@@ -353,6 +353,13 @@ async function verifyArchive(
     && archive.regular_file_count === treeEntries.length,
     "CODEX_FINALIZER_ARCHIVE_MISMATCH"
   );
+  const archiveStat = await lstat(archive.path).catch(() => {
+    throw new FinalizerEvidenceError("CODEX_FINALIZER_ARCHIVE_MISMATCH");
+  });
+  requireEvidence(
+    archiveStat.isFile() && !archiveStat.isSymbolicLink(),
+    "CODEX_FINALIZER_ARCHIVE_MISMATCH"
+  );
   const archiveReal = await realpath(archive.path).catch(() => {
     throw new FinalizerEvidenceError("CODEX_FINALIZER_ARCHIVE_MISMATCH");
   });
