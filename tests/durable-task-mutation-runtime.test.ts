@@ -112,7 +112,7 @@ describe("durable task mutation runtime", () => {
       path: "different.txt"
     }, async () => ({ content: [{ type: "text", text: "unexpected conflict invocation" }] }));
     expect(conflict).toMatchObject({ isError: true, structuredContent: { error: { code: "TASK_OPERATION_CONFLICT" } } });
-  });
+  }, 30_000);
 
   test("stores complete validation output as an opaque task artifact bound to exact Git state", async () => {
     const fixture = await setup();

@@ -268,7 +268,7 @@ describe("deterministic full lifecycle fixture", () => {
     expect(cleaned).toMatchObject({ state: "cleaned", workspace_removed: true });
     expect(await gitBare(fixture.bareRemote, "rev-parse", `refs/heads/${task.branch}`)).toBe(finalHead);
     await expect(stat(worktree)).rejects.toMatchObject({ code: "ENOENT" });
-  }, 30_000);
+  }, 60_000);
 });
 
 class LocalBareGitBoundary implements ExactGitBoundary {

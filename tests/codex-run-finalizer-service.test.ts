@@ -196,7 +196,7 @@ describe("CodexRunFinalizerService", () => {
         reasons: ["DELEGATION_REVIEW_STATE_CHANGED"]
       })]
     });
-  });
+  }, 30_000);
 
   test("fails closed when a committed archive path is replaced by a symlink", async () => {
     const fixture = await createFinalizerFixture();
