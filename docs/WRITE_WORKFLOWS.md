@@ -21,6 +21,8 @@ Use explicit `read`, `write`, or `ship`. No MCP tool can add a root or raise its
 mode. Manual config remains supported for advanced operators, but CLI
 registration is preferred because it canonicalizes and validates the root.
 
+A GitHub-backed `ship` registration must name `--expected-remote-identity` and `--github-repository` explicitly and pass the exact typed owner confirmation. `NOTICE`, an upstream remote, or a fork parent records provenance only and never authorizes publication.
+
 ## 2. Inspect Before Mutation
 
 Use `repo_list_roots`, `repo_policy_explain`, `repo_project_brief`, tree/search
@@ -125,6 +127,8 @@ require `ship` authority.
 The push boundary uses a fixed argument vector, never force, and never accepts a
 caller-selected branch or remote. Its durable effect state is `no_change`,
 `pushed`, or `queryable_effect`.
+
+Before any GitHub mutation, the server rechecks that the observed repository equals the task-bound remote identity, is not archived, and grants the authenticated viewer `WRITE`, `MAINTAIN`, or `ADMIN`. Repository agents must not bypass a missing or rejected lifecycle with direct `git`, `gh`, raw API calls, browser automation, or another connector.
 
 If the response is interrupted, do not repeat with a new operation id. Resume
 with the same task and inspect its receipt/remote state so the original effect

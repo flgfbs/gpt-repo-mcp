@@ -104,6 +104,19 @@ describe("GitRemoteService", () => {
     ]);
   });
 
+  it("blocks a push before mutation when the configured publication target is not writable", async () => {
+    const fixture = createFixture();
+    fixture.github.repository.viewerPermission = "READ";
+
+    await expect(fixture.service.writePush(input("push-read-only-target"))).rejects.toMatchObject({
+      code: "PUBLICATION_TARGET_NOT_WRITABLE",
+      operation: { phase: "FAILED_KNOWN_AFTER_CONTACT" }
+    });
+    expect(fixture.git.pushCalls).toBe(0);
+    expect(fixture.github.calls).toContain("getRepository");
+    expect(fixture.github.calls).not.toContain("getRef");
+  });
+
   it("records remote drift after a failed push as unknown and never pushes it again", async () => {
     const fixture = createFixture();
     fixture.github.refs.delete(`refs/heads/${FIXED_TASK.branch}`);

@@ -58,6 +58,43 @@ describe("GitHub PR and review services", () => {
     expect(fixture.github.calls.filter((call) => call === "updatePullRequest")).toHaveLength(1);
   });
 
+  it("blocks pull-request mutation before write when the publication target is not writable", async () => {
+    const fixture = createFixture();
+    fixture.github.repository.viewerPermission = "TRIAGE";
+
+    await expect(fixture.pr.prCreateOrUpdate({
+      ...input("pr-read-only-target"),
+      title: "Blocked change",
+      body: "Must not be published.",
+      draft: true
+    })).rejects.toMatchObject({
+      code: "PUBLICATION_TARGET_NOT_WRITABLE",
+      operation: { phase: "FAILED_KNOWN_AFTER_CONTACT" }
+    });
+    expect(fixture.github.calls).toContain("getRepository");
+    expect(fixture.github.calls).not.toContain("createDraftPullRequest");
+    expect(fixture.github.calls).not.toContain("updatePullRequest");
+  });
+
+  it("blocks review-thread mutations when the publication target is not writable", async () => {
+    const fixture = createFixture(false);
+    fixture.github.repository.viewerPermission = "READ";
+    fixture.github.reviewThreads = [makeReviewThread()];
+
+    await expect(fixture.review.writePrReply({
+      ...input("review-reply-read-only-target"),
+      thread_id: "thread_1",
+      body: "Must not be published."
+    })).rejects.toMatchObject({ code: "PUBLICATION_TARGET_NOT_WRITABLE" });
+    await expect(fixture.review.writePrResolveThread({
+      ...input("review-resolve-read-only-target"),
+      thread_id: "thread_1",
+      expected_thread_updated_at: "2026-08-23T00:00:00.000Z"
+    })).rejects.toMatchObject({ code: "PUBLICATION_TARGET_NOT_WRITABLE" });
+    expect(fixture.github.calls.filter((call) => call === "replyToReviewThread")).toHaveLength(0);
+    expect(fixture.github.calls.filter((call) => call === "resolveReviewThread")).toHaveLength(0);
+  });
+
   it("reads exact-head threads, posts one exact reply, and resolves an exact observed version", async () => {
     const fixture = createFixture();
     fixture.github.reviewThreads = [makeReviewThread()];

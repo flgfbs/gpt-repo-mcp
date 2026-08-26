@@ -18,6 +18,7 @@ import {
   type TaskLookup
 } from "../github/types.js";
 import type { ExactMergeGateVerifier } from "./github-merge-gate-service.js";
+import { assertWritablePublicationTarget } from "./publication-target-guard.js";
 
 export type MergeResult =
   | {
@@ -95,6 +96,8 @@ export class GitHubMergeService {
     operation = await this.operations.transition(operation, "EXTERNAL_PRECONTACT");
     operation = await this.operations.transition(operation, "EXTERNAL_CONTACTED");
     try {
+      const repository = await this.github.getRepository(task.repository);
+      assertWritablePublicationTarget(task, repository);
       manifest = await this.gates.loadAndRevalidateExactManifest({
         manifestId: input.manifest_id,
         manifestSha256: input.manifest_sha256

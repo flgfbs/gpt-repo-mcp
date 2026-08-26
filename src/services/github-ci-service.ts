@@ -1,6 +1,7 @@
 import { storeGitHubEvidence, type StoredGitHubEvidence } from "../github/evidence.js";
 import { assertExactRemoteHead, bindExactTask, type ExactTaskInput } from "../github/exact-task.js";
 import { GitHubOperationController } from "../github/operation-controller.js";
+import { assertWritablePublicationTarget } from "./publication-target-guard.js";
 import {
   GitHubBoundaryError,
   assertSha,
@@ -216,6 +217,8 @@ export class GitHubCiService implements ExactCiEvidenceReader {
     operation = await this.operations.transition(operation, "EXTERNAL_PRECONTACT");
     operation = await this.operations.transition(operation, "EXTERNAL_CONTACTED");
     try {
+      const repository = await this.github.getRepository(task.repository);
+      assertWritablePublicationTarget(task, repository);
       await assertExactRemoteHead(this.github, task, input.expected_head_sha, input.expected_tree_sha);
       snapshot = await this.loadCiSnapshot(input.ci_status_id);
       assertSnapshotBinding(snapshot, task, input.expected_head_sha);

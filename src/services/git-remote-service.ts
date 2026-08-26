@@ -20,6 +20,7 @@ import {
 import { storeGitHubEvidence, type StoredGitHubEvidence } from "../github/evidence.js";
 import { GitHubOperationController } from "../github/operation-controller.js";
 import { normalizeRemoteIdentity } from "./remote-identity.js";
+import { assertWritablePublicationTarget } from "./publication-target-guard.js";
 
 export type GitProcessResult = {
   exitCode?: number;
@@ -384,6 +385,8 @@ export class GitRemoteService {
     operation = await this.operations.transition(operation, "EXTERNAL_PRECONTACT");
     operation = await this.operations.transition(operation, "EXTERNAL_CONTACTED");
     try {
+      const repository = await this.github.getRepository(task.repository);
+      assertWritablePublicationTarget(task, repository);
       remoteBefore = await this.github.getRef(task.repository, `refs/heads/${task.branch}`);
       if (remoteBefore?.sha === expectedHeadSha && remoteBefore.treeSha !== expectedTreeSha) {
         throw new GitHubBoundaryError("REMOTE_TREE_MISMATCH", "Remote task branch tree does not match the exact local tree.");

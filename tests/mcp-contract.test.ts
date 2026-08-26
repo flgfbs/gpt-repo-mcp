@@ -37,7 +37,9 @@ describe("MCP contract", () => {
         "Dry-run is optional preview",
         "Omit optional reason by default",
         "do not push",
-        "do not run shell commands"
+        "do not run shell commands",
+        "GitHub mutation must use only the exact task-bound lifecycle tools",
+        "Upstream provenance is not publication authority"
       ]) expect(SERVER_INSTRUCTIONS).toContain(clause);
       for (const removed of ["repo_next_action", "repo_plan_review", "repo_git_stage", "repo_git_unstage", "repo_git_commit"]) {
         expect(SERVER_INSTRUCTIONS).not.toContain(removed);

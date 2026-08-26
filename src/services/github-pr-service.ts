@@ -1,4 +1,5 @@
 import { GitHubOperationController } from "../github/operation-controller.js";
+import { assertWritablePublicationTarget } from "./publication-target-guard.js";
 import { storeGitHubEvidence, type StoredGitHubEvidence } from "../github/evidence.js";
 import {
   GitHubBoundaryError,
@@ -153,6 +154,8 @@ export class GitHubPrService {
     operation = await this.operations.transition(operation, "EXTERNAL_PRECONTACT");
     operation = await this.operations.transition(operation, "EXTERNAL_CONTACTED");
     try {
+      const repository = await this.github.getRepository(task.repository);
+      assertWritablePublicationTarget(task, repository);
       await this.assertRemoteHead(task, expectedHeadSha, expectedTreeSha);
       const matches = await this.github.findOpenPullRequests({
         repository: task.repository,

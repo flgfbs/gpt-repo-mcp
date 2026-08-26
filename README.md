@@ -12,6 +12,10 @@ task authority, paths, expected Git state, operation identities, and merge
 approval are enforced by the server even when ChatGPT is configured to
 **Allow all actions**.
 
+### External publication boundary
+
+`NOTICE` records source provenance and license attribution; an upstream or fork parent named there is never publication authority. Repository agents must not push or mutate GitHub through direct `git`, `gh`, raw APIs, browser automation, or another connector. GitHub mutation uses only exact task-bound lifecycle tools. If the explicit publication target is absent, mismatched, archived, or not writable by the authenticated viewer, stop before mutation; never fall back to `origin`, `upstream`, a fork parent, or another repository.
+
 ## Quick Start
 
 Requirements:

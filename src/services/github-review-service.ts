@@ -7,6 +7,7 @@ import {
   type ExactTaskInput
 } from "../github/exact-task.js";
 import { GitHubOperationController } from "../github/operation-controller.js";
+import { assertWritablePublicationTarget } from "./publication-target-guard.js";
 import {
   GitHubBoundaryError,
   assertSafeExternalText,
@@ -183,6 +184,8 @@ export class GitHubReviewService {
     operation = await this.operations.transition(operation, "EXTERNAL_PRECONTACT");
     operation = await this.operations.transition(operation, "EXTERNAL_CONTACTED");
     try {
+      const repository = await this.github.getRepository(task.repository);
+      assertWritablePublicationTarget(task, repository);
       ({ pullRequest } = await this.bindPullRequest(input, true));
       thread = await this.findExactThread(task, pullRequest, input.thread_id);
     } catch (error) {
@@ -279,6 +282,8 @@ export class GitHubReviewService {
     operation = await this.operations.transition(operation, "EXTERNAL_PRECONTACT");
     operation = await this.operations.transition(operation, "EXTERNAL_CONTACTED");
     try {
+      const repository = await this.github.getRepository(task.repository);
+      assertWritablePublicationTarget(task, repository);
       ({ pullRequest } = await this.bindPullRequest(input, true));
       before = await this.findExactThread(task, pullRequest, input.thread_id);
       if (before.updatedAt !== input.expected_thread_updated_at) {

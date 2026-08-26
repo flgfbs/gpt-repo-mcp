@@ -53,7 +53,8 @@ const USAGE = [
   "  --worktree-root <absolute-path> --github-repository <owner/name>",
   "  --merge-method merge|squash|rebase --required-check <name> (repeatable)",
   "  --max-concurrent-tasks <1-64> --allow-dirty-base --local-only",
-  "  --keep-worktree --keep-local-branch --allow-nonterminal-cleanup"
+  "  --keep-worktree --keep-local-branch --allow-nonterminal-cleanup",
+  "  GitHub-backed ship requires explicit remote identity/repository and exact typed confirmation"
 ].join("\n");
 
 export type OwnerCliDependencies = {

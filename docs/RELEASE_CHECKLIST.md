@@ -16,6 +16,7 @@ operation.
 - Confirm [NOTICE](../NOTICE) preserves upstream repository, commit, tree,
   copyright, and license attribution.
 - Confirm migration and changelog entries describe every public incompatibility.
+- Confirm the intended publication repository is explicit, owner-confirmed, exact-identity matched, non-archived, and writable; upstream provenance is not publication authority.
 
 ## Deterministic Verification
 
@@ -36,6 +37,7 @@ git diff --check
 Run the content-bound export and security scan documented in
 [Dependency Security](DEPENDENCY_SECURITY.md) against the exact clean candidate
 and existing public history before publication.
+The history scan must cover every commit and blob reachable from the branch or pull request that will be public, including commit metadata email classification. Do not treat a current-tree hygiene check or production dependency audit as a substitute.
 
 Lifecycle tests must use deterministic fakes. Do not contact live GitHub, push,
 create a pull request, retry CI, resolve a review, or merge as an implementation

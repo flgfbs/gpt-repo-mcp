@@ -126,6 +126,6 @@ describe("canonical workflow drift guards", () => {
 
     const instructions = await readFile("src/instructions.ts", "utf8");
     expect(instructions).toContain("The canonical direct-development path is");
-    expect(instructions).toContain("Do not insert task inventory, decision memory, patchsets, delegation, semantic review, or granular Git tools unless the request specifically needs them");
+    expect(instructions).toContain("Add inventory, memory, patchsets, delegation, semantic review, or granular Git only when needed");
   });
 });

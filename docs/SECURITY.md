@@ -52,6 +52,8 @@ not receive, read, or return the credential material.
 | Arbitrary GitHub access | The strict adapter derives repository, branch, PR, run, and thread targets from task state. |
 | Unapproved merge | Only a fresh owner-CLI approval for the exact content-bound gate is consumable. |
 | Oversized evidence | Bounded reads and opaque artifact paging cap returned bytes. |
+| Wrong publication repository | GitHub-backed `ship` registration requires an explicit target and typed owner confirmation; every mutation rechecks exact remote/repository identity, archive state, and writable viewer permission. |
+| Direct-tool fallback bypasses lifecycle policy | Repository agents are instructed to stop rather than use direct `git`, `gh`, raw APIs, browser automation, or another connector for GitHub mutation. |
 
 ## Repository And Credential Boundaries
 
@@ -140,6 +142,12 @@ through the bounded repository tools the caller invokes.
 The Secure MCP Tunnel forwards MCP traffic to the loopback server. It does not
 change tool authority or make the repository a hosted service. This repository
 does not store tunnel credentials or document a public ingress fallback.
+
+## Accidental Public Publication
+
+Closing a mistaken pull request and deleting its head branch contain further activity and reduce discoverability, but do not prove that already-published Git objects, pull-request refs, caches, forks, or clones have disappeared. Preserve the local source, close the mistaken pull request, delete the exposed remote branch only after the local work is safely retained, and run the full candidate-and-history security scan before republishing.
+
+If the audit finds a credential or other sensitive value, revoke or rotate it first. Rewrite only the affected owner-controlled history, then contact GitHub Support for pull-request-reference and cache removal when the documented sensitive-data criteria apply. Non-sensitive source publication cannot be promised complete erasure after public exposure.
 
 ## Residual Risk
 

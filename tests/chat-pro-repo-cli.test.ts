@@ -121,7 +121,7 @@ describe("chat-pro-repo owner CLI", () => {
       "--max-concurrent-tasks", "3",
       "--keep-worktree",
       "--keep-local-branch"
-    ]);
+    ], {}, "acme/demo");
 
     expect(added.code).toBe(0);
     expect(added.stdout).toContain("expected_remote_identity=github.com/acme/demo");
@@ -170,6 +170,34 @@ describe("chat-pro-repo owner CLI", () => {
     expect(removed.code).toBe(0);
     expect(removed.stdout).toContain("repository_data_deleted=false");
     expect(JSON.parse(await readFile(fixture.configPath, "utf8"))).toMatchObject({ repos: [] });
+  });
+
+  test("requires explicit and exact owner confirmation for a GitHub publication target", async () => {
+    const missing = await cliFixture();
+    const missingRepository = join(missing.root, "missing-target-repository");
+    await initializeRepository(missingRepository, "origin", "https://github.com/acme/missing.git");
+    const missingResult = await missing.run([
+      "repo", "add", missingRepository,
+      "--id", "missing-target",
+      "--mode", "ship"
+    ]);
+    expect(missingResult.code).toBe(1);
+    expect(missingResult.stderr).toContain("PUBLICATION_TARGET_EXPLICIT_REQUIRED");
+    expect(JSON.parse(await readFile(missing.configPath, "utf8"))).toMatchObject({ repos: [] });
+
+    const unconfirmed = await cliFixture();
+    const unconfirmedRepository = join(unconfirmed.root, "unconfirmed-target-repository");
+    await initializeRepository(unconfirmedRepository, "origin", "https://github.com/acme/unconfirmed.git");
+    const unconfirmedResult = await unconfirmed.run([
+      "repo", "add", unconfirmedRepository,
+      "--id", "unconfirmed-target",
+      "--mode", "ship",
+      "--expected-remote-identity", "github.com/acme/unconfirmed",
+      "--github-repository", "acme/unconfirmed"
+    ], {}, "acme/other");
+    expect(unconfirmedResult.code).toBe(1);
+    expect(unconfirmedResult.stderr).toContain("PUBLICATION_TARGET_CONFIRMATION_FAILED");
+    expect(JSON.parse(await readFile(unconfirmed.configPath, "utf8"))).toMatchObject({ repos: [] });
   });
 
   test("registers a local-only ship lifecycle without a Git remote", async () => {

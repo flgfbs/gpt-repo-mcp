@@ -302,6 +302,26 @@ describe("GitHub lifecycle services", () => {
     })).rejects.toMatchObject({ code: "ONE_CI_RUN_REQUIRED" });
   });
 
+  it("blocks CI retry before mutation when the publication target is not writable", async () => {
+    const fixture = await createLifecycleFixture();
+    const ciStatusId = await storeCiSnapshot(fixture, {
+      sourceId: 10,
+      sourceIds: undefined,
+      status: "failure"
+    });
+    fixture.github.repository.viewerPermission = "READ";
+
+    await expect(fixture.ci.writeCiRetryFailed({
+      ...exactInput("ci-retry-read-only-target"),
+      ci_status_id: ciStatusId,
+      failed_run_ids: ["9001"]
+    })).rejects.toMatchObject({
+      code: "PUBLICATION_TARGET_NOT_WRITABLE",
+      operation: { phase: "FAILED_KNOWN_AFTER_CONTACT" }
+    });
+    expect(fixture.github.calls.filter((call) => call === "retryFailedJobs")).toHaveLength(0);
+  });
+
   it("serializes concurrent retry operations for the same exact workflow run", async () => {
     const fixture = await createLifecycleFixture();
     fixture.github.checkRuns.checkRuns[0]!.conclusion = "timed_out";
@@ -354,6 +374,35 @@ describe("GitHub lifecycle services", () => {
     await expect(first).resolves.toMatchObject({ disposition: "EXECUTED", retriedRunIds: ["9001"] });
     await expect(second).rejects.toMatchObject({ code: "CI_RETRY_ALREADY_CONSUMED" });
     expect(fixture.github.calls.filter((call) => call === "retryFailedJobs")).toHaveLength(1);
+  });
+
+  it("blocks merge before consuming approval when the publication target is not writable", async () => {
+    const fixture = await createLifecycleFixture();
+    const prepared = await fixture.gate.mergeGatePrepare(exactInput("gate-read-only-target"));
+    if (prepared.disposition !== "EXECUTED" || !prepared.eligible) throw new Error("gate unexpectedly blocked");
+    const approval = await fixture.approvals.create({
+      gateId: prepared.manifest.manifestId,
+      gateSha256: prepared.manifest.manifestSha256
+    });
+    fixture.github.repository.viewerPermission = "TRIAGE";
+
+    await expect(fixture.merge.writeMerge({
+      ...exactInput("merge-read-only-target"),
+      manifest_id: prepared.manifest.manifestId,
+      manifest_sha256: prepared.manifest.manifestSha256,
+      approval_id: approval.approvalId
+    })).rejects.toMatchObject({
+      code: "PUBLICATION_TARGET_NOT_WRITABLE",
+      operation: { phase: "FAILED_KNOWN_AFTER_CONTACT" }
+    });
+    const approvalAfter = await fixture.approvals.inspect({
+      approvalId: approval.approvalId,
+      gateId: prepared.manifest.manifestId,
+      gateSha256: prepared.manifest.manifestSha256
+    });
+    expect(approvalAfter.consumed).toBe(false);
+    expect(fixture.github.calls.filter((call) => call === "markPullRequestReady")).toHaveLength(0);
+    expect(fixture.github.calls.filter((call) => call === "mergePullRequest")).toHaveLength(0);
   });
 
   it("marks a Ready-only partial merge UNKNOWN_AFTER_CONTACT and never replays it", async () => {
