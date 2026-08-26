@@ -21,7 +21,12 @@ Use explicit `read`, `write`, or `ship`. No MCP tool can add a root or raise its
 mode. Manual config remains supported for advanced operators, but CLI
 registration is preferred because it canonicalizes and validates the root.
 
-A GitHub-backed `ship` registration must name `--expected-remote-identity` and `--github-repository` explicitly and pass the exact typed owner confirmation. `NOTICE`, an upstream remote, or a fork parent records provenance only and never authorizes publication.
+A GitHub-backed `ship` registration derives the canonical remote identity and
+`OWNER/REPOSITORY` from the selected configured remote (`origin` by default).
+`--expected-remote-identity` and `--github-repository` remain optional exact
+assertions; when supplied, they must match that remote. No typed repository
+confirmation is required. `NOTICE`, an upstream remote, or a fork parent
+records provenance only and never authorizes publication.
 
 ## 2. Inspect Before Mutation
 

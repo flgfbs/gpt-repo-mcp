@@ -15,7 +15,7 @@ not contact live GitHub or depend on an authenticated account.
 
 - Preserve the contract-first flow: contracts -> tool-contract map -> packages
   -> registry -> registration -> handlers -> services.
-- Keep the exact 63-name canonical order unless a deliberate public contract
+- Keep the exact 65-name canonical order unless a deliberate public contract
   change is approved and documented. Do not add aliases.
 - Keep handlers thin and policy or effect logic in services.
 - Keep GitHub access behind the strict adapter and installed `gh` fixed-command

@@ -12,7 +12,7 @@ import {
   type FileHandle
 } from "node:fs/promises";
 import { delimiter, dirname, join, relative, resolve, sep } from "node:path";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import {
   DelegationResultV3Schema,
   type DelegationResultV3,
@@ -132,6 +132,8 @@ type FinalizerState = {
   head_after: string | null;
   archive: ArchiveEvidence | null;
   stop_reason: string | null;
+  owner_pid?: number;
+  owner_hostname?: string;
 };
 
 type GitResult = {
@@ -207,7 +209,9 @@ export class CodexRunFinalizerService {
       head_before: input.expected_head_sha,
       head_after: null,
       archive: null,
-      stop_reason: null
+      stop_reason: null,
+      owner_pid: process.pid,
+      owner_hostname: hostname()
     });
 
     let commitSha: string | undefined;
@@ -1214,6 +1218,7 @@ export class CodexRunFinalizerService {
     }
     if (state.status !== "committed" || !state.head_after || !state.archive) {
       if (state.status === "failed_before_commit") return undefined;
+      if (await this.isAbandonedInProgress(state, input.expected_head_sha)) return undefined;
       throw new RepoReaderError("TASK_OPERATION_CONFLICT", "Exact-run finalizer state is already in progress or requires read-back before any retry.", {
         diagnostics: { status: state.status, head_after: state.head_after }
       });
@@ -1259,10 +1264,12 @@ export class CodexRunFinalizerService {
       const existingText = await readSafeRunArtifact(this.root, path, MAX_STATE_BYTES);
       if (!existingText) throw new RepoReaderError("TASK_OPERATION_CONFLICT", "Finalizer state appeared but could not be read safely.");
       const existing = JSON.parse(existingText) as FinalizerState;
+      const retriable = existing.status === "failed_before_commit"
+        || await this.isAbandonedInProgress(existing, state.head_before);
       if (
         existing.operation_id !== state.operation_id
         || existing.request_sha256 !== state.request_sha256
-        || existing.status !== "failed_before_commit"
+        || !retriable
       ) {
         throw new RepoReaderError("TASK_OPERATION_CONFLICT", "Finalizer state already exists for another or active operation.", {
           diagnostics: { existing_operation_id: existing.operation_id, status: existing.status }
@@ -1270,6 +1277,23 @@ export class CodexRunFinalizerService {
       }
       await this.writeState(path, state);
     }
+  }
+
+  private async isAbandonedInProgress(state: FinalizerState, expectedHead: string): Promise<boolean> {
+    if (
+      state.status !== "in_progress"
+      || state.head_before !== expectedHead
+      || state.head_after !== null
+      || state.archive !== null
+      || state.stop_reason !== null
+      || state.owner_hostname !== hostname()
+      || !Number.isSafeInteger(state.owner_pid)
+      || (state.owner_pid ?? 0) <= 0
+      || !processDefinitelyExited(state.owner_pid!)
+    ) {
+      return false;
+    }
+    return await this.gitText(["rev-parse", "HEAD"]).catch(() => "UNKNOWN") === expectedHead;
   }
 
   private async writeState(path: string, state: FinalizerState): Promise<void> {
@@ -1316,6 +1340,20 @@ export class CodexRunFinalizerService {
 
 function canonicalInputSha256(input: RepoFinalizeCodexRunInput): string {
   return sha256(Buffer.from(JSON.stringify(canonicalize(input)), "utf8"));
+}
+
+function processDefinitelyExited(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return Boolean(
+      error
+      && typeof error === "object"
+      && "code" in error
+      && (error as { code?: unknown }).code === "ESRCH"
+    );
+  }
 }
 
 function canonicalize(value: unknown): unknown {

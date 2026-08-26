@@ -88,6 +88,17 @@ describe("canonical workflow drift guards", () => {
     const security = await readFile("docs/SECURITY.md", "utf8");
     expect(security).toContain("## Security Model At A Glance");
     expect(security).toContain("## What Stays Local And What Is Sent To ChatGPT");
+    expect(security).toContain("derives its target from the selected configured remote");
+    expect(security).not.toContain("typed owner confirmation");
+
+    const writeWorkflows = await readFile("docs/WRITE_WORKFLOWS.md", "utf8");
+    expect(writeWorkflows).toMatch(/No typed repository\s+confirmation is required/u);
+    expect(writeWorkflows).toMatch(/optional exact\s+assertions/u);
+    expect(writeWorkflows).not.toContain("typed owner confirmation");
+
+    const contributing = await readFile("CONTRIBUTING.md", "utf8");
+    expect(contributing).toContain("exact 65-name canonical order");
+    expect(contributing).not.toContain("exact 63-name canonical order");
 
     const toolSurface = await readFile("docs/TOOL_SURFACE.md", "utf8");
     expect(toolSurface).toContain("## Tool Groups");

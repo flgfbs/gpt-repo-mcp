@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -19,6 +19,7 @@ import { GitReviewService } from "../src/services/git-review-service.js";
 import { PathSandbox } from "../src/services/path-sandbox.js";
 import { WritePolicy } from "../src/services/write-policy.js";
 import { codexRunPaths } from "../src/services/codex-run-paths.js";
+import { canonicalSha256 } from "../src/task-runtime/index.js";
 import { writeQueuedV3Run } from "./fixtures/delegation-v3-run-fixture.js";
 
 const execFileAsync = promisify(execFile);
@@ -376,6 +377,36 @@ describe("CodexRunFinalizerService", () => {
       code: "VALIDATION_ERROR"
     } satisfies Partial<RepoReaderError>);
     expect(await git(fixture.root, "rev-parse", "HEAD")).toBe(fixture.head);
+  });
+
+  test("reclaims an abandoned exact in-progress state after its owner exits", async () => {
+    const fixture = await createFinalizerFixture();
+    const statePath = join(fixture.root, codexRunPaths(RUN_ID).runDir, "finalizer-state.json");
+    await writeFile(statePath, `${JSON.stringify({
+      schema_version: 1,
+      repo_id: fixture.input.repo_id,
+      run_id: fixture.input.run_id,
+      operation_id: fixture.input.operation_id,
+      request_sha256: canonicalSha256(fixture.input),
+      status: "in_progress",
+      started_at: NOW.toISOString(),
+      updated_at: NOW.toISOString(),
+      head_before: fixture.head,
+      head_after: null,
+      archive: null,
+      stop_reason: null,
+      owner_pid: 2_147_483_647,
+      owner_hostname: hostname()
+    }, null, 2)}\n`, "utf8");
+
+    const result = await new CodexRunFinalizerService(fixture.root, {
+      archive_root: fixture.archiveRoot,
+      now: () => NOW,
+      validate: async () => passingValidation()
+    }).finalize(fixture.input);
+
+    expect(result).toMatchObject({ status: "committed", head_before: fixture.head });
+    expect(result.commit_sha).toMatch(/^[a-f0-9]{40}$/);
   });
 
   test("fails before mutation when an exact changed-file digest drifts", async () => {

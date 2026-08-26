@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { sha256Json, type JsonValue, type WorkflowRun } from "../src/github/types.js";
+import { GitHubBoundaryError, sha256Json, type JsonValue, type WorkflowRun } from "../src/github/types.js";
 import { OwnerApprovalStore } from "../src/github/owner-approval-store.js";
 import { GitHubCiService } from "../src/services/github-ci-service.js";
 import { GitHubMergeGateService } from "../src/services/github-merge-gate-service.js";
@@ -320,6 +320,39 @@ describe("GitHub lifecycle services", () => {
       operation: { phase: "FAILED_KNOWN_AFTER_CONTACT" }
     });
     expect(fixture.github.calls.filter((call) => call === "retryFailedJobs")).toHaveLength(0);
+  });
+
+  it("preserves the CI retry permit when the pre-mutation repository read fails", async () => {
+    const fixture = await createLifecycleFixture();
+    const ciStatusId = await storeCiSnapshot(fixture, {
+      sourceId: 10,
+      sourceIds: undefined,
+      status: "failure"
+    });
+    fixture.github.failNext(
+      "getRepository",
+      new GitHubBoundaryError("GH_TRANSIENT_FAILURE", "Synthetic pre-mutation repository read failure.", "KNOWN", true)
+    );
+
+    await expect(fixture.ci.writeCiRetryFailed({
+      ...exactInput("ci-retry-read-failure-1"),
+      ci_status_id: ciStatusId,
+      failed_run_ids: ["9001"]
+    })).rejects.toMatchObject({
+      code: "GH_TRANSIENT_FAILURE",
+      operation: { phase: "FAILED_KNOWN_AFTER_CONTACT" }
+    });
+    expect(fixture.github.calls.filter((call) => call === "retryFailedJobs")).toHaveLength(0);
+
+    await expect(fixture.ci.writeCiRetryFailed({
+      ...exactInput("ci-retry-read-failure-2"),
+      ci_status_id: ciStatusId,
+      failed_run_ids: ["9001"]
+    })).resolves.toMatchObject({
+      disposition: "EXECUTED",
+      retriedRunIds: ["9001"]
+    });
+    expect(fixture.github.calls.filter((call) => call === "retryFailedJobs")).toHaveLength(1);
   });
 
   it("serializes concurrent retry operations for the same exact workflow run", async () => {

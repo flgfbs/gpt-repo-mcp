@@ -205,7 +205,14 @@ describe("repository lifecycle runtime", () => {
     await writeFile(join(fixture.ownerRoot, "dirty.txt"), "dirty\n");
     await expect(bundle.lifecycle.taskOpen(request)).rejects.toMatchObject({ code: "GIT_WORKTREE_DIRTY" });
     await rm(join(fixture.ownerRoot, "dirty.txt"));
-    await bundle.lifecycle.taskOpen(request);
+    const opened = await bundle.lifecycle.taskOpen(request);
+    expect(fixture.registry.get(opened.task.repo_id).operations).toMatchObject({
+      enabled: true,
+      validation_enabled: true,
+      git_stage_enabled: false,
+      git_commit_enabled: false,
+      codex_run_finalize_enabled: false
+    });
     await expect(bundle.lifecycle.taskOpen({
       ...request,
       operation_id: "operation-policy-second",

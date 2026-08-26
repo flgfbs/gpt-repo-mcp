@@ -441,13 +441,11 @@ function assertSnapshotBinding(snapshot: StoredCiSnapshot, task: ServerOwnedTask
 }
 
 function retryWasConsumed(record: GitHubOperationRecord): boolean {
-  return [
-    "EXTERNAL_CONTACTED",
-    "EXTERNAL_SUCCEEDED",
-    "FAILED_KNOWN_AFTER_CONTACT",
-    "UNKNOWN_AFTER_CONTACT",
-    "BLOCKED"
-  ].includes(record.phase);
+  if (record.phase === "EXTERNAL_SUCCEEDED" || record.phase === "UNKNOWN_AFTER_CONTACT") return true;
+  return (
+    record.phase === "EXTERNAL_CONTACTED"
+    || record.phase === "FAILED_KNOWN_AFTER_CONTACT"
+  ) && record.result !== undefined;
 }
 
 function ciSnapshotJson(snapshot: StoredCiSnapshot): JsonValue {

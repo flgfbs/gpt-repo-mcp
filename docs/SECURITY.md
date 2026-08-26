@@ -52,7 +52,7 @@ not receive, read, or return the credential material.
 | Arbitrary GitHub access | The strict adapter derives repository, branch, PR, run, and thread targets from task state. |
 | Unapproved merge | Only a fresh owner-CLI approval for the exact content-bound gate is consumable. |
 | Oversized evidence | Bounded reads and opaque artifact paging cap returned bytes. |
-| Wrong publication repository | GitHub-backed `ship` registration requires an explicit target and typed owner confirmation; every mutation rechecks exact remote/repository identity, archive state, and writable viewer permission. |
+| Wrong publication repository | GitHub-backed `ship` registration derives its target from the selected configured remote; optional identity assertions must match it, and every mutation rechecks exact remote/repository identity, archive state, and writable viewer permission. |
 | Direct-tool fallback bypasses lifecycle policy | Repository agents are instructed to stop rather than use direct `git`, `gh`, raw APIs, browser automation, or another connector for GitHub mutation. |
 
 ## Repository And Credential Boundaries
