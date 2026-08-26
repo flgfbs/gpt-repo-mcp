@@ -100,23 +100,6 @@ export async function addRepository(args: string[], configPath: string, io: Owne
     if (derivedGitHub.toLowerCase() !== githubRepository.toLowerCase()) {
       throw new OwnerCliError("GITHUB_REPOSITORY_MISMATCH", "GitHub owner/name does not match the configured remote.");
     }
-    if (authority === "ship") {
-      if (!options.expectedRemoteIdentity || !options.githubRepository) {
-        throw new OwnerCliError(
-          "PUBLICATION_TARGET_EXPLICIT_REQUIRED",
-          "GitHub-backed ship registration requires both --expected-remote-identity and --github-repository. Use --local-only when no publication target is authorized."
-        );
-      }
-      const confirmation = await io.confirm?.(
-        `Type ${githubRepository} to confirm the exact GitHub publication target: `
-      );
-      if (confirmation !== githubRepository) {
-        throw new OwnerCliError(
-          "PUBLICATION_TARGET_CONFIRMATION_FAILED",
-          "Repository policy was not written because the exact publication target was not confirmed."
-        );
-      }
-    }
   }
 
   const baseBranches = options.baseBranches.length > 0

@@ -60,17 +60,15 @@ For a repository with no GitHub remote, register a local-only lifecycle:
 npm run add -- /path/to/your/repo --mode ship --local-only --id project-id
 ```
 
-For a GitHub-backed `ship` lifecycle, bind the exact publication target explicitly:
+For a GitHub-backed `ship` lifecycle, select the publication remote. `origin` is the default:
 
 ```bash
 npm run add -- /path/to/your/repo --mode ship \
   --remote-name origin \
-  --expected-remote-identity github.com/OWNER/REPOSITORY \
-  --github-repository OWNER/REPOSITORY \
   --id project-id
 ```
 
-The owner CLI displays a confirmation prompt. Type the exact `OWNER/REPOSITORY` value. It will not silently derive a GitHub publication target for `ship`. A source-provenance upstream or fork parent is not a substitute.
+The CLI derives both the canonical remote identity and `OWNER/REPOSITORY` from that remote and stores them as one binding. No repository-name retyping is required. `--expected-remote-identity` and `--github-repository` remain optional assertions for scripted setup; when supplied, they must match the selected remote exactly. A source-provenance upstream or fork parent is not substituted automatically.
 
 This admits isolated task worktrees, validation, stage, local commit, close, and
 cleanup. It does not configure a remote, GitHub repository, required checks, or
@@ -259,8 +257,8 @@ Do not use `npm audit fix --force`. See
 - `LIFECYCLE_POLICY_DENIED`: confirm whether the repository is read-only,
   local-only, or GitHub-backed. Do not add a remote merely to bypass this
   policy; use `--local-only` for isolated local tasks.
-- `PUBLICATION_TARGET_EXPLICIT_REQUIRED` or `PUBLICATION_TARGET_CONFIRMATION_FAILED`: re-run owner registration with the exact intended writable repository; never substitute an upstream or fork parent.
-- `PUBLICATION_TARGET_BINDING_MISMATCH`, `PUBLICATION_TARGET_ARCHIVED`, or `PUBLICATION_TARGET_NOT_WRITABLE`: stop before external mutation and correct owner configuration or GitHub authority. Do not fall back to direct `gh`, another connector, or browser automation.
+- `REMOTE_IDENTITY_MISMATCH` or `GITHUB_REPOSITORY_MISMATCH`: the optional assertion disagrees with the selected remote; correct the remote or remove the redundant assertion.
+- `PUBLICATION_TARGET_BINDING_MISMATCH`, `PUBLICATION_TARGET_ARCHIVED`, or `PUBLICATION_TARGET_NOT_WRITABLE`: stop before external mutation and correct the selected remote or GitHub authority. Do not fall back to direct `gh`, another connector, or browser automation.
 - GitHub reads fail: run `gh auth status` in the owner terminal; do not paste
   authentication output or tokens into ChatGPT.
 - A state-bound call is stale: read current task/GitHub state and prepare a new

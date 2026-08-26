@@ -163,7 +163,8 @@ describe("package and public documentation", () => {
     const readme = await readFile("README.md", "utf8");
     expect(readme).toContain("an upstream or fork parent named there is never publication authority");
     expect(readme).toContain("GitHub mutation uses only exact task-bound lifecycle tools");
-    expect(readme).toContain("never fall back to `origin`, `upstream`, a fork parent, or another repository");
+    expect(readme).toContain("The publication target is derived from the selected Git remote");
+    expect(readme).toContain("never substitute another remote, fork parent, or repository");
   });
 
   test("uses public-safe local artifact ignores", async () => {
