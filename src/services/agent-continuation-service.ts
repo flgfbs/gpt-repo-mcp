@@ -87,6 +87,7 @@ export class TaskAgentContinuationRuntime implements AgentContinuationRuntime {
     let session: AgentRunnerSession;
     let prepared: PreparedCodexThread;
     let previousAttempt: AgentRunnerAttempt;
+    let resultSha256Before: string | undefined;
     try {
       const task = await this.tasks.states.requireTask(binding.task_id);
       if (
@@ -180,6 +181,8 @@ export class TaskAgentContinuationRuntime implements AgentContinuationRuntime {
         throw new RepoReaderError("RUNNER_INTERACTION_INVALID", "Private runner attempt state does not match the current session.");
       }
       previousAttempt = loadedAttempt;
+      const previousResult = await readSafeRunArtifact(repoRoot, run.result_json_path, 4 * 1024 * 1024);
+      resultSha256Before = previousResult === undefined ? undefined : canonicalSha256(previousResult);
       prepared = await this.appServer.prepare({
         thread_id: session.thread_id,
         model: session.model,
@@ -201,6 +204,8 @@ export class TaskAgentContinuationRuntime implements AgentContinuationRuntime {
         operation: "resume",
         turn_index: turnIndex,
         state: "in_flight",
+        ...(resultSha256Before === undefined ? {} : { result_sha256_before: resultSha256Before }),
+        active_runtime_ms_before: session.active_runtime_ms,
         started_at: startedAt
       });
     } catch {
@@ -260,6 +265,8 @@ export class TaskAgentContinuationRuntime implements AgentContinuationRuntime {
             turn_index: turnIndex,
             state: "in_flight",
             app_server_turn_id: started.app_server_turn_id,
+            ...(resultSha256Before === undefined ? {} : { result_sha256_before: resultSha256Before }),
+            active_runtime_ms_before: session.active_runtime_ms,
             started_at: startedAt
           });
           await runs.appendEvent({
@@ -278,12 +285,20 @@ export class TaskAgentContinuationRuntime implements AgentContinuationRuntime {
             result_found: false,
             head_after: null,
             worktree_fingerprint_after: null,
+            changed_paths: [],
             validation: { status: "missing", profile: null, artifact_path: null },
             commit: { attempted: false, allowed: false, status: "skipped", commit_sha: null },
             review: undefined,
             warnings: [...status.warnings.filter((warning) => warning !== "AGENT_RUN_CONTINUED"), "AGENT_RUN_CONTINUED"]
           });
           operation = await this.advance(operation, "EXTERNAL_SUCCEEDED", "PRESENT", input.repo_id);
+          this.appServer.bindAcceptedTurn({
+            repo_id: input.repo_id,
+            run_id: input.run_id,
+            thread_id: session.thread_id,
+            app_server_turn_id: started.app_server_turn_id,
+            turn_index: turnIndex
+          });
         } catch {
           await this.markUnknown(operation, "CONTINUATION_STATE_PERSIST_FAILED");
           throw unknownEffect(input.operation_id);
@@ -471,6 +486,18 @@ async function restoreAttempt(
     ...(previousAttempt.app_server_turn_id === undefined
       ? {}
       : { app_server_turn_id: previousAttempt.app_server_turn_id }),
+    ...(previousAttempt.result_sha256_before === undefined
+      ? {}
+      : { result_sha256_before: previousAttempt.result_sha256_before }),
+    ...(previousAttempt.active_runtime_ms_before === undefined
+      ? {}
+      : { active_runtime_ms_before: previousAttempt.active_runtime_ms_before }),
+    ...(previousAttempt.awaiting_input_ms === undefined
+      ? {}
+      : { awaiting_input_ms: previousAttempt.awaiting_input_ms }),
+    ...(previousAttempt.awaiting_input_started_at === undefined
+      ? {}
+      : { awaiting_input_started_at: previousAttempt.awaiting_input_started_at }),
     started_at: previousAttempt.started_at,
     updated_at: previousAttempt.updated_at
   });

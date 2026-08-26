@@ -13,6 +13,12 @@ Notable public changes to Chat Pro Repository MCP are recorded here.
 - One operation-bound `repo_continue_agent_run` bridge for continuing the
   private session of an existing managed Codex App Server child without public
   thread, model, machine, path, binding, or separate idempotency identifiers.
+- Lazy same-user Unix control-socket attachment, terminal settlement, and
+  structured-question routing for that bridge without provider startup,
+  approval takeover, or startup contact.
+- Serialized turn-start barriers, sequential structured-question rounds,
+  paused human-wait runtime accounting, and bounded same-notification terminal
+  settlement retry.
 - Eighteen task and optional GitHub lifecycle tools follow the preserved
   47-tool local prefix and the continuation tool, producing an exact 66-tool
   surface with no aliases.

@@ -169,6 +169,9 @@ merge only.
   tree where applicable.
 - Unknown push effects are durably classified and read back; they are not
   blindly replayed.
+- Managed continuation lazily uses only the existing same-user, owner-only
+  Codex App Server control socket, keeps thread/turn ids private, sends no Local
+  authority overrides, and leaves App Server approval requests unanswered.
 - Release, deployment, signing, package publication, and infrastructure change
   are out of scope.
 

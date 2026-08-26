@@ -101,19 +101,23 @@ additional durable artifacts remain available by their opaque ids.
 
 ### Continue An Existing Managed Child
 
-When the owner runtime already owns the same Codex App Server connection and
-its notification/result sink, `repo_continue_agent_run` can start one next turn
-on a terminal idle managed run. Read `repo_agent_runs`, then pass its exact
+When the same owner account already exposes the Codex App Server control socket,
+`repo_continue_agent_run` lazily connects and can start one next turn on a
+terminal idle managed run. Read `repo_agent_runs`, then pass its exact
 `repo_id`, `run_id`, revision, a fresh existing-namespace `operation_id`, and
 the bounded instruction. Do not supply a thread, model, path, machine, sandbox,
 approval override, or HEAD/tree expectation. Structured awaiting-input questions
-still use `repo_write_agent_reply`.
+still use `repo_write_agent_reply`; multiple sequential question rounds in one
+App Server turn remain hash-bound to distinct private replies.
 
-Keep the task open while the continuation is active. The injected sink owns
-`turn/completed`, attempt settlement, runtime accounting, result persistence,
-and terminal status. Its connection must hold notification delivery until the
-bridge durably writes the accepted running revision; the sink then reads that
-revision before advancing terminal state. If turn-start acknowledgement is
+Keep the task open while the continuation is active. The internal sink owns
+`turn/completed`, attempt settlement, runtime accounting, fresh-result
+verification, and terminal status. The connection holds notification delivery
+until the bridge durably writes the accepted running revision; the sink then
+reads that revision before advancing terminal state. Human waiting time in
+`awaiting_input` is excluded from the active runtime budget. App Server command, file,
+and permission approvals remain unanswered by the bridge and stay with Local;
+structured questions use `repo_write_agent_reply`. If turn-start acknowledgement is
 uncertain, inspect the same run and do not replay. A run with a state-bound
 review attestation follows the existing corrective-child workflow instead of
 same-run continuation.

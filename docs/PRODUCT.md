@@ -64,13 +64,14 @@ Current delegation tools exchange bounded artifacts with a separately operated
 implementation worker. The provider-neutral runtime substrate adds typed task
 admission, an immutable dispatch, one launch intent, supervisor identity and
 health, and deterministic no-replay after an unknown effect. Default server
-startup still selects no provider and starts no worker; credentials and
+startup still selects no provider, contacts no App Server, and starts no worker; credentials and
 unrestricted execution remain outside the public MCP contract.
 
-An owner runtime may explicitly inject its existing Codex App Server
-connection to continue the private session of a managed child. The bridge uses
-the existing task operation ledger and run/session/attempt artifacts, never
-accepts provider or authority overrides, and does not add registration,
+On `repo_continue_agent_run`, the owner runtime lazily connects to its existing
+safely permissioned Codex App Server control socket to continue the private
+session of a managed child. The bridge uses the existing task operation ledger
+and run/session/attempt artifacts, never accepts provider or authority
+overrides, leaves approvals to Local, and does not add registration,
 credentials, service management, or a second status plane.
 
 ## Scope Limit

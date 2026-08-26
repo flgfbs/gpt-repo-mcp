@@ -252,7 +252,7 @@ export class AgentRunsService {
       if (!session || session.turn_index < 1) throw new Error("Missing current runner session.");
       const pending = await this.interactions.readQuestion(repoId, runId, session.turn_index);
       if (!pending) throw new Error("Missing current runner question.");
-      if (await this.interactions.readReply(repoId, runId, session.turn_index)) return undefined;
+      if (await this.interactions.readReply(repoId, runId, session.turn_index, pending.sha256)) return undefined;
       return {
         status: "awaiting_input",
         turn_index: session.turn_index,

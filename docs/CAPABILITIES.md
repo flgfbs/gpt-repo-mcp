@@ -70,10 +70,11 @@ parse as `kind: "github"`, preserving existing configuration behavior.
 ## Continue A Managed Local Child
 
 `repo_continue_agent_run` starts one next turn on the same private Codex App
-Server thread already bound to an existing managed run. The owner runtime must
-have explicitly injected that connection and a notification-delivery barrier
-that stays held through accepted running-state persistence. Default server
-startup does not find, register, spawn, or attach a provider.
+Server thread already bound to an existing managed run. The default server
+lazily connects to the safely permissioned existing owner control socket when
+the tool is called and holds notification delivery through accepted
+running-state persistence. Startup does not find, register, spawn, contact, or
+authenticate a provider.
 
 Use the exact task `repo_id`, `run_id`, current `repo_agent_runs` revision, a
 fresh `operation_id` in the existing task namespace, and the bounded next-turn
@@ -84,7 +85,8 @@ so normal child edits do not create false drift.
 
 Only an idle, terminal, managed run without a state-bound review attestation is
 continuable. Use `repo_write_agent_reply` when the run is awaiting structured
-input. After a formal review attestation, use the bounded corrective-child
+input. App Server approval requests are not answered by this bridge and remain
+under Local authority. After a formal review attestation, use the bounded corrective-child
 lineage. If `turn/start` disconnects or returns an invalid acknowledgement, the
 result is unknown/no-replay: inspect the same run and do not resend the
 instruction. Missing or invalid managed status also suppresses stale result

@@ -11,13 +11,16 @@ import {
   CodexAppServerAdapter,
   CodexAppServerTurnStartError,
   type CodexAppServerMethod,
-  type CodexAppServerRpc
+  type CodexAppServerRpc,
+  type ManagedCodexAppServerTurnBinding
 } from "../src/delegation/codex-app-server-adapter.js";
+import { CodexAppServerRunSink } from "../src/delegation/codex-app-server-run-sink.js";
 import { DelegationAttemptStore } from "../src/delegation/attempt-store.js";
 import { DelegationInteractionStore } from "../src/delegation/interaction-store.js";
 import { DelegationRunStore, runPaths } from "../src/delegation/run-store.js";
 import { createMcpServer } from "../src/register.js";
 import { TaskAgentContinuationRuntime } from "../src/services/agent-continuation-service.js";
+import { AgentReplyService } from "../src/services/agent-reply-service.js";
 import { AgentRunsService } from "../src/services/agent-runs-service.js";
 import { PathSandbox } from "../src/services/path-sandbox.js";
 import { RootRegistry } from "../src/services/root-registry.js";
@@ -67,7 +70,7 @@ describe("managed Codex App Server continuation", () => {
       });
       expect(rpc.calls.map(({ method }) => method)).toEqual(["thread/read", "thread/resume", "turn/start"]);
       expect(rpc.calls[0]?.params).toEqual({ threadId: THREAD_CANARY, includeTurns: false });
-      expect(rpc.calls[1]?.params).toEqual({ threadId: THREAD_CANARY });
+      expect(rpc.calls[1]?.params).toEqual({ threadId: THREAD_CANARY, excludeTurns: true });
       expect(rpc.calls[2]?.params).toEqual({
         threadId: THREAD_CANARY,
         input: [{ type: "text", text: "Continue with the reviewed correction.", text_elements: [] }]
@@ -145,6 +148,440 @@ describe("managed Codex App Server continuation", () => {
       revision: 9,
       result_found: true
     });
+  });
+
+  test("settles a live owner notification only after a fresh result replaces the prior turn result", async () => {
+    const fixture = await continuationFixture();
+    await writeFile(join(fixture.taskRoot, "README.md"), "# Updated by the continuation\n", "utf8");
+    const sink = new CodexAppServerRunSink(fixture.registry, fixture.tasks, {
+      now: () => new Date("2026-08-26T12:06:00.000Z")
+    });
+    const rpc = new SinkBackedAppServerRpc(fixture.taskRoot, sink, async () => {
+      await writeV3Result(fixture.taskRoot, RUN_ID, { changed_files: ["README.md"] });
+      await sink.handleNotification({
+        method: "turn/completed",
+        params: { turn: { id: TURN_CANARY, status: "completed" } }
+      });
+    });
+
+    const result = await continuationRuntime(fixture, rpc).continue(
+      continuationInput(fixture.repoId, "continue-operation-owner-sink")
+    );
+    expect(result.revision).toBe(8);
+    await rpc.waitForAfterAccepted();
+    await expect(new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).resolves.toMatchObject({
+      status: "completed",
+      revision: 9,
+      result_found: true,
+      changed_paths: ["README.md"]
+    });
+    await expect(new DelegationAttemptStore(fixture.taskRoot).read(fixture.repoId, RUN_ID)).resolves.toMatchObject({
+      state: "settled",
+      app_server_turn_id: TURN_CANARY
+    });
+    const observed = await new AgentRunsService(fixture.taskRoot, new PathSandbox(fixture.taskRoot)).read({
+      repo_id: fixture.repoId,
+      run_id: RUN_ID
+    });
+    expect(JSON.stringify(observed)).not.toContain(THREAD_CANARY);
+    expect(JSON.stringify(observed)).not.toContain(TURN_CANARY);
+    await sink.close();
+  });
+
+  test("does not accept an unchanged prior result as the completion of a new turn", async () => {
+    const fixture = await continuationFixture();
+    const sink = new CodexAppServerRunSink(fixture.registry, fixture.tasks, {
+      now: () => new Date("2026-08-26T12:06:00.000Z")
+    });
+    const rpc = new SinkBackedAppServerRpc(fixture.taskRoot, sink, async () => {
+      await sink.handleNotification({
+        method: "turn/completed",
+        params: { turn: { id: TURN_CANARY, status: "completed" } }
+      });
+    });
+
+    await continuationRuntime(fixture, rpc).continue(
+      continuationInput(fixture.repoId, "continue-operation-stale-result")
+    );
+    await rpc.waitForAfterAccepted();
+    await expect(new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).resolves.toMatchObject({
+      status: "failed",
+      revision: 9,
+      result_found: false,
+      warnings: expect.arrayContaining(["AGENT_RUN_RESULT_NOT_REFRESHED"])
+    });
+    await sink.close();
+  });
+
+  test("keeps terminal settlement retryable when the first status write fails", async () => {
+    const fixture = await continuationFixture();
+    const sink = new CodexAppServerRunSink(fixture.registry, fixture.tasks, {
+      now: () => new Date("2026-08-26T12:06:00.000Z")
+    });
+    const rpc = new SinkBackedAppServerRpc(fixture.taskRoot, sink);
+    await continuationRuntime(fixture, rpc).continue(
+      continuationInput(fixture.repoId, "continue-operation-terminal-retry")
+    );
+    await writeV3Result(fixture.taskRoot, RUN_ID, { changed_files: ["README.md"] });
+
+    const originalWriteStatus = DelegationRunStore.prototype.writeStatus;
+    let injected = false;
+    const writeSpy = vi.spyOn(DelegationRunStore.prototype, "writeStatus").mockImplementation(
+      async function (this: DelegationRunStore, value) {
+        if (!injected && value.status === "completed") {
+          injected = true;
+          throw new Error("injected terminal status failure");
+        }
+        return originalWriteStatus.call(this, value);
+      }
+    );
+    const completion = {
+      method: "turn/completed",
+      params: { turn: { id: TURN_CANARY, status: "completed" } }
+    } as const;
+    try {
+      await expect(sink.handleNotification(completion)).rejects.toThrow("injected terminal status failure");
+      await expect(new DelegationAttemptStore(fixture.taskRoot).read(fixture.repoId, RUN_ID)).resolves.toMatchObject({
+        state: "in_flight",
+        active_runtime_ms_before: 500
+      });
+      await expect(new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).resolves.toMatchObject({
+        status: "running",
+        revision: 8
+      });
+
+      await sink.handleNotification(completion);
+      await expect(new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).resolves.toMatchObject({
+        status: "completed",
+        revision: 9,
+        result_found: true
+      });
+      await expect(new DelegationAttemptStore(fixture.taskRoot).read(fixture.repoId, RUN_ID)).resolves.toMatchObject({
+        state: "settled"
+      });
+      await expect(new DelegationInteractionStore(fixture.taskRoot).readSession(fixture.repoId, RUN_ID)).resolves.toMatchObject({
+        active_runtime_ms: 60_500
+      });
+    } finally {
+      writeSpy.mockRestore();
+      await sink.close();
+    }
+  });
+
+  test("routes a structured App Server question through repo_write_agent_reply without answering approvals", async () => {
+    const fixture = await continuationFixture();
+    const sink = new CodexAppServerRunSink(fixture.registry, fixture.tasks, {
+      now: () => new Date("2026-08-26T12:06:00.000Z"),
+      sleep: async () => new Promise((resolvePromise) => setTimeout(resolvePromise, 1))
+    });
+    const rpc = new SinkBackedAppServerRpc(fixture.taskRoot, sink);
+    await continuationRuntime(fixture, rpc).continue(
+      continuationInput(fixture.repoId, "continue-operation-question")
+    );
+
+    await expect(sink.handleServerRequest({
+      id: 40,
+      method: "item/commandExecution/requestApproval",
+      params: {
+        threadId: THREAD_CANARY,
+        turnId: TURN_CANARY,
+        itemId: "approval-item",
+        command: "external-effect",
+        cwd: fixture.taskRoot
+      }
+    })).resolves.toEqual({ handled: false });
+
+    const pendingResponse = sink.handleServerRequest({
+      id: 41,
+      method: "item/tool/requestUserInput",
+      params: {
+        threadId: THREAD_CANARY,
+        turnId: TURN_CANARY,
+        itemId: "question-item",
+        isBlocking: true,
+        questions: [{
+          id: "scope_choice",
+          header: "Scope",
+          question: "Which bounded correction should continue?",
+          isOther: true,
+          options: null
+        }]
+      }
+    });
+
+    const runs = new AgentRunsService(fixture.taskRoot, new PathSandbox(fixture.taskRoot));
+    await vi.waitFor(async () => {
+      const observed = await runs.read({ repo_id: fixture.repoId, run_id: RUN_ID });
+      expect(observed.run?.status?.status).toBe("awaiting_input");
+      expect(observed.run?.interaction?.questions).toHaveLength(1);
+    });
+    const awaiting = await runs.read({ repo_id: fixture.repoId, run_id: RUN_ID });
+    const interaction = awaiting.run!.interaction!;
+    await new AgentReplyService(fixture.taskRoot, new PathSandbox(fixture.taskRoot)).write({
+      repo_id: fixture.repoId,
+      run_id: RUN_ID,
+      turn_index: interaction.turn_index,
+      expected_question_sha256: interaction.question_sha256,
+      answers: [{ question_id: interaction.questions[0]!.question_id, answer: "Minimal" }]
+    });
+
+    await expect(pendingResponse).resolves.toEqual({
+      handled: true,
+      result: { answers: { scope_choice: { answers: ["Minimal"] } } }
+    });
+    await expect(new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).resolves.toMatchObject({
+      status: "running",
+      revision: 10
+    });
+    await expect(new DelegationInteractionStore(fixture.taskRoot).readSession(fixture.repoId, RUN_ID)).resolves.toMatchObject({
+      last_consumed_reply_turn_index: 2
+    });
+    await sink.close();
+  });
+
+  test("returns to running when another owner App Server client resolves the structured question", async () => {
+    const fixture = await continuationFixture();
+    const sink = new CodexAppServerRunSink(fixture.registry, fixture.tasks, {
+      now: () => new Date("2026-08-26T12:06:00.000Z"),
+      sleep: async () => new Promise((resolvePromise) => setTimeout(resolvePromise, 1))
+    });
+    const rpc = new SinkBackedAppServerRpc(fixture.taskRoot, sink);
+    await continuationRuntime(fixture, rpc).continue(
+      continuationInput(fixture.repoId, "continue-operation-owner-question")
+    );
+
+    const pendingResponse = sink.handleServerRequest({
+      id: 42,
+      method: "item/tool/requestUserInput",
+      params: {
+        threadId: THREAD_CANARY,
+        turnId: TURN_CANARY,
+        itemId: "question-item",
+        isBlocking: true,
+        questions: [{
+          id: "scope_choice",
+          header: "Scope",
+          question: "Which bounded correction should continue?",
+          options: [{ label: "Minimal", description: "Keep the correction narrow." }]
+        }]
+      }
+    });
+    await vi.waitFor(async () => {
+      await expect(new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).resolves.toMatchObject({
+        status: "awaiting_input",
+        revision: 9
+      });
+    });
+    await sink.handleNotification({ method: "serverRequest/resolved", params: { requestId: 42 } });
+    await expect(pendingResponse).resolves.toEqual({ handled: false });
+    await expect(new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).resolves.toMatchObject({
+      status: "running",
+      revision: 10
+    });
+    await sink.close();
+  });
+
+  test("routes two sequential structured question rounds on the same App Server turn", async () => {
+    const fixture = await continuationFixture();
+    const sink = new CodexAppServerRunSink(fixture.registry, fixture.tasks, {
+      now: () => new Date("2026-08-26T12:06:00.000Z"),
+      sleep: async () => new Promise((resolvePromise) => setTimeout(resolvePromise, 1))
+    });
+    const rpc = new SinkBackedAppServerRpc(fixture.taskRoot, sink);
+    await continuationRuntime(fixture, rpc).continue(
+      continuationInput(fixture.repoId, "continue-operation-two-question-rounds")
+    );
+    const runs = new AgentRunsService(fixture.taskRoot, new PathSandbox(fixture.taskRoot));
+    const replies = new AgentReplyService(fixture.taskRoot, new PathSandbox(fixture.taskRoot));
+
+    const firstResponse = sink.handleServerRequest(questionRequest(50, "first-item", "scope_choice", "Choose scope."));
+    await vi.waitFor(async () => {
+      await expect(runs.read({ repo_id: fixture.repoId, run_id: RUN_ID })).resolves.toMatchObject({
+        run: { status: { status: "awaiting_input" } }
+      });
+    });
+    const firstObserved = await runs.read({ repo_id: fixture.repoId, run_id: RUN_ID });
+    const firstInteraction = firstObserved.run!.interaction!;
+    const firstReply = await replies.write({
+      repo_id: fixture.repoId,
+      run_id: RUN_ID,
+      turn_index: firstInteraction.turn_index,
+      expected_question_sha256: firstInteraction.question_sha256,
+      answers: [{ question_id: firstInteraction.questions[0]!.question_id, answer: "Minimal" }]
+    });
+    await expect(firstResponse).resolves.toMatchObject({ handled: true });
+
+    const secondResponse = sink.handleServerRequest(questionRequest(51, "second-item", "validation_choice", "Choose validation."));
+    await vi.waitFor(async () => {
+      const observed = await runs.read({ repo_id: fixture.repoId, run_id: RUN_ID });
+      expect(observed.run?.status?.status).toBe("awaiting_input");
+      expect(observed.run?.interaction?.question_sha256).not.toBe(firstInteraction.question_sha256);
+    });
+    const secondObserved = await runs.read({ repo_id: fixture.repoId, run_id: RUN_ID });
+    const secondInteraction = secondObserved.run!.interaction!;
+    const secondReply = await replies.write({
+      repo_id: fixture.repoId,
+      run_id: RUN_ID,
+      turn_index: secondInteraction.turn_index,
+      expected_question_sha256: secondInteraction.question_sha256,
+      answers: [{ question_id: secondInteraction.questions[0]!.question_id, answer: "Focused" }]
+    });
+    await expect(secondResponse).resolves.toEqual({
+      handled: true,
+      result: { answers: { validation_choice: { answers: ["Focused"] } } }
+    });
+    expect(secondReply.written_path).not.toBe(firstReply.written_path);
+    await expect(new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).resolves.toMatchObject({
+      status: "running",
+      revision: 12
+    });
+    await sink.close();
+  });
+
+  test("reuses a pending structured question when App Server reissues it with a fresh request id", async () => {
+    const fixture = await continuationFixture();
+    const sink = new CodexAppServerRunSink(fixture.registry, fixture.tasks, {
+      now: () => new Date("2026-08-26T12:06:00.000Z"),
+      sleep: async () => new Promise((resolvePromise) => setTimeout(resolvePromise, 1))
+    });
+    const rpc = new SinkBackedAppServerRpc(fixture.taskRoot, sink);
+    await continuationRuntime(fixture, rpc).continue(
+      continuationInput(fixture.repoId, "continue-operation-question-redelivery")
+    );
+    const interactions = new DelegationInteractionStore(fixture.taskRoot);
+    const runs = new AgentRunsService(fixture.taskRoot, new PathSandbox(fixture.taskRoot));
+    const request = questionRequest(70, "reissued-item", "scope_choice", "Choose scope.");
+    const firstResponse = sink.handleServerRequest(request);
+    await vi.waitFor(async () => {
+      await expect(runs.read({ repo_id: fixture.repoId, run_id: RUN_ID })).resolves.toMatchObject({
+        run: { status: { status: "awaiting_input" } }
+      });
+    });
+    const firstQuestion = await interactions.readQuestion(fixture.repoId, RUN_ID, 2);
+
+    const secondResponse = sink.handleServerRequest({ ...request, id: 71 });
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+    const reissuedQuestion = await interactions.readQuestion(fixture.repoId, RUN_ID, 2);
+    expect(reissuedQuestion?.sha256).toBe(firstQuestion?.sha256);
+
+    const observed = await runs.read({ repo_id: fixture.repoId, run_id: RUN_ID });
+    const interaction = observed.run!.interaction!;
+    await new AgentReplyService(fixture.taskRoot, new PathSandbox(fixture.taskRoot)).write({
+      repo_id: fixture.repoId,
+      run_id: RUN_ID,
+      turn_index: interaction.turn_index,
+      expected_question_sha256: interaction.question_sha256,
+      answers: [{ question_id: interaction.questions[0]!.question_id, answer: "Minimal" }]
+    });
+    await expect(Promise.all([firstResponse, secondResponse])).resolves.toEqual([
+      { handled: true, result: { answers: { scope_choice: { answers: ["Minimal"] } } } },
+      { handled: true, result: { answers: { scope_choice: { answers: ["Minimal"] } } } }
+    ]);
+    await sink.close();
+  });
+
+  test("reuses a legacy pending question without a request identity hash", async () => {
+    const fixture = await continuationFixture();
+    const sink = new CodexAppServerRunSink(fixture.registry, fixture.tasks, {
+      now: () => new Date("2026-08-26T12:06:00.000Z"),
+      sleep: async () => new Promise((resolvePromise) => setTimeout(resolvePromise, 1))
+    });
+    const rpc = new SinkBackedAppServerRpc(fixture.taskRoot, sink);
+    await continuationRuntime(fixture, rpc).continue(
+      continuationInput(fixture.repoId, "continue-operation-legacy-question-redelivery")
+    );
+    const interactions = new DelegationInteractionStore(fixture.taskRoot);
+    const runs = new AgentRunsService(fixture.taskRoot, new PathSandbox(fixture.taskRoot));
+    const firstResponse = sink.handleServerRequest(
+      questionRequest(72, "legacy-item", "scope_choice", "Choose scope.")
+    );
+    await vi.waitFor(async () => {
+      await expect(runs.read({ repo_id: fixture.repoId, run_id: RUN_ID })).resolves.toMatchObject({
+        run: { status: { status: "awaiting_input" } }
+      });
+    });
+    const current = (await interactions.readQuestion(fixture.repoId, RUN_ID, 2))!;
+    const legacy = await interactions.writeQuestion({
+      repo_id: fixture.repoId,
+      run_id: RUN_ID,
+      turn_index: 2,
+      questions: current.question.questions,
+      created_at: current.question.created_at
+    }, { replace_question_sha256: current.sha256 });
+
+    const redeliveredResponse = sink.handleServerRequest(
+      questionRequest(73, "legacy-item", "scope_choice", "Choose scope.")
+    );
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+    const reloadedLegacy = await interactions.readQuestion(fixture.repoId, RUN_ID, 2);
+    expect(reloadedLegacy?.sha256).toBe(legacy.sha256);
+    expect(reloadedLegacy?.question.request_sha256).toBeUndefined();
+    const observed = await runs.read({ repo_id: fixture.repoId, run_id: RUN_ID });
+    const interaction = observed.run!.interaction!;
+    await new AgentReplyService(fixture.taskRoot, new PathSandbox(fixture.taskRoot)).write({
+      repo_id: fixture.repoId,
+      run_id: RUN_ID,
+      turn_index: interaction.turn_index,
+      expected_question_sha256: interaction.question_sha256,
+      answers: [{ question_id: interaction.questions[0]!.question_id, answer: "Minimal" }]
+    });
+    await expect(redeliveredResponse).resolves.toEqual({
+      handled: true,
+      result: { answers: { scope_choice: { answers: ["Minimal"] } } }
+    });
+    await sink.close();
+    await expect(firstResponse).resolves.toEqual({ handled: false });
+  });
+
+  test("excludes structured-question wait time from active runtime accounting", async () => {
+    const fixture = await continuationFixture();
+    let observedNow = new Date("2026-08-26T12:06:00.000Z");
+    const sink = new CodexAppServerRunSink(fixture.registry, fixture.tasks, {
+      now: () => observedNow,
+      sleep: async () => new Promise((resolvePromise) => setTimeout(resolvePromise, 1))
+    });
+    const rpc = new SinkBackedAppServerRpc(fixture.taskRoot, sink);
+    await continuationRuntime(fixture, rpc).continue(
+      continuationInput(fixture.repoId, "continue-operation-paused-runtime")
+    );
+    const pendingResponse = sink.handleServerRequest(questionRequest(60, "pause-item", "scope_choice", "Choose scope."));
+    const runs = new AgentRunsService(fixture.taskRoot, new PathSandbox(fixture.taskRoot), {
+      now: () => observedNow
+    });
+    await vi.waitFor(async () => {
+      await expect(runs.read({ repo_id: fixture.repoId, run_id: RUN_ID })).resolves.toMatchObject({
+        run: { status: { status: "awaiting_input" } }
+      });
+    });
+    observedNow = new Date("2026-08-26T13:06:00.000Z");
+    await expect(runs.read({ repo_id: fixture.repoId, run_id: RUN_ID })).resolves.toMatchObject({
+      run: { runtime: { active_runtime_ms: 60_500 } }
+    });
+    const awaiting = await runs.read({ repo_id: fixture.repoId, run_id: RUN_ID });
+    const interaction = awaiting.run!.interaction!;
+    observedNow = new Date("2026-08-26T14:06:00.000Z");
+    await new AgentReplyService(fixture.taskRoot, new PathSandbox(fixture.taskRoot)).write({
+      repo_id: fixture.repoId,
+      run_id: RUN_ID,
+      turn_index: interaction.turn_index,
+      expected_question_sha256: interaction.question_sha256,
+      answers: [{ question_id: interaction.questions[0]!.question_id, answer: "Minimal" }]
+    });
+    await expect(pendingResponse).resolves.toMatchObject({ handled: true });
+    observedNow = new Date("2026-08-26T14:07:00.000Z");
+    await writeV3Result(fixture.taskRoot, RUN_ID, { changed_files: ["README.md"] });
+    await sink.handleNotification({
+      method: "turn/completed",
+      params: { turn: { id: TURN_CANARY, status: "completed" } }
+    });
+    await expect(new DelegationInteractionStore(fixture.taskRoot).readSession(fixture.repoId, RUN_ID)).resolves.toMatchObject({
+      active_runtime_ms: 120_500
+    });
+    await expect(new DelegationAttemptStore(fixture.taskRoot).read(fixture.repoId, RUN_ID)).resolves.toMatchObject({
+      state: "settled",
+      awaiting_input_ms: 7_200_000
+    });
+    await sink.close();
   });
 
   test("rejects an active App Server thread before resume or turn start", async () => {
@@ -542,6 +979,30 @@ function continuationInput(repoId: string, operationId: string) {
   });
 }
 
+function questionRequest(
+  id: number,
+  itemId: string,
+  questionId: string,
+  question: string
+) {
+  return {
+    id,
+    method: "item/tool/requestUserInput",
+    params: {
+      threadId: THREAD_CANARY,
+      turnId: TURN_CANARY,
+      itemId,
+      isBlocking: true,
+      questions: [{
+        id: questionId,
+        header: "Scope",
+        question,
+        options: null
+      }]
+    }
+  };
+}
+
 class RecordingAppServerRpc implements CodexAppServerRpc {
   readonly calls: Array<{ method: CodexAppServerMethod; params: Record<string, unknown> }> = [];
   private readonly pendingNotifications: Array<() => Promise<void>> = [];
@@ -560,6 +1021,8 @@ class RecordingAppServerRpc implements CodexAppServerRpc {
       | "read_error" = "idle",
     private readonly onNotification?: () => Promise<void>
   ) {}
+
+  bindAcceptedTurn(): void {}
 
   async withNotificationDeliveryBarrier<T>(action: () => Promise<T>): Promise<T> {
     if (this.notificationBarrierActive) throw new Error("Nested notification barrier.");
@@ -604,6 +1067,45 @@ class RecordingAppServerRpc implements CodexAppServerRpc {
       cwd: this.root,
       status: status === "active" ? { type: "active", activeFlags: [] } : { type: status }
     };
+  }
+}
+
+class SinkBackedAppServerRpc implements CodexAppServerRpc {
+  private binding?: ManagedCodexAppServerTurnBinding;
+  private afterAcceptedPromise?: Promise<void>;
+
+  constructor(
+    private readonly root: string,
+    private readonly sink: CodexAppServerRunSink,
+    private readonly afterAccepted?: () => Promise<void>
+  ) {}
+
+  bindAcceptedTurn(binding: ManagedCodexAppServerTurnBinding): void {
+    this.binding = binding;
+    this.sink.bindAcceptedTurn(binding);
+  }
+
+  async withNotificationDeliveryBarrier<T>(action: () => Promise<T>): Promise<T> {
+    const result = await action();
+    expect(this.binding).toMatchObject({ app_server_turn_id: TURN_CANARY, thread_id: THREAD_CANARY });
+    if (this.afterAccepted) this.afterAcceptedPromise = this.afterAccepted();
+    return result;
+  }
+
+  async waitForAfterAccepted(): Promise<void> {
+    await this.afterAcceptedPromise;
+  }
+
+  async request(method: CodexAppServerMethod): Promise<unknown> {
+    if (method === "thread/read") return { thread: this.thread("notLoaded") };
+    if (method === "thread/resume") {
+      return { thread: this.thread("idle"), model: "fixture-model", modelProvider: "fixture-provider", cwd: this.root };
+    }
+    return { turn: { id: TURN_CANARY, status: "inProgress" } };
+  }
+
+  private thread(status: "notLoaded" | "idle") {
+    return { id: THREAD_CANARY, modelProvider: "fixture-provider", cwd: this.root, status: { type: status } };
   }
 }
 

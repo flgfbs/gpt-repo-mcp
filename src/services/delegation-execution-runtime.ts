@@ -46,7 +46,7 @@ export class DelegationExecutionRuntime {
     app_server: CodexAppServerAdapter;
     now?: () => Date;
   }): TaskAgentContinuationRuntime {
-    // The owner-supplied connection must retain its existing notification and
+    // The owner-controlled connection must retain its notification and
     // terminal-result sink and hold delivery behind the adapter barrier until
     // accepted running state is durable. This seam starts one turn only;
     // repo_agent_runs remains the sole public observer of owner-persisted state.

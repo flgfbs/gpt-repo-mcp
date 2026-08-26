@@ -11,7 +11,7 @@ const INTERNAL_RUN_FILES = new Set([
   "review-gate.json"
 ]);
 
-const INTERNAL_REPLY_PATTERN = /^interactions\/turn-[0-9]{4}\.reply\.json$/;
+const INTERNAL_REPLY_PATTERN = /^interactions\/turn-[0-9]{4}(?:-[a-f0-9]{64})?\.reply\.json$/;
 
 export function delegationControlArtifactGitExcludes(): string[] {
   return [

@@ -7,8 +7,9 @@ diffs, licenses, advisories, and the exact validation surface.
 ## Current Runtime Set
 
 The direct runtime dependencies are the MCP SDK, Express, Ignore, TypeScript,
-and Zod. `@hono/node-server` has a deliberate compatible override selected by
-the lockfile. Remove or change an override only after the owning direct
+WebSocket (`ws`), and Zod. `ws` is used only by the lazy same-user Unix control
+socket client for managed continuation. `@hono/node-server` has a deliberate
+compatible override selected by the lockfile. Remove or change an override only after the owning direct
 dependency declares a safe compatible range and integration coverage passes.
 
 ## Update Procedure
@@ -31,7 +32,7 @@ transport dependencies with an older or breaking graph.
 npm ci
 npm audit --omit=dev
 npm audit
-npm ls @modelcontextprotocol/sdk @hono/node-server express ignore zod
+npm ls @modelcontextprotocol/sdk @hono/node-server express ignore ws zod
 npm run typecheck
 npm test
 npm run lint

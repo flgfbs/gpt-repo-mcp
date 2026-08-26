@@ -32,13 +32,17 @@
 - Managed continuation reuses task `operation_id` state and private
   runner-session/attempt artifacts; it does not require exact HEAD/tree merely
   to start the next turn and never exposes private App Server identifiers.
-- Attempt and operation guards are crash-durable before `turn/start`, and an
-  injected notification barrier prevents immediate completion from being
-  overwritten by a late running-state write.
+- Attempt and operation guards are crash-durable before `turn/start`, and the
+  internal notification barrier prevents immediate completion from being
+  overwritten by a late running-state write. Shared barriers serialize instead
+  of turning cross-run contention into an unknown effect.
 - An acknowledged or uncertain `turn/start` is no-replay. Deterministic tests
   cover active-turn rejection, confirmed no-start recovery and persistence
-  failure, disconnect, immediate completion, missing-status stale-result
-  suppression, duplicate operation, strict input, and private-artifact exclusion.
+  failure, disconnect, immediate completion, fresh/stale result settlement,
+  sequential structured questions, human-wait runtime exclusion, approval
+  non-response, bounded terminal settlement retry, unsafe socket ancestors,
+  missing-status stale-result suppression, duplicate operation, strict input,
+  and private-artifact exclusion.
 - Merge preparation is read-only; only the owner CLI writes a one-time exact
   approval.
 

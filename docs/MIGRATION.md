@@ -54,13 +54,13 @@ The total is exactly 66. No old or alternate lifecycle names are accepted as
 aliases. `repo_task_admission` is read-only and adds no configuration,
 credential, task mutation, worker launch, or retry authority.
 
-`repo_continue_agent_run` is available only when an owner runtime explicitly
-injects its existing Codex App Server connection and notification/result sink.
-It reuses task `operation_id` state and private run session/attempt artifacts;
+`repo_continue_agent_run` now lazily uses the existing same-user Codex App
+Server control socket when it is present and safely permissioned. It reuses
+task `operation_id` state and private run session/attempt artifacts;
 there is no public thread registration, binding id, separate idempotency key,
-status subsystem, credential, provider selection, or service startup. Existing
-runs without a private managed session remain readable and are not attached or
-continued automatically.
+status subsystem, credential, provider selection, or service startup. Server
+startup itself makes no App Server contact. Existing runs without a private
+managed session remain readable and are not attached or continued automatically.
 
 ## Execution-Runtime Artifact Migration
 

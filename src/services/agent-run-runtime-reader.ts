@@ -47,8 +47,8 @@ export class AgentRunRuntimeReader {
         if (attempt.state === "in_flight" && !["claimed", "running", "awaiting_input"].includes(effectiveStatus)) {
           warnings.push("AGENT_RUN_EFFECT_UNKNOWN_NO_REPLAY");
         }
-        if (attempt.state === "in_flight" && ["claimed", "running"].includes(effectiveStatus)) {
-          const elapsed = elapsedMs(attempt.started_at, this.now().getTime());
+        if (attempt.state === "in_flight" && ["claimed", "running", "awaiting_input"].includes(effectiveStatus)) {
+          const elapsed = activeElapsedMs(attempt, this.now().getTime());
           const provisional = describeAgentRuntimeBudget(
             this.repositoryMaxRuntimeMs,
             record.runner.max_runtime_ms,
@@ -57,7 +57,7 @@ export class AgentRunRuntimeReader {
           );
           activeRuntimeMs += Math.min(elapsed, provisional.remaining_runtime_ms);
         } else if (attempt.state === "settled" && !sessionFound) {
-          activeRuntimeMs += elapsedMs(attempt.started_at, Date.parse(attempt.updated_at));
+          activeRuntimeMs += activeElapsedMs(attempt, Date.parse(attempt.updated_at));
         }
       } else if (attempt) {
         warnings.push("AGENT_RUN_RUNTIME_INVALID");
@@ -85,4 +85,20 @@ function elapsedMs(startedAt: string, endedAt: number): number {
   return Number.isFinite(startedAtMs) && Number.isFinite(endedAt)
     ? Math.max(0, endedAt - startedAtMs)
     : 0;
+}
+
+function activeElapsedMs(
+  attempt: {
+    started_at: string;
+    awaiting_input_ms?: number;
+    awaiting_input_started_at?: string;
+  },
+  endedAt: number
+): number {
+  const elapsed = elapsedMs(attempt.started_at, endedAt);
+  const openPause = attempt.awaiting_input_started_at === undefined
+    ? 0
+    : elapsedMs(attempt.awaiting_input_started_at, endedAt);
+  const paused = Math.min(elapsed, (attempt.awaiting_input_ms ?? 0) + openPause);
+  return elapsed - paused;
 }

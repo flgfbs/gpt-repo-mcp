@@ -34,7 +34,7 @@ expected/current object ids, safe counts, warning codes, or a recovery hint.
 | `OPERATIONS_DISABLED` / Git-policy codes | Local Git, validation, or cleanup policy was not enabled. |
 | `CODEX_RUN_FINALIZE_DISABLED` | The separate default-off exact Delegation v3 run finalizer capability is not enabled for this repository. |
 | `LIFECYCLE_POLICY_DENIED` | The repository or task does not admit the requested lifecycle authority; local-only tasks use this for every remote or GitHub operation. |
-| `RUNNER_PROVIDER_UNAVAILABLE` | No owner-supplied managed continuation connection is configured. |
+| `RUNNER_PROVIDER_UNAVAILABLE` | The existing owner App Server control socket is absent, unsafe, or unavailable. |
 | `RUNNER_LOCK_ACTIVE` | The selected run or private thread already has an in-flight turn. |
 | `GIT_HEAD_MISMATCH` | Current HEAD differs from the exact expected HEAD. |
 | `GIT_STAGED_PATHS_MISMATCH` | Actual staged paths differ from the reviewed set. |

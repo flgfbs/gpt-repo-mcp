@@ -6,6 +6,9 @@ import { RootRegistry } from "./services/root-registry.js";
 import { CodeIntelligenceService } from "./services/code-intelligence-service.js";
 import { createCodebaseMemoryClientFactory } from "./services/codebase-memory-client.js";
 import { createLifecycleRuntimeBundle } from "./services/lifecycle-factory.js";
+import { CodexAppServerAdapter } from "./delegation/codex-app-server-adapter.js";
+import { CodexAppServerControlRpc } from "./delegation/codex-app-server-control-rpc.js";
+import { CodexAppServerRunSink } from "./delegation/codex-app-server-run-sink.js";
 import { createMcpServer } from "./register.js";
 import type { RuntimeContext } from "./runtime/context.js";
 import { buildMcpRoutePatterns, isAuthorizedMcpPath, sanitizeMcpRouteForAudit } from "./runtime/mcp-routes.js";
@@ -39,11 +42,16 @@ const codeIntelligence = codeIntelligenceConfig
     )
   : undefined;
 const lifecycleBundle = await createLifecycleRuntimeBundle(registry);
+const appServerSink = new CodexAppServerRunSink(registry, lifecycleBundle.tasks);
+const appServerRpc = new CodexAppServerControlRpc(appServerSink);
 const context: RuntimeContext = {
   registry,
   codeIntelligence,
   lifecycle: lifecycleBundle.lifecycle,
-  taskMutations: lifecycleBundle.taskMutations
+  taskMutations: lifecycleBundle.taskMutations,
+  agentContinuation: lifecycleBundle.executionRuntime.createAgentContinuationRuntime({
+    app_server: new CodexAppServerAdapter(appServerRpc)
+  })
 };
 
 const app = express();
@@ -288,6 +296,7 @@ async function shutdown(): Promise<void> {
   shuttingDown = true;
   clearInterval(sessionCleanupTimer);
   await transports.closeAll();
+  await appServerRpc.close();
   await new Promise<void>((resolve) => {
     httpServer.close(() => resolve());
   });

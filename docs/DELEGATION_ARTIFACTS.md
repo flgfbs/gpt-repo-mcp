@@ -55,10 +55,12 @@ transport:
 `repo_continue_agent_run` is the single public continuation mutation. The queue
 consumer, dispatch store, launcher interface, App Server adapter, private
 thread/turn identifiers, and notification sink are internal runtime components.
-They are not a second MCP server, scheduler, status plane, or control plane, and
-default server construction does not start or attach them. Provider-free
+They are not a second MCP server, scheduler, status plane, or control plane.
+Default server construction creates only a lazy client for the existing local
+owner control socket; it does not start a provider or contact the socket until a
+continuation is requested. Provider-free
 qualification injects deterministic fakes and proves one launch or turn start
-per admitted operation without model contact. The injected connection also
+per admitted operation without model contact. The connection also
 provides the narrow notification-delivery barrier that prevents an immediate
 terminal sink write from racing the bridge's accepted running-state write.
 
@@ -74,7 +76,10 @@ HEAD/tree agreement merely to continue. The existing task operation ledger is
 the replay boundary. A confirmed pre-start rejection may restore the prior
 settled attempt; an acknowledged or uncertain start remains in-flight and
 cannot be blindly replayed. `repo_agent_runs` stays the sole public lifecycle
-observer.
+observer. Explicit App Server approval requests remain unanswered by this
+bridge so the Local owner surface retains that decision. Only structured
+`item/tool/requestUserInput` questions are routed through the existing
+`repo_write_agent_reply` artifact.
 
 ## Compatibility Rules
 

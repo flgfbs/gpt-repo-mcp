@@ -5,6 +5,14 @@ import { RepoReaderError } from "../runtime/errors.js";
 
 export type CodexAppServerMethod = "thread/read" | "thread/resume" | "turn/start";
 
+export type ManagedCodexAppServerTurnBinding = {
+  repo_id: string;
+  run_id: string;
+  thread_id: string;
+  app_server_turn_id: string;
+  turn_index: number;
+};
+
 export interface CodexAppServerRpc {
   request(method: CodexAppServerMethod, params: Record<string, unknown>): Promise<unknown>;
   /**
@@ -12,6 +20,7 @@ export interface CodexAppServerRpc {
    * until action settles. Requests made by action must remain callable.
    */
   withNotificationDeliveryBarrier<T>(action: () => Promise<T>): Promise<T>;
+  bindAcceptedTurn(binding: ManagedCodexAppServerTurnBinding): void;
 }
 
 export class CodexAppServerTurnStartError extends Error {
@@ -62,7 +71,7 @@ const TurnStartResponseSchema = z.object({
 }).passthrough();
 
 /**
- * Narrow protocol adapter for an owner-supplied Codex App Server connection.
+ * Narrow protocol adapter for an owner-controlled Codex App Server connection.
  * It never selects an executable, endpoint, thread, repository, model, sandbox,
  * approval policy, or machine. Turn start deliberately sends no overrides.
  */
@@ -94,7 +103,8 @@ export class CodexAppServerAdapter {
     let resumed;
     try {
       resumed = ThreadResumeResponseSchema.parse(await this.request("thread/resume", {
-        threadId: input.thread_id
+        threadId: input.thread_id,
+        excludeTurns: true
       }));
     } catch {
       throw providerFailure("Codex App Server could not resume the bound thread before turn start.");
@@ -146,6 +156,10 @@ export class CodexAppServerAdapter {
 
   withNotificationDeliveryBarrier<T>(action: () => Promise<T>): Promise<T> {
     return this.rpc.withNotificationDeliveryBarrier(action);
+  }
+
+  bindAcceptedTurn(binding: ManagedCodexAppServerTurnBinding): void {
+    this.rpc.bindAcceptedTurn(binding);
   }
 
   private async request(method: CodexAppServerMethod, params: Record<string, unknown>): Promise<unknown> {
