@@ -11,6 +11,7 @@ import { AgentRunsService, type AgentRunsServiceOptions } from "../src/services/
 import { PathSandbox } from "../src/services/path-sandbox.js";
 import { createRepoFixture } from "./fixtures/repo-fixture.js";
 import { runnerStatusBinding } from "./fixtures/delegation-v3-run-fixture.js";
+import { digestRecord } from "../src/task-runtime/canonical-json.js";
 
 const RUN_A = "2026-07-13T090000Z-manual-task";
 const RUN_B = "2026-07-13T100000Z-queued-task";
@@ -77,8 +78,32 @@ describe("AgentRunsService", () => {
     });
   });
 
-  test("returns the supervisor-bound list revision even before a runs directory exists", async () => {
+  test("returns the supervisor-bound list revision, identity, and health before a runs directory exists", async () => {
     const fixture = await createRepoFixture();
+    const serviceIdentity = {
+      schema_version: 1 as const,
+      service_id: "global-development-supervisor",
+      instance_id: "public-health-readback",
+      implementation: "chat-pro-repository-mcp" as const,
+      protocol: "semantic-worker-dispatch-v1" as const
+    };
+    const unsignedHealth = {
+      schema_version: 1 as const,
+      service_identity: serviceIdentity,
+      status: "ready" as const,
+      queue_consumer: "idle" as const,
+      active_dispatch_id: null,
+      last_scan_at: "2026-07-13T10:03:00.000Z",
+      unknown_effect_count: 0,
+      provider_contact: "none" as const,
+      live_effects_enabled: false,
+      attested_at: "2026-07-13T10:03:00.000Z",
+      attestation_sha256: "0".repeat(64)
+    };
+    const healthAttestation = {
+      ...unsignedHealth,
+      attestation_sha256: digestRecord(unsignedHealth, "attestation_sha256")
+    };
     await new AgentRunnerSupervisorStore(fixture.root).write({
       repo_id: "fixture",
       runner: "codex_sdk",
@@ -88,13 +113,26 @@ describe("AgentRunsService", () => {
       last_claimed_run_id: null,
       active_run_id: null,
       stale_after_ms: 30_000,
+      service_identity: serviceIdentity,
+      health_attestation: healthAttestation,
       warnings: []
     });
 
     const result = await service(fixture.root).read({ repo_id: "fixture" });
 
     expect(result.revision).not.toBe(0);
-    expect(result.supervisor?.revision).toBe(1);
+    expect(result.supervisor).toMatchObject({
+      revision: 1,
+      service_identity: serviceIdentity,
+      health_attestation: {
+        queue_consumer: "idle",
+        unknown_effect_count: 0,
+        provider_contact: "none",
+        live_effects_enabled: false,
+        attestation_sha256: healthAttestation.attestation_sha256
+      }
+    });
+    expect(() => AgentRunsResultSchema.parse(result)).not.toThrow();
   });
 
   test("paginates newest-first with an opaque stable cursor", async () => {

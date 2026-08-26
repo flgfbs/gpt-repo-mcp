@@ -6,6 +6,8 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
 import { createLifecycleRuntimeBundle } from "../src/services/lifecycle-factory.js";
 import { RootRegistry } from "../src/services/root-registry.js";
+import { DelegationSupervisorStore } from "../src/delegation/supervisor-store.js";
+import { writeQueuedV3Run } from "./fixtures/delegation-v3-run-fixture.js";
 
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
@@ -243,6 +245,80 @@ describe("repository lifecycle runtime", () => {
     expect(status.artifacts).toHaveLength(200);
     expect(status.warnings).toContain("ARTIFACTS_TRUNCATED");
   }, 30_000);
+  test("qualifies provider-free queue supervision through the existing lifecycle bundle", async () => {
+    const fixture = await fixtureRegistry({ kind: "local" });
+    const bundle = await createLifecycleRuntimeBundle(fixture.registry);
+    const opened = await bundle.lifecycle.taskOpen({
+      operation_id: "operation-open-execution-runtime",
+      repo_id: "owner",
+      task_id: "task-execution-runtime",
+      base_branch: "main",
+      base_commit_sha: fixture.commit,
+      base_tree_sha: fixture.tree,
+      authority: "implement",
+      goal: "Qualify one bounded provider-free admitted dispatch.",
+      branch_slug: "execution-runtime"
+    });
+    const taskRoot = fixture.registry.get(opened.task.repo_id).root;
+    const runId = "2026-08-26T020000Z-provider-free-integration";
+    await writeQueuedV3Run(taskRoot, runId, {
+      repo_id: opened.task.repo_id,
+      baseline: {
+        head_sha: opened.task.head_sha,
+        worktree_fingerprint: "clean",
+        initial_changed_paths: []
+      }
+    });
+
+    let launches = 0;
+    const supervisor = bundle.executionRuntime.createQueueSupervisor({
+      repo_id: opened.task.repo_id,
+      runner: "codex_sdk",
+      service_identity: {
+        schema_version: 1,
+        service_id: "global-development-supervisor",
+        instance_id: "provider-free-qualification",
+        implementation: "chat-pro-repository-mcp",
+        protocol: "semantic-worker-dispatch-v1"
+      },
+      mode: "provider_free",
+      launcher: {
+        async launch() {
+          launches += 1;
+          return {
+            effect_state: "no_external_effect",
+            provider_contact: "none",
+            terminal_state: "completed",
+            outcome_code: "PROVIDER_FREE_QUALIFIED"
+          };
+        }
+      }
+    });
+
+    const first = await supervisor.scanOnce();
+    const second = await supervisor.scanOnce();
+    expect(first).toMatchObject({ outcome: "launched", run_id: runId });
+    expect(second).toMatchObject({ outcome: "already_settled", run_id: runId });
+    expect(launches).toBe(1);
+
+    const state = await new DelegationSupervisorStore(taskRoot).read();
+    expect(state).toMatchObject({
+      repo_id: opened.task.repo_id,
+      status: "ready",
+      active_run_id: null,
+      service_identity: {
+        service_id: "global-development-supervisor",
+        instance_id: "provider-free-qualification"
+      },
+      health_attestation: {
+        queue_consumer: "idle",
+        unknown_effect_count: 0,
+        provider_contact: "none",
+        live_effects_enabled: false
+      }
+    });
+  });
+
 });
 
 async function fixtureRegistry(options: {

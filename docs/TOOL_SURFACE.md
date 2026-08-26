@@ -1,8 +1,8 @@
 # Tool Surface
 
-Chat Pro Repository MCP publishes exactly 64 tools in the order below. The
-first 47 are canonical local tools; the final 17 are the task and GitHub
-lifecycle package. No aliases are registered.
+Chat Pro Repository MCP publishes exactly 65 tools in the order below. The
+first 47 are canonical local tools; the final 18 are the task and optional
+GitHub lifecycle package. No aliases are registered.
 
 ## Tool Groups
 
@@ -11,7 +11,7 @@ lifecycle package. No aliases are registered.
 - 25-36: product context, planning, work inventory, and delegation
 - 37-40: transactional patchsets
 - 41-47: validation, work sessions, direct writes, and handoff
-- 48-64: task worktrees, Git/GitHub/CI/review/merge lifecycle
+- 48-65: task worktrees, admission, Git/GitHub/CI/review/merge lifecycle
 
 MCP annotations describe expected effects; they do not grant authority.
 External reads and writes have `openWorldHint: true`. Lifecycle mutations are
@@ -297,9 +297,15 @@ the bound manifest.
 
 64. Read authoritative post-merge PR, base-ref, task-ref, and commit state.
 
+### `repo_task_admission`
+
+65. Read whether an expected exact task is absent, is the sole matching active
+task, or conflicts with current active task state. It is closed-world,
+read-only, and accepts no operation id or mutation request.
+
 ## Lifecycle Contract Pattern
 
-Except for local task status and artifact paging, lifecycle calls bind task
+Except for local task status, task admission, and artifact paging, lifecycle calls bind task
 identity and exact state. Mutating or external calls require a caller-generated
 `operation_id`; external state operations also require the exact expected task
 HEAD and tree as applicable. Inputs are strict: unknown fields, caller-selected

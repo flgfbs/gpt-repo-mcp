@@ -35,7 +35,7 @@ In a ChatGPT workspace where Developer Mode and custom MCP apps are enabled:
 4. Select **Tunnel** as the connection type.
 5. Select or enter the activated `tunnel_...` identifier.
 6. Save the app and refresh its tool metadata.
-7. Confirm that exactly 64 tools are listed.
+7. Confirm that exactly 65 tools are listed.
 
 The exact workspace labels may evolve, but the connection must remain a Secure
 MCP Tunnel to the loopback MCP endpoint.

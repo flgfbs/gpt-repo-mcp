@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { RepoTaskAdmissionInputSchema, TaskAdmissionStateSchema } from "../src/contracts/task-admission.contract.js";
 import { describe, expect, test } from "vitest";
 import {
   RepoArtifactReadInputSchema,
@@ -87,7 +88,8 @@ const LIFECYCLE_TOOL_ORDER = [
   "repo_write_ci_retry_failed",
   "repo_merge_gate_prepare",
   "repo_write_merge",
-  "repo_post_merge_readback"
+  "repo_post_merge_readback",
+  "repo_task_admission"
 ] as const satisfies readonly ToolName[];
 
 const HEAD_SHA = "1".repeat(40);
@@ -136,16 +138,30 @@ const validInputs = {
     manifest_sha256: SHA256,
     approval_id: "merge_approval_1234567890abcdef"
   },
-  repo_post_merge_readback: { ...taskState, merge_operation_id: "operation-merge-0001" }
+  repo_post_merge_readback: { ...taskState, merge_operation_id: "operation-merge-0001" },
+  repo_task_admission: {
+    repo_id: REPO_ID,
+    task_id: TASK_ID,
+    expected: {
+      base_branch: "main",
+      base_commit_sha: HEAD_SHA,
+      base_tree_sha: TREE_SHA,
+      authority: "implement",
+      goal_sha256: SHA256,
+      branch_slug: "exact-lifecycle-task",
+      head_sha: HEAD_SHA,
+      tree_sha: TREE_SHA
+    }
+  }
 } as const satisfies Record<(typeof LIFECYCLE_TOOL_ORDER)[number], Record<string, unknown>>;
 
 describe("lifecycle tool contracts", () => {
-  test("preserves the inherited prefix and appends exactly 17 canonical names without aliases", () => {
-    expect(CANONICAL_TOOL_ORDER).toHaveLength(64);
+  test("preserves the inherited prefix and appends exactly 18 canonical names without aliases", () => {
+    expect(CANONICAL_TOOL_ORDER).toHaveLength(65);
     expect(CANONICAL_TOOL_ORDER.slice(0, 47)).toEqual(INHERITED_TOOL_ORDER);
     expect(CANONICAL_TOOL_ORDER.slice(47)).toEqual(LIFECYCLE_TOOL_ORDER);
-    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(64);
-    expect(Object.keys(toolContracts)).toHaveLength(64);
+    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(65);
+    expect(Object.keys(toolContracts)).toHaveLength(65);
     expect([...CANONICAL_TOOL_ORDER].sort()).toEqual(Object.keys(toolContracts).sort());
     expect(toolRegistry.map(({ name }) => name)).toEqual(CANONICAL_TOOL_ORDER);
     expect(toolsForPackage("lifecycle").map(({ name }) => name)).toEqual(LIFECYCLE_TOOL_ORDER);
@@ -167,6 +183,7 @@ describe("lifecycle tool contracts", () => {
     const commonBoundTools = LIFECYCLE_TOOL_ORDER.filter((name) => ![
       "repo_task_open",
       "repo_task_status",
+      "repo_task_admission",
       "repo_artifact_read"
     ].includes(name));
 
@@ -192,6 +209,14 @@ describe("lifecycle tool contracts", () => {
     expect(RepoArtifactReadInputSchema.safeParse({ ...validInputs.repo_artifact_read, artifact_id: "../artifact" }).success).toBe(false);
     expect(RepoArtifactReadInputSchema.safeParse({ ...validInputs.repo_artifact_read, length: 65_537 }).success).toBe(false);
     expect(RepoArtifactReadInputSchema.safeParse({ ...validInputs.repo_artifact_read, offset: -1 }).success).toBe(false);
+  });
+
+  test("keeps task admission strict, read-only, and typed", () => {
+    expect(RepoTaskAdmissionInputSchema.safeParse(validInputs.repo_task_admission).success).toBe(true);
+    expect(RepoTaskAdmissionInputSchema.safeParse({ ...validInputs.repo_task_admission, unexpected: true }).success).toBe(false);
+    for (const admission of ["task_absent", "matching_active_task", "conflicting_active_task"] as const) {
+      expect(TaskAdmissionStateSchema.options.some((option) => option.shape.status.value === admission)).toBe(true);
+    }
   });
 
   test("covers exact task terminal outcomes, evidence artifacts, and Draft-only PR creation", () => {
@@ -304,6 +329,8 @@ describe("lifecycle tool contracts", () => {
       ["repo_merge_gate_prepare", openWorldReadOnlyAnnotations],
       ["repo_write_merge", openWorldMutationAnnotations],
       ["repo_post_merge_readback", openWorldReadOnlyAnnotations]
+,
+      ["repo_task_admission", readOnlyAnnotations]
     ]);
 
     for (const tool of toolsForPackage("lifecycle")) {
@@ -334,6 +361,8 @@ describe("lifecycle tool contracts", () => {
       "mergeGatePrepare",
       "writeMerge",
       "postMergeReadback"
+,
+      "taskAdmission"
     ]) expect(source).toContain(`context.lifecycle.${method}(args)`);
 
     expect(source).not.toMatch(/\b(?:exec|execFile|spawn|fetch)\s*\(/u);

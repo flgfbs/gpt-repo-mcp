@@ -72,5 +72,6 @@ export const OSS_TOOL_ORDER = [
   "repo_write_ci_retry_failed",
   "repo_merge_gate_prepare",
   "repo_write_merge",
-  "repo_post_merge_readback"
+  "repo_post_merge_readback",
+  "repo_task_admission"
 ] as const satisfies readonly ToolName[];

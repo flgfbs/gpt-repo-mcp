@@ -25,6 +25,7 @@ import {
   TaskArtifactMergeEvidenceProvider
 } from "./github-runtime-adapters.js";
 import { RepositoryLifecycleRuntime } from "./repository-lifecycle-runtime.js";
+import { DelegationExecutionRuntime } from "./delegation-execution-runtime.js";
 import type { RootRegistry } from "./root-registry.js";
 
 export type LifecycleRuntimeBundle = {
@@ -32,6 +33,7 @@ export type LifecycleRuntimeBundle = {
   tasks: TaskRuntimeService;
   artifacts: TaskArtifactStore;
   taskMutations: DurableTaskMutationRuntime;
+  executionRuntime: DelegationExecutionRuntime;
   github?: ProductionGitHubRuntimeBundle;
 };
 
@@ -87,6 +89,7 @@ export async function createLifecycleRuntimeBundle(
   });
   await tasks.initialize();
   await tasks.rehydrateOpenTaskRepositories({ limit: 10_000 });
+  const executionRuntime = new DelegationExecutionRuntime(registry, tasks);
   const production = external
     ? undefined
     : await createProductionGitHubRuntimeBundle(registry, tasks, artifacts);
@@ -95,6 +98,7 @@ export async function createLifecycleRuntimeBundle(
     tasks,
     artifacts,
     taskMutations: new DurableTaskMutationRuntime(registry, tasks, artifacts),
+    executionRuntime,
     lifecycle: new RepositoryLifecycleRuntime(registry, tasks, artifacts, externalRuntime),
     ...(production ? { github: production } : {})
   };

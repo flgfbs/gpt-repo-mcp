@@ -39,7 +39,7 @@ diagnosis, artifacts, and external-worker evidence remain optional.
   model or tool.
 - Local-only lifecycle never requires or synthesizes a remote and rejects every
   external lifecycle operation before contact.
-- The 64 public tools are focused schemas, not an arbitrary shell or API.
+- The 65 public tools are focused schemas, not an arbitrary shell or API.
 - Actual file bytes, Git objects, validation, review, and remote read-back take
   precedence over claims.
 - Push is task-branch-only, fast-forward-only, and non-force.
@@ -60,10 +60,12 @@ configuration, credentials, task authority, state binding, or merge approval.
 
 ## External Workers
 
-Current delegation tools can exchange bounded artifacts with a separately
-operated implementation worker. The future Semantic Worker direction makes
-those contracts provider-neutral. Neither current nor future design places
-provider credentials or unrestricted worker execution inside this MCP server.
+Current delegation tools exchange bounded artifacts with a separately operated
+implementation worker. The provider-neutral runtime substrate adds typed task
+admission, an immutable dispatch, one launch intent, supervisor identity and
+health, and deterministic no-replay after an unknown effect. Default server
+startup still selects no provider and starts no worker; credentials and
+unrestricted execution remain outside the public MCP contract.
 
 ## Scope Limit
 

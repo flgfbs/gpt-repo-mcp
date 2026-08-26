@@ -1,7 +1,7 @@
 # Architecture
 
 Chat Pro Repository MCP is a contract-first, local-first MCP server. The public
-surface is a closed catalog of exactly 64 tools. Task/worktree lifecycle is
+surface is a closed catalog of exactly 65 tools. Task/worktree lifecycle is
 local; only the GitHub-enabled external subset is open-world because it
 contacts the configured Git remote and GitHub.
 
@@ -24,16 +24,16 @@ src/contracts/*.contract.ts
 - Package modules attach title, description, annotations, tier, capability, and
   thin handler.
 - `src/tools/registry.ts` rejects duplicates, missing definitions, and unknown
-  definitions, then constructs the canonical 64-tool order.
+  definitions, then constructs the canonical 65-tool order.
 - `src/register.ts` iterates that registry and registers each tool through
   `src/tools/define-tool.ts`.
 - Handlers parse, call one runtime/service boundary, audit safe metadata, and
   return a shared envelope.
 - Services own policy, state, Git, filesystem, artifacts, and external effects.
 
-The first 46 names are preserved exactly. The lifecycle package appends the 17
-names listed in [Tool Surface](TOOL_SURFACE.md); compatibility aliases are not
-registered.
+The first 47 local names are preserved exactly. The lifecycle package appends
+the 18 names listed in [Tool Surface](TOOL_SURFACE.md); compatibility aliases
+are not registered.
 
 ## Runtime Construction Seams
 
@@ -43,7 +43,7 @@ registered handler. Its dependencies are deliberately explicit:
 - `RootRegistry` resolves registered repository ids to canonical roots and
   policy;
 - optional code intelligence is injected behind its client factory;
-- `LifecycleRuntime` is the strict handler boundary for the 17 lifecycle tools;
+- `LifecycleRuntime` is the strict handler boundary for the 18 lifecycle tools;
 - task-state/worktree storage owns task bindings and terminal state;
 - the artifact store owns content-addressed bytes and opaque public ids;
 - the optional Git push boundary accepts a fixed argument shape for the
@@ -151,14 +151,23 @@ is the Streamable HTTP endpoint. ChatGPT reaches it only through an activated
 OpenAI Secure MCP Tunnel. The repository does not own tunnel credentials or
 publish a public ingress endpoint.
 
-## Future Semantic Worker Boundary
+## Semantic Worker Execution Boundary
 
-Delegation currently uses versioned repository-owned task, result, interaction,
-and review artifacts. The intended Semantic Worker evolution makes those
-contracts provider-neutral: stable task identity, exact repository baseline,
-bounded authority, structured questions and replies, result evidence,
-validation references, and terminal status.
+Delegation uses versioned repository-owned task, result, interaction, and review
+artifacts. The provider-neutral execution substrate adds three bounded layers:
 
-Provider adapters, credentials, scheduling, and model execution remain outside
-the public MCP server. A worker result is evidence; repository validation and
+1. `repo_task_admission` reads whether the expected exact task is absent, is the
+   sole matching active task, or conflicts with active lifecycle state.
+2. An admitted Delegation v3 run receives one immutable dispatch record followed
+   by at most one immutable launch-intent record.
+3. A supervisor-owned queue consumer records typed service identity and health,
+   then accepts one bounded launch outcome. A persisted launch intent without a
+   result, or any unknown effect, is terminal no-replay evidence.
+
+The normal server construction does not automatically start that queue consumer
+or select a provider. The launcher is an injected boundary, so provider-free
+tests can qualify admission, dispatch, exactly-once, health, and no-replay
+semantics without contacting a model. Provider adapters, credentials, model
+selection, and live execution authority remain outside public MCP inputs and
+default server startup. A worker result is evidence; repository validation and
 review remain authoritative.

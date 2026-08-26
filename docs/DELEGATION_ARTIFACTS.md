@@ -2,8 +2,8 @@
 
 Delegation is an optional specialist capability for users who operate an
 external implementation worker. Chat Pro Repository MCP writes and validates
-repository-owned artifacts; it does not launch a model, schedule a provider,
-load provider credentials, or control a worker process.
+repository-owned artifacts. Its default MCP server does not select a provider,
+load provider credentials, or automatically start a worker or queue consumer.
 
 ## Current Delegation V3
 
@@ -34,34 +34,37 @@ Several related runs may share a dirty worktree only through the explicit
 integration-review contract. The server binds the reviewed run set, current
 HEAD, path union, content fingerprint, validation, verdicts, and commit payload.
 
-## Future Provider-Neutral Semantic Worker Contract
+## Provider-Neutral Execution Runtime
 
-The intended evolution is a provider-neutral **Semantic Worker** protocol. Its
-public contract should express repository semantics, not a vendor transport:
+The execution substrate expresses repository semantics rather than vendor
+transport:
 
 | Contract area | Stable provider-neutral content |
 | --- | --- |
-| Task | task id, goal, exact repository baseline, bounded authority, scope, acceptance criteria |
-| Lifecycle | queued/running/awaiting-input/terminal state, timestamps, bounded events |
-| Interaction | structured questions, turn/version hash, complete structured replies |
-| Result | changed-path evidence, criteria evidence, validation references, terminal outcome |
-| Review | exact repository binding, technical findings, product verdict, freshness |
-| Lineage | parent/root identity, bounded correction or scope-amendment relationship |
+| Task admission | absent, sole exact matching active task, or conflicting active task |
+| Dispatch | immutable task, Delegation v3, supervisor, runtime, and digest binding |
+| Launch | one immutable launch intent with ordinal one |
+| Supervisor | typed service identity, queue-consumer state, health, and provider-contact attestation |
+| Result | immutable bounded outcome with `replay_allowed: false` |
+| Recovery | launch intent without result and unknown effects stop without replay |
 
-Provider adapter names, model ids, thread ids, credentials, scheduling, retry
-policy, and raw logs stay outside the public MCP contract. A future adapter may
-translate between a Semantic Worker and these artifacts, but it must not widen
-repository authority or bypass validation and review.
+`repo_task_admission` is the only new public surface. The queue consumer,
+dispatch store, and launcher interface are internal runtime components. They are
+not a second MCP server, scheduler, or control plane, and default server
+construction does not start them. Provider-free qualification injects a
+deterministic launcher and proves one launch per admitted dispatch without model
+contact.
 
-Until such contracts are versioned and implemented, the current Delegation v3
-schemas remain canonical. “Semantic Worker” in this documentation is a design
-direction, not an available embedded execution provider.
+Provider adapter names, model ids, private thread ids, credentials, commands,
+retry controls, and raw logs stay outside public MCP inputs. A live adapter must
+be separately constructed under current authority and cannot widen repository
+scope or bypass validation and review.
 
 ## Compatibility Rules
 
 - Treat public tool names, schema fields, artifact versions, hashes, and stale
   behavior as contracts.
 - Keep parsing bounded, identity-bound, redacted, and fail-closed.
-- Keep worker execution and credentials outside MCP handlers and services.
+- Keep provider execution and credentials outside MCP handlers and default server construction.
 - Do not reopen private worker artifacts through generic repository reads.
 - Require documented migration and contract tests for persisted-format changes.

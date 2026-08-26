@@ -16,6 +16,7 @@ import {
   prStatusHandler,
   remoteStatusHandler,
   taskCleanupHandler,
+  taskAdmissionHandler,
   taskCloseHandler,
   taskOpenHandler,
   taskStatusHandler,
@@ -46,5 +47,6 @@ export const lifecycleTools = [
   defineTool({ name: "repo_write_ci_retry_failed", title: "Retry failed continuous integration runs", package: "lifecycle", tier: "specialist", requiredCapabilities: lifecycleCapability, annotations: openWorldNonDestructiveMutationAnnotations, handler: writeCiRetryFailedHandler }),
   defineTool({ name: "repo_merge_gate_prepare", title: "Prepare exact merge gate", package: "lifecycle", tier: "specialist", requiredCapabilities: lifecycleCapability, annotations: openWorldReadOnlyAnnotations, handler: mergeGatePrepareHandler }),
   defineTool({ name: "repo_write_merge", title: "Merge with owner approval", package: "lifecycle", tier: "specialist", requiredCapabilities: lifecycleCapability, annotations: openWorldMutationAnnotations, handler: writeMergeHandler }),
-  defineTool({ name: "repo_post_merge_readback", title: "Read post-merge state", package: "lifecycle", tier: "specialist", requiredCapabilities: lifecycleCapability, annotations: openWorldReadOnlyAnnotations, handler: postMergeReadbackHandler })
+  defineTool({ name: "repo_post_merge_readback", title: "Read post-merge state", package: "lifecycle", tier: "specialist", requiredCapabilities: lifecycleCapability, annotations: openWorldReadOnlyAnnotations, handler: postMergeReadbackHandler }),
+  defineTool({ name: "repo_task_admission", title: "Read task admission", package: "lifecycle", tier: "specialist", requiredCapabilities: lifecycleCapability, annotations: readOnlyAnnotations, handler: taskAdmissionHandler })
 ];

@@ -129,6 +129,30 @@ export const AgentRunnerStatusSchema = z.object({
   }
 });
 
+export const ExecutionDispatchIdSchema = z.string().regex(/^dispatch_[a-f0-9]{64}$/);
+
+export const ExecutionSupervisorServiceIdentitySchema = z.object({
+  schema_version: z.literal(1),
+  service_id: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/),
+  instance_id: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/),
+  implementation: z.literal("chat-pro-repository-mcp"),
+  protocol: z.literal("semantic-worker-dispatch-v1")
+}).strict();
+
+export const ExecutionSupervisorHealthAttestationSchema = z.object({
+  schema_version: z.literal(1),
+  service_identity: ExecutionSupervisorServiceIdentitySchema,
+  status: z.enum(["ready", "running", "degraded", "stopped"]),
+  queue_consumer: z.enum(["idle", "scanning", "launching", "blocked_unknown_effect"]),
+  active_dispatch_id: ExecutionDispatchIdSchema.nullable(),
+  last_scan_at: z.string().max(64).datetime().nullable(),
+  unknown_effect_count: z.number().int().nonnegative(),
+  provider_contact: z.enum(["none", "possible", "confirmed"]),
+  live_effects_enabled: z.boolean(),
+  attested_at: z.string().max(64).datetime(),
+  attestation_sha256: z.string().regex(/^[a-f0-9]{64}$/)
+}).strict();
+
 export const AgentRunnerSupervisorStateSchema = z.object({
   schema_version: z.literal(1).default(1),
   repo_id: z.string().min(1).max(200),
@@ -141,8 +165,26 @@ export const AgentRunnerSupervisorStateSchema = z.object({
   last_claimed_run_id: AgentRunnerRunIdSchema.nullable().default(null),
   active_run_id: AgentRunnerRunIdSchema.nullable().default(null),
   stale_after_ms: z.number().int().positive(),
+  service_identity: ExecutionSupervisorServiceIdentitySchema.optional(),
+  health_attestation: ExecutionSupervisorHealthAttestationSchema.optional(),
   warnings: z.array(z.string().min(1).max(500)).max(20).default([])
-}).strict();
+}).strict().superRefine((value, context) => {
+  if ((value.service_identity === undefined) !== (value.health_attestation === undefined)) {
+    context.addIssue({ code: "custom", path: ["health_attestation"], message: "Supervisor identity and health attestation must be present together." });
+  }
+  if (value.service_identity && value.health_attestation) {
+    if (
+      value.service_identity.service_id !== value.health_attestation.service_identity.service_id
+      || value.service_identity.instance_id !== value.health_attestation.service_identity.instance_id
+      || value.service_identity.protocol !== value.health_attestation.service_identity.protocol
+    ) {
+      context.addIssue({ code: "custom", path: ["health_attestation", "service_identity"], message: "Health attestation must bind the same supervisor identity." });
+    }
+    if (value.status !== value.health_attestation.status) {
+      context.addIssue({ code: "custom", path: ["health_attestation", "status"], message: "Health attestation status must match supervisor status." });
+    }
+  }
+});
 
 export const AgentRunnerEventTypeSchema = z.enum([
   "queued",
@@ -272,6 +314,8 @@ export type AgentRunnerMetadata = z.infer<typeof AgentRunnerMetadataSchema>;
 export type LegacyAgentRunnerStatusV1 = z.infer<typeof LegacyAgentRunnerStatusV1Schema>;
 export type AgentRunnerStatus = z.infer<typeof AgentRunnerStatusSchema>;
 export type AgentRunnerSupervisorState = z.infer<typeof AgentRunnerSupervisorStateSchema>;
+export type ExecutionSupervisorServiceIdentity = z.infer<typeof ExecutionSupervisorServiceIdentitySchema>;
+export type ExecutionSupervisorHealthAttestation = z.infer<typeof ExecutionSupervisorHealthAttestationSchema>;
 export type AgentRunnerStatusInput = z.input<typeof AgentRunnerStatusSchema>;
 export type AgentRunnerEvent = z.infer<typeof AgentRunnerEventSchema>;
 export type AgentRunnerEventInput = z.input<typeof AgentRunnerEventSchema>;

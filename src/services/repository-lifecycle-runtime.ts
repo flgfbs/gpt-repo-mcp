@@ -1,4 +1,9 @@
 import {
+  RepoTaskAdmissionResultSchema,
+  type RepoTaskAdmissionInput,
+  type RepoTaskAdmissionResult
+} from "../contracts/task-admission.contract.js";
+import {
   RepoArtifactReadResultSchema,
   RepoTaskCleanupResultSchema,
   RepoTaskCloseResultSchema,
@@ -49,6 +54,7 @@ import {
   type TaskState
 } from "../task-runtime/index.js";
 import type { LifecycleRuntime } from "./lifecycle-runtime.js";
+import { TaskAdmissionService } from "./task-admission-service.js";
 import type { RootRegistry } from "./root-registry.js";
 
 export type ExternalLifecycleRuntime = Pick<LifecycleRuntime,
@@ -67,12 +73,16 @@ export type ExternalLifecycleRuntime = Pick<LifecycleRuntime,
 >;
 
 export class RepositoryLifecycleRuntime implements LifecycleRuntime {
+  private readonly taskAdmissions: TaskAdmissionService;
+
   constructor(
     private readonly registry: RootRegistry,
     private readonly tasks: TaskRuntimeService,
     private readonly artifacts: TaskArtifactStore,
     private readonly external?: ExternalLifecycleRuntime
-  ) {}
+  ) {
+    this.taskAdmissions = new TaskAdmissionService(registry, tasks);
+  }
 
   async taskOpen(input: RepoTaskOpenInput): Promise<RepoTaskOpenResult> {
     const base = this.registry.getBase(input.repo_id);
@@ -139,6 +149,10 @@ export class RepositoryLifecycleRuntime implements LifecycleRuntime {
         && status.git_status?.clean !== false,
       warnings
     });
+  }
+
+  async taskAdmission(input: RepoTaskAdmissionInput): Promise<RepoTaskAdmissionResult> {
+    return RepoTaskAdmissionResultSchema.parse(await this.taskAdmissions.read(input));
   }
 
   async taskClose(input: RepoTaskCloseInput): Promise<RepoTaskCloseResult> {

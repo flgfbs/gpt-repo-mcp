@@ -4,7 +4,7 @@
 
 - Preserve `contracts -> tool-contract map -> packages -> registry ->
   registration -> handlers -> services`.
-- Keep exactly 64 canonical names in registry order unless an intentional public
+- Keep exactly 65 canonical names in registry order unless an intentional public
   contract change is approved. Do not add aliases.
 - Keep Zod objects strict and schemas centrally referenced.
 - Keep package definitions metadata-only, handlers thin, and effects in
@@ -23,6 +23,12 @@
 - External writes persist pre-contact, post-contact, read-back, and replay
   evidence.
 - Artifact reads accept opaque ids and bounded byte windows, never paths.
+- Task admission is read-only and distinguishes absent, matching, and
+  conflicting active task state from exact durable and Git read-back evidence.
+- Admitted dispatch, launch intent, and launch result records are immutable;
+  one launch intent is the replay boundary, and unknown effects never retry.
+- Supervisor identity and health attestations are typed and content-bound; the
+  default server does not auto-start a provider queue consumer.
 - Merge preparation is read-only; only the owner CLI writes a one-time exact
   approval.
 

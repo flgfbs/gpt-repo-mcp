@@ -1,3 +1,4 @@
+import type { RepoTaskAdmissionInput } from "../../contracts/task-admission.contract.js";
 import type {
   RepoArtifactReadInput,
   RepoCiStatusInput,
@@ -47,6 +48,13 @@ export const taskStatusHandler: ToolHandler = async (input, context) => safeTool
   const result = await context.lifecycle.taskStatus(args);
   audit({ tool: "repo_task_status", repo_id: args.repo_id, warnings: result.warnings });
   return createSuccessEnvelope(result, `Task ${args.task_id} is ${result.task.state}.`);
+});
+
+export const taskAdmissionHandler: ToolHandler = async (input, context) => safeTool<RepoTaskAdmissionInput>("repo_task_admission", input, async (args) => {
+  assertLifecycleRuntime(context);
+  const result = await context.lifecycle.taskAdmission(args);
+  audit({ tool: "repo_task_admission", repo_id: args.repo_id, counts: { active_tasks: result.admission.active_task_count }, warnings: result.warnings });
+  return createSuccessEnvelope(result, `Task admission is ${result.admission.status}.`);
 });
 
 export const taskCloseHandler: ToolHandler = async (input, context) => safeTool<RepoTaskCloseInput>("repo_task_close", input, async (args) => {

@@ -1,5 +1,6 @@
 import { lstat, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { ZodError } from "zod";
 import {
   AGENT_RUNNER_RUNS_DIR,
   AgentRunnerSupervisorStateSchema,
@@ -7,6 +8,7 @@ import {
 } from "./artifact-contracts.js";
 import { atomicWriteJson, isNotFoundError } from "../runtime/fs-helpers.js";
 import { RepoReaderError } from "../runtime/errors.js";
+import { digestRecord } from "../task-runtime/canonical-json.js";
 
 export const AGENT_RUNNER_SUPERVISOR_STATE_PATH = `${AGENT_RUNNER_RUNS_DIR}/.runner-supervisor.json`;
 const MAX_STATE_BYTES = 64 * 1024;
@@ -23,10 +25,17 @@ export class DelegationSupervisorStore {
       if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_STATE_BYTES) {
         throw unsafeStateError();
       }
-      return AgentRunnerSupervisorStateSchema.parse(JSON.parse(await readFile(absolutePath, "utf8")));
+      const state = AgentRunnerSupervisorStateSchema.parse(JSON.parse(await readFile(absolutePath, "utf8")));
+      if (
+        state.health_attestation
+        && state.health_attestation.attestation_sha256 !== digestRecord(state.health_attestation, "attestation_sha256")
+      ) {
+        throw unsafeStateError();
+      }
+      return state;
     } catch (error) {
       if (isNotFoundError(error)) return undefined;
-      if (error instanceof SyntaxError) throw unsafeStateError();
+      if (error instanceof SyntaxError || error instanceof ZodError) throw unsafeStateError();
       throw error;
     }
   }
@@ -44,10 +53,9 @@ export class DelegationSupervisorStore {
     revision?: number;
     updated_at?: string;
   }): Promise<AgentRunnerSupervisorState> {
-    const current = await this.read().catch((error) => {
-      if (error instanceof RepoReaderError && error.code === "AGENT_RUN_ARTIFACT_INVALID") return undefined;
-      throw error;
-    });
+    // Invalid existing state is authority-bearing evidence. Never replace it as
+    // though it were absent; callers must recover it under separate authority.
+    const current = await this.read();
     const now = input.updated_at ?? new Date().toISOString();
     const state = AgentRunnerSupervisorStateSchema.parse({
       schema_version: 1,

@@ -1,3 +1,4 @@
+import type { RepoTaskAdmissionInput, RepoTaskAdmissionResult } from "../contracts/task-admission.contract.js";
 import type {
   RepoArtifactReadInput,
   RepoArtifactReadResult,
@@ -45,6 +46,7 @@ import type {
 export interface LifecycleRuntime {
   taskOpen(input: RepoTaskOpenInput): Promise<RepoTaskOpenResult>;
   taskStatus(input: RepoTaskStatusInput): Promise<RepoTaskStatusResult>;
+  taskAdmission(input: RepoTaskAdmissionInput): Promise<RepoTaskAdmissionResult>;
   taskClose(input: RepoTaskCloseInput): Promise<RepoTaskCloseResult>;
   taskCleanup(input: RepoTaskCleanupInput): Promise<RepoTaskCleanupResult>;
   /**

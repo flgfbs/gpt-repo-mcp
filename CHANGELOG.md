@@ -10,8 +10,13 @@ Notable public changes to Chat Pro Repository MCP are recorded here.
   local commits, close, and cleanup without any Git remote or GitHub authority.
 - Owner CLI `--local-only` registration with explicit conflict rejection for
   remote, GitHub, required-check, and merge-method options.
-- Seventeen task and GitHub lifecycle tools appended after the inherited 46,
-  producing an exact 63-tool surface with no aliases.
+- Eighteen task and optional GitHub lifecycle tools appended after the canonical
+  47-tool local prefix, producing an exact 65-tool surface with no aliases.
+- Read-only `repo_task_admission` with typed absent, exact matching active, and
+  conflicting active-task outcomes.
+- Provider-neutral immutable dispatch, one-launch-intent, supervisor identity
+  and health, exactly-once, and unknown-effect no-replay contracts with
+  provider-free integrated qualification.
 - Server-bound task worktrees, opaque lifecycle artifacts, exact-state remote
   observation, fixed-argument non-force push, Draft pull requests, review and
   CI handling, exact merge-gate preparation, one-time owner CLI approval, and

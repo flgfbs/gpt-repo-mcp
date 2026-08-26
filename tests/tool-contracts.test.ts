@@ -147,7 +147,8 @@ describe("tool catalog contracts", () => {
       "repo_write_ci_retry_failed",
       "repo_merge_gate_prepare",
       "repo_write_merge",
-      "repo_post_merge_readback"
+      "repo_post_merge_readback",
+      "repo_task_admission"
     ]);
 
     for (const tool of toolCatalog) {
@@ -180,7 +181,7 @@ describe("tool catalog contracts", () => {
     const descriptionPayloadBytes = Buffer.byteLength(toolCatalog.map((tool) => tool.description).join(" "), "utf8");
 
     expect(instructionSourceBytes).toBeLessThan(6_000);
-    expect(descriptionSourceBytes).toBeLessThan(11_000);
+    expect(descriptionSourceBytes).toBeLessThan(11_250);
     expect(descriptionPayloadBytes).toBeLessThan(9_500);
     expect(instructionSourceBytes).toBeLessThan(Math.floor(15_644 * 0.4));
     expect(descriptionSourceBytes).toBeLessThan(Math.floor(16_819 * 0.7));
@@ -378,7 +379,7 @@ describe("tool catalog contracts", () => {
   test("internal registry composes exact packages without changing the canonical surface", () => {
     expect(toolRegistry).toBe(toolCatalog);
     expect(toolRegistry.map((tool) => tool.name)).toEqual(CANONICAL_TOOL_ORDER);
-    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(64);
+    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(65);
     expect([...CANONICAL_TOOL_ORDER].sort()).toEqual(Object.keys(toolContracts).sort());
 
     expect(toolsForPackage("developer").map((tool) => tool.name)).toEqual([
@@ -412,7 +413,7 @@ describe("tool catalog contracts", () => {
     expect(toolsForPackage("advanced_operations")).toHaveLength(6);
     expect(toolsForPackage("diagnostics_and_discovery")).toHaveLength(4);
     expect(toolsForPackage("code_index")).toHaveLength(1);
-    expect(toolsForPackage("lifecycle")).toHaveLength(17);
+    expect(toolsForPackage("lifecycle")).toHaveLength(18);
 
     for (const tool of toolRegistry) {
       expect(tool.tier).toBe(tool.package === "developer" ? "default" : "specialist");
@@ -2797,6 +2798,7 @@ describe("tool catalog contracts", () => {
       "shipReviewHandler",
       "startWorkSessionHandler",
       "symbolContextHandler",
+      "taskAdmissionHandler",
       "taskCleanupHandler",
       "taskCloseHandler",
       "taskInventoryHandler",

@@ -1,7 +1,7 @@
 # Capability Guide
 
-Chat Pro Repository MCP exposes exactly 64 repository tools. The first 47 keep
-their canonical local order and semantics; 17 task and optional GitHub lifecycle
+Chat Pro Repository MCP exposes exactly 65 repository tools. The first 47 keep
+their canonical local order and semantics; 18 task and optional GitHub lifecycle
 tools are appended in one canonical order. There are no aliases.
 
 ## Everyday Repository Work
@@ -56,6 +56,10 @@ and owns its worktree.
 Task status, terminal close outcomes (`completed`, `blocked`, `abandoned`, or
 `superseded`), and cleanup are explicit. Cleanup acts only on eligible closed,
 server-owned task resources and preserves a durable receipt.
+
+`repo_task_admission` is read-only. Given an expected exact task binding, it
+returns one of three typed states: no active task, one matching active task, or
+conflicting active task state. It never opens, claims, closes, or retries a task.
 
 The lifecycle policy has two forms. `kind: "local"` admits task open/status,
 local implementation, validation, review, stage, commit, close, and cleanup.
@@ -137,9 +141,11 @@ work sessions, transactional patchsets, and delegation artifacts are available
 when a task benefits from them. They are not mandatory workflow ceremony.
 
 The current delegation format interoperates with external workers through
-repository-owned artifacts. A future Semantic Worker contract is intended to
-make that boundary provider-neutral; it does not add an embedded model,
-provider credentials, or worker control to this server.
+repository-owned artifacts. Its provider-neutral execution substrate can bind
+one admitted dispatch to one supervisor-owned launch intent, publish typed
+service health, and stop permanently on an unknown effect. The normal MCP server
+does not auto-start the queue consumer or choose a provider, and no public input
+accepts credentials, model identifiers, commands, or retry authority.
 
 ## What Chat Pro Repository MCP Does Not Do
 

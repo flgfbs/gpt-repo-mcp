@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { RepoTaskAdmissionInputSchema, RepoTaskAdmissionResultSchema } from "../contracts/task-admission.contract.js";
 import { AgentRunsInputSchema, AgentRunsResultSchema } from "../contracts/agent-runs.contract.js";
 import { AgentReplyInputSchema, AgentReplyResultSchema } from "../contracts/agent-reply.contract.js";
 import { ChangePlanInputSchema, ChangePlanResultSchema } from "../contracts/change-plan.contract.js";
@@ -351,6 +352,11 @@ export const toolContracts = {
   repo_post_merge_readback: {
     input: RepoPostMergeReadbackInputSchema,
     output: RepoPostMergeReadbackResultSchema
+  }
+,
+  repo_task_admission: {
+    input: RepoTaskAdmissionInputSchema,
+    output: RepoTaskAdmissionResultSchema
   }
 } as const satisfies Record<string, ToolContract>;
 

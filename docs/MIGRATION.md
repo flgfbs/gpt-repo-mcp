@@ -1,8 +1,8 @@
 # Migration Guide
 
 This release changes the public identity, connection path, and tool count while
-preserving the inherited 46-tool order. One new local exact-run finalizer is
-inserted at position 47 before the existing 17 lifecycle tools.
+preserving the canonical 47-tool local prefix. One read-only task-admission
+contract is appended after the existing 17 lifecycle tools.
 
 ## Before Updating
 
@@ -10,7 +10,7 @@ inserted at position 47 before the existing 17 lifecycle tools.
 2. Preserve the local configuration and any needed task/artifact state.
 3. Update to a trusted revision and run `npm ci` and `npm run build`.
 4. Run `npm run check:config` and `npm run doctor`.
-5. Refresh the ChatGPT app so it receives the exact 64-tool schema.
+5. Refresh the ChatGPT app so it receives the exact 65-tool schema.
 
 ## Command And Connection Changes
 
@@ -27,9 +27,8 @@ Activate the Secure MCP Tunnel through the OpenAI workspace.
 
 ## Exact Tool Addition
 
-`repo_finalize_codex_run` is appended immediately after the inherited 46 local
-tools. The following 17 lifecycle names then retain their order at positions
-48–64:
+The first 47 local names retain their canonical order. The following 18
+lifecycle names occupy positions 48–65:
 
 1. `repo_task_open`
 2. `repo_task_status`
@@ -48,9 +47,24 @@ tools. The following 17 lifecycle names then retain their order at positions
 15. `repo_merge_gate_prepare`
 16. `repo_write_merge`
 17. `repo_post_merge_readback`
+18. `repo_task_admission`
 
-The total is exactly 64. No old or alternate lifecycle names are accepted as
-aliases.
+The total is exactly 65. No old or alternate lifecycle names are accepted as
+aliases. `repo_task_admission` is read-only and adds no configuration,
+credential, task mutation, worker launch, or retry authority.
+
+## Execution-Runtime Artifact Migration
+
+Queued Delegation v3 runs may now be bound to immutable
+`admitted-dispatch.json`, `worker-launch-intent.json`, and
+`worker-launch-result.json` records. Existing runs without these records remain
+readable and are not launched automatically. A launch intent without a result is
+classified as an unknown effect and cannot be replayed; recovery requires
+separate authority rather than a compatibility rewrite.
+
+Supervisor state may additionally contain a typed service identity and
+content-bound health attestation. The default MCP server does not create or
+start a provider supervisor merely because these schemas are present.
 
 ## Exact-Run Finalizer Configuration Migration
 
@@ -94,7 +108,7 @@ local-only entries should be created with:
 npm run add -- /path/to/your/repo --mode ship --local-only
 ```
 
-The public tool count, names, order, and payload schemas remain exactly 64.
+The public tool count, names, order, and payload schemas remain exactly 65.
 Local-only policy changes admission behavior, not the MCP tool catalog.
 
 ## Workflow Change
