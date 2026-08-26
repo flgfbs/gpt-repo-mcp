@@ -214,6 +214,48 @@ describe("Delegation v3 review compatibility", () => {
     expect(review.technical_readiness.status).toBe("passed");
   });
 
+  test("keeps ordinary committed v3 runs blocked when no exact finalizer evidence exists", async () => {
+    const fixture = await reviewFixture(false);
+    const task = await taskService(fixture.root).write(technicalTask());
+    const manifest = parseCodexRunManifest(JSON.parse(await readFile(join(fixture.root, task.manifest_path), "utf8")));
+    if (manifest.schema_version !== 3) throw new Error("Expected technical v3 manifest.");
+
+    await writeFile(join(fixture.root, "src", "app.ts"), "export const manuallyCommitted = true;\n");
+    await writeFile(join(fixture.root, task.result_json_path), `${JSON.stringify({
+      schema_version: 3,
+      repo_id: "fixture",
+      run_id: task.run_id,
+      status: "completed",
+      summary: "Created a manually committed technical fixture change.",
+      changed_files: ["src/app.ts"],
+      connected_changes: [{ path: "src/app.ts", reason: "Required by the technical fixture." }],
+      commands_run: ["npm test"],
+      tests: ["passed"],
+      product_acceptance_criteria: [],
+      technical_acceptance_criteria: manifest.task.technical_acceptance_criteria.map(({ id }) => ({
+        id,
+        status: "passed",
+        evidence: "Technical fixture evidence."
+      })),
+      scope_extension_required: [],
+      blockers: [],
+      followups: []
+    }, null, 2)}\n`);
+    await execFileAsync("git", ["add", "--", "src/app.ts"], { cwd: fixture.root, env: { PATH: process.env.PATH ?? "" } });
+    await execFileAsync("git", ["commit", "-m", "manual delegated commit"], { cwd: fixture.root, env: { PATH: process.env.PATH ?? "" } });
+
+    const review = await reviewService(fixture.root).review({ repo_id: "fixture", run_id: task.run_id });
+    expect(review.integrity.head_matches_baseline).toBe(false);
+    expect(review.integrity.head_matches_finalizer_commit).toBeUndefined();
+    expect(review.integrity.finalizer_evidence_matches).toBeUndefined();
+    expect(review.technical_readiness.status).toBe("failed");
+    expect(review.warnings).toEqual(expect.arrayContaining([
+      "CODEX_BASELINE_HEAD_MISMATCH",
+      "CODEX_RESULT_CLAIM_MISMATCH"
+    ]));
+    expect(review.warnings).not.toContain("CODEX_FINALIZER_EVIDENCE_VERIFIED");
+  });
+
   test("requires RESULT.json for v3 and does not use legacy RESULT.md fallback", async () => {
     const fixture = await reviewFixture(false);
     const task = await taskService(fixture.root).write(technicalTask());

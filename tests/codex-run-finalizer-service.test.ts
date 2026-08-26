@@ -12,6 +12,9 @@ import {
   CodexRunFinalizerService,
   type CodexRunFinalizerValidation
 } from "../src/services/codex-run-finalizer-service.js";
+import { CodexResultService } from "../src/services/codex-result-service.js";
+import { GitReviewService } from "../src/services/git-review-service.js";
+import { PathSandbox } from "../src/services/path-sandbox.js";
 import { codexRunPaths } from "../src/services/codex-run-paths.js";
 import { writeQueuedV3Run } from "./fixtures/delegation-v3-run-fixture.js";
 
@@ -91,6 +94,44 @@ describe("CodexRunFinalizerService", () => {
       commit: { attempted: true, allowed: true, status: "committed", commit_sha: commitSha }
     });
 
+    const review = await reviewFinalizedRun(fixture.root);
+    expect(review.integrity).toMatchObject({
+      head_matches_baseline: false,
+      head_matches_finalizer_commit: true,
+      finalizer_evidence_matches: true
+    });
+    expect(review.scope_evidence).toMatchObject({
+      newly_observed_paths: ["src/value.py"],
+      attributed_paths: ["src/value.py"],
+      claimed_but_not_observed: [],
+      observed_but_unreported: [],
+      attribution_ambiguous_paths: []
+    });
+    expect(review.technical_readiness).toMatchObject({
+      status: "passed",
+      checks: {
+        baseline: "passed",
+        change_attribution: "passed",
+        validation: "passed"
+      }
+    });
+    expect(review.git_review?.ship_readiness.validation).toMatchObject({
+      status: "passed",
+      profile: "test",
+      head_sha: commitSha,
+      artifact_path: `${codexRunPaths(RUN_ID).runDir}/finalizer-validation.json`
+    });
+    expect(review.warnings).toContain("CODEX_FINALIZER_EVIDENCE_VERIFIED");
+    expect(review.warnings).not.toContain("CODEX_BASELINE_HEAD_MISMATCH");
+    expect(review.warnings).not.toContain("CODEX_RESULT_CLAIM_MISMATCH");
+    expect(review.warnings).not.toContain("VALIDATION_MISSING");
+    expect(review.warnings).not.toContain("UNTRACKED_PATHS_REVIEWED_FOR_STAGING");
+    expect(review.git_review).toMatchObject({
+      clean: true,
+      changed_paths: [],
+      recommendation: { risk_level: "low", warnings: ["NO_CHANGES"] }
+    });
+
     const replayValidation = vi.fn(async () => {
       throw new Error("replay must not rerun validation");
     });
@@ -119,6 +160,45 @@ describe("CodexRunFinalizerService", () => {
     }).finalize(fixture.input)).rejects.toMatchObject({
       code: "EXTERNAL_EFFECT_UNKNOWN"
     } satisfies Partial<RepoReaderError>);
+    const missingArchiveReview = await reviewFinalizedRun(fixture.root);
+    expect(missingArchiveReview.integrity).toMatchObject({
+      head_matches_baseline: false,
+      head_matches_finalizer_commit: false,
+      finalizer_evidence_matches: false
+    });
+    expect(missingArchiveReview.technical_readiness.status).toBe("failed");
+    expect(missingArchiveReview.warnings).toEqual(expect.arrayContaining([
+      "CODEX_FINALIZER_ARCHIVE_MISMATCH",
+      "CODEX_FINALIZER_EVIDENCE_INVALID",
+      "CODEX_BASELINE_HEAD_MISMATCH"
+    ]));
+  });
+
+  test("fails closed when durable finalizer state is forged after a valid commit", async () => {
+    const fixture = await createFinalizerFixture();
+    const result = await new CodexRunFinalizerService(fixture.root, {
+      archive_root: fixture.archiveRoot,
+      now: () => NOW,
+      validate: async () => passingValidation()
+    }).finalize(fixture.input);
+    const statePath = join(fixture.root, codexRunPaths(RUN_ID).runDir, "finalizer-state.json");
+    const state = JSON.parse(await readFile(statePath, "utf8")) as { head_after: string };
+    state.head_after = fixture.head;
+    await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+
+    const review = await reviewFinalizedRun(fixture.root);
+    expect(result.commit_sha).not.toBe(fixture.head);
+    expect(review.integrity).toMatchObject({
+      head_matches_baseline: false,
+      head_matches_finalizer_commit: false,
+      finalizer_evidence_matches: false
+    });
+    expect(review.technical_readiness.status).toBe("failed");
+    expect(review.warnings).toEqual(expect.arrayContaining([
+      "CODEX_FINALIZER_STATE_INVALID",
+      "CODEX_FINALIZER_EVIDENCE_INVALID",
+      "CODEX_BASELINE_HEAD_MISMATCH"
+    ]));
   });
 
   test("does not execute repository fsmonitor or clean filters and preserves literal export-subst bytes", async () => {
@@ -153,6 +233,12 @@ describe("CodexRunFinalizerService", () => {
       validate: async () => passingValidation()
     }).finalize(exactInput);
 
+    const review = await reviewFinalizedRun(fixture.root);
+    expect(review.integrity).toMatchObject({
+      head_matches_finalizer_commit: true,
+      finalizer_evidence_matches: true
+    });
+    expect(review.technical_readiness.status).toBe("passed");
     await expect(readFile(sentinel)).rejects.toMatchObject({ code: "ENOENT" });
     expect(await git(fixture.root, "show", `${result.commit_sha}:src/value.py`)).toBe(literalSource.trimEnd());
     const archived = readTarEntry(
@@ -175,6 +261,12 @@ describe("CodexRunFinalizerService", () => {
 
     expect(await git(fixture.root, "--no-replace-objects", "rev-parse", `${result.commit_sha}^`)).toBe(fixture.head);
     expect(await git(fixture.root, "--no-replace-objects", "diff-tree", "--no-commit-id", "--name-only", "-r", result.commit_sha!)).toBe("src/value.py");
+    const review = await reviewFinalizedRun(fixture.root);
+    expect(review.integrity).toMatchObject({
+      head_matches_finalizer_commit: true,
+      finalizer_evidence_matches: true
+    });
+    expect(review.technical_readiness.status).toBe("passed");
   });
 
   test("runs the fixed provider-free unittest validation path without an injected validator", async () => {
@@ -385,6 +477,14 @@ async function createFinalizerFixture(): Promise<{
     dry_run: false
   };
   return { root, archiveRoot, head, tree, trackedPathCount, input };
+}
+
+async function reviewFinalizedRun(root: string) {
+  return new CodexResultService(
+    new PathSandbox(root),
+    new GitReviewService(root),
+    root
+  ).review({ repo_id: "fixture", run_id: RUN_ID });
 }
 
 function passingValidation(): CodexRunFinalizerValidation {

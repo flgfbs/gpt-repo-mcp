@@ -191,6 +191,8 @@ export const CodexReviewIntegritySchema = z.object({
   manifest_bound: z.boolean(),
   policy_matches: z.boolean().optional(),
   head_matches_baseline: z.boolean().optional(),
+  head_matches_finalizer_commit: z.boolean().optional(),
+  finalizer_evidence_matches: z.boolean().optional(),
   prompt_found: z.boolean(),
   prompt_hash_matches: z.boolean().optional(),
   prompt_byte_count_matches: z.boolean().optional(),

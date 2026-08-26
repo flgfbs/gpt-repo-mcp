@@ -170,7 +170,8 @@ export class DelegationV3LineageService {
     repoId: string,
     manifest: DelegationRunManifestV3,
     result?: DelegationResultV3,
-    productReviewCorrection?: DelegationV3ProductReviewCorrection
+    productReviewCorrection?: DelegationV3ProductReviewCorrection,
+    verifiedFinalizerHead?: string
   ): Promise<DelegationV3ReviewLoop> {
     const rootRunId = manifest.task.lineage?.root_run_id ?? manifest.run_id;
     let root: DelegationRunManifestV3;
@@ -179,7 +180,11 @@ export class DelegationV3LineageService {
         ? manifest
         : await this.readManifest(repoId, rootRunId);
       await this.assertStoredLineageBinding(manifest, root);
-      await this.assertNoUnauthorizedCurrentChanges(manifest);
+      if (verifiedFinalizerHead === undefined) {
+        await this.assertNoUnauthorizedCurrentChanges(manifest);
+      } else if (!/^[a-f0-9]{40}$/.test(verifiedFinalizerHead)) {
+        throw lineageError("Verified finalizer HEAD binding is invalid.");
+      }
     } catch {
       return {
         metadata: {
