@@ -170,6 +170,7 @@ export class ValidationService {
         throw new RepoReaderError("VALIDATION_TEST_PATHS_DISABLED", "Focused test paths are not supported by the declared repository validation profile.");
       }
       if (owned.runner === "exec") {
+        assertSafeConfiguredInvocation(owned.executable, owned.args, owned.env);
         const executable = await this.resolveConfiguredExecutable(owned.executable);
         const cwd = await this.resolveConfiguredCwd(owned.cwd);
         assertSafeConfiguredInvocation(executable.path, owned.args, owned.env);
