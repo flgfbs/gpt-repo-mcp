@@ -5,6 +5,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { RootRegistry } from "./services/root-registry.js";
 import { CodeIntelligenceService } from "./services/code-intelligence-service.js";
 import { createCodebaseMemoryClientFactory } from "./services/codebase-memory-client.js";
+import { createLifecycleRuntimeBundle } from "./services/lifecycle-factory.js";
 import { createMcpServer } from "./register.js";
 import type { RuntimeContext } from "./runtime/context.js";
 import { buildMcpRoutePatterns, isAuthorizedMcpPath, sanitizeMcpRouteForAudit } from "./runtime/mcp-routes.js";
@@ -18,12 +19,13 @@ import {
   type RequestTelemetryContext
 } from "./runtime/telemetry.js";
 
-const port = Number(process.env.PORT ?? 8787);
+const port = Number(process.env.PORT ?? 8789);
 const host = resolveServerHost(process.env);
-const configPath = process.env.GPT_REPO_CONFIG ?? process.env.REPO_READER_CONFIG;
-const publicPathToken = process.env.GPT_REPO_PUBLIC_PATH_TOKEN ?? process.env.REPO_READER_PUBLIC_PATH_TOKEN;
-const maxSessions = readBoundedInteger("GPT_REPO_MAX_SESSIONS", 100, 1, 1_000);
-const sessionIdleTtlMs = readBoundedInteger("GPT_REPO_SESSION_IDLE_TTL_MS", 30 * 60_000, 1_000, 24 * 60 * 60_000);
+const configPath = process.env.CHAT_PRO_REPOSITORY_MCP_CONFIG
+  ?? process.env.GPT_REPO_CONFIG
+  ?? process.env.REPO_READER_CONFIG;
+const maxSessions = readBoundedInteger("CHAT_PRO_REPOSITORY_MCP_MAX_SESSIONS", 500, 1, 1_000);
+const sessionIdleTtlMs = readBoundedInteger("CHAT_PRO_REPOSITORY_MCP_SESSION_IDLE_TTL_MS", 30 * 60_000, 1_000, 24 * 60 * 60_000);
 
 const registry = configPath
   ? await RootRegistry.fromFile(configPath)
@@ -36,7 +38,13 @@ const codeIntelligence = codeIntelligenceConfig
       codeIntelligenceConfig.index_timeout_ms
     )
   : undefined;
-const context: RuntimeContext = { registry, codeIntelligence };
+const lifecycleBundle = await createLifecycleRuntimeBundle(registry);
+const context: RuntimeContext = {
+  registry,
+  codeIntelligence,
+  lifecycle: lifecycleBundle.lifecycle,
+  taskMutations: lifecycleBundle.taskMutations
+};
 
 const app = express();
 app.use((req, res, next) => {
@@ -54,10 +62,10 @@ const transports = new TransportSessionStore<StreamableHTTPServerTransport>({
   maxSessions,
   idleTtlMs: sessionIdleTtlMs
 });
-const mcpRoutePatterns = buildMcpRoutePatterns(publicPathToken);
+const mcpRoutePatterns = buildMcpRoutePatterns();
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, name: "gpt-repo-mcp" });
+  res.json({ ok: true, name: "chat-pro-repository-mcp" });
 });
 
 function createMcpRequestContext(req: Request): RequestTelemetryContext {
@@ -94,7 +102,7 @@ function attachMcpRequestAuditing(res: Response, context: RequestTelemetryContex
 }
 
 function rejectUnauthorizedMcpPath(req: Request, res: Response): boolean {
-  if (isAuthorizedMcpPath(req.path, publicPathToken)) {
+  if (isAuthorizedMcpPath(req.path)) {
     return false;
   }
   res.status(404).send("Not found");
@@ -271,8 +279,7 @@ const sessionCleanupTimer = setInterval(() => {
 sessionCleanupTimer.unref();
 
 const httpServer = app.listen(port, host, () => {
-  const localPath = publicPathToken ? "/t/[token]/mcp" : "/mcp";
-  console.error(`gpt-repo-mcp listening on http://${host}:${port}${localPath}`);
+  console.error(`chat-pro-repository-mcp listening on http://${host}:${port}/mcp`);
 });
 
 let shuttingDown = false;

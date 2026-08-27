@@ -13,7 +13,9 @@ export function correlateCodexReviewPaths(input: {
   currentPaths: readonly string[];
   claimedPaths: readonly string[];
   currentPathStates?: readonly GitPathState[];
+  finalizedPaths?: readonly string[];
 }): CodexReviewResult["scope_evidence"] {
+  if (input.finalizedPaths) return correlateFinalizedPaths(input);
   const currentPaths = uniqueSorted(input.currentPaths.filter((path) => !isReviewOperationalArtifact(path, input.runId)));
   const claimedPaths = uniqueSorted(input.claimedPaths.filter((path) => !isReviewOperationalArtifact(path, input.runId)));
   const initialPaths = input.manifest?.schema_version === 2 || input.manifest?.schema_version === 3
@@ -61,6 +63,47 @@ export function correlateCodexReviewPaths(input: {
     claimed_but_not_observed: claimedPaths.filter((path) => !currentSet.has(path)),
     observed_but_unreported: modernAttribution ? [] : observedAfterBaseline.filter((path) => !claimedSet.has(path)),
     attribution_ambiguous_paths: ambiguous
+  };
+}
+
+function correlateFinalizedPaths(input: {
+  runId: string;
+  manifest?: CodexRunManifest;
+  currentPaths: readonly string[];
+  claimedPaths: readonly string[];
+  finalizedPaths?: readonly string[];
+}): CodexReviewResult["scope_evidence"] {
+  const currentPaths = uniqueSorted((input.finalizedPaths ?? input.currentPaths)
+    .filter((path) => !isReviewOperationalArtifact(path, input.runId)));
+  const claimedPaths = uniqueSorted(input.claimedPaths
+    .filter((path) => !isReviewOperationalArtifact(path, input.runId)));
+  const initialPaths = input.manifest?.schema_version === 2 || input.manifest?.schema_version === 3
+    ? uniqueSorted(input.manifest.baseline.initial_changed_paths
+      .filter((path) => !isReviewOperationalArtifact(path, input.runId)))
+    : [];
+  const currentSet = new Set(currentPaths);
+  const claimedSet = new Set(claimedPaths);
+  const initialSet = new Set(initialPaths);
+  const attributed = currentPaths.filter((path) => claimedSet.has(path));
+  const allowed = input.manifest?.schema_version === 3
+    ? input.manifest.authorization.effective_scope
+    : input.manifest?.allowed_paths ?? [];
+  const forbidden = input.manifest?.schema_version === 3
+    ? input.manifest.authorization.effective_forbidden_paths
+    : effectiveForbiddenPatterns(input.manifest?.schema_version === 2
+      ? input.manifest.caller_forbidden_paths
+      : (input.manifest?.forbidden_paths ?? []));
+  return {
+    newly_observed_paths: attributed,
+    pre_existing_paths: currentPaths.filter((path) => initialSet.has(path)),
+    attributed_paths: attributed,
+    dirty_baseline_attributed_paths: attributed.filter((path) => initialSet.has(path)),
+    unattributed_paths: currentPaths.filter((path) => !claimedSet.has(path)),
+    out_of_scope_paths: allowed.length === 0 ? [] : attributed.filter((path) => !matchesAnyPattern(path, allowed)),
+    forbidden_paths: attributed.filter((path) => matchesAnyPattern(path, forbidden)),
+    claimed_but_not_observed: claimedPaths.filter((path) => !currentSet.has(path)),
+    observed_but_unreported: currentPaths.filter((path) => !claimedSet.has(path)),
+    attribution_ambiguous_paths: []
   };
 }
 

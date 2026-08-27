@@ -1,24 +1,26 @@
-# Release Checklist
+# Project Release Checklist
 
-This checklist is for maintainers preparing a public GitHub release or npm
-package from GPT Repo MCP.
+This checklist covers releasing Chat Pro Repository MCP itself. Its MCP tools do
+not release or deploy user repositories; publication remains a separate owner
+operation.
 
-## Release Content
+## Contract And Documentation
 
-- Confirm the version and release date are correct in `package.json` and
-  `CHANGELOG.md`.
-- Confirm the migration guide describes any breaking tool, configuration, or
-  workflow changes.
-- Confirm README installation, connection, and first-use instructions still
-  match the released behavior.
-- Confirm user-facing capability, security, tool, and write-workflow guides are
-  current.
-- Confirm the release contains no local configuration, runtime state, generated
-  output, credentials, active tunnel URLs, or machine-specific paths.
+- Confirm the public registry contains exactly 65 canonical names in order and
+  no aliases.
+- Confirm strict schemas, descriptions, annotations, handlers, and runtime
+  capabilities agree.
+- Confirm README and docs describe loopback port `8789`, OpenAI Secure MCP
+  Tunnel only, current CLI commands, task authority, Draft PR behavior, exact
+  merge approval, crash recovery, and out-of-scope operations.
+- Confirm [NOTICE](../NOTICE) preserves upstream repository, commit, tree,
+  copyright, and license attribution.
+- Confirm migration and changelog entries describe every public incompatibility.
+- Confirm the intended publication repository is explicit, owner-confirmed, exact-identity matched, non-archived, and writable; upstream provenance is not publication authority.
 
-## Verification
+## Deterministic Verification
 
-Run from a clean checkout:
+From a clean checkout:
 
 ```bash
 npm ci
@@ -32,47 +34,33 @@ npm pack --dry-run
 git diff --check
 ```
 
-Review any full-audit development advisory against
-[Dependency security](DEPENDENCY_SECURITY.md). Do not use
-`npm audit fix --force` as a release shortcut.
+Run the content-bound export and security scan documented in
+[Dependency Security](DEPENDENCY_SECURITY.md) against the exact clean candidate
+and existing public history before publication.
+The history scan must cover every commit and blob reachable from the branch or pull request that will be public, including commit metadata email classification. Do not treat a current-tree hygiene check or production dependency audit as a substitute.
 
-## Security And Safety
+Lifecycle tests must use deterministic fakes. Do not contact live GitHub, push,
+create a pull request, retry CI, resolve a review, or merge as an implementation
+test.
 
-- Confirm no new production dependency advisory is unresolved.
-- Confirm dependency licenses remain compatible with the project license.
-- Confirm the secret scan reports no credentials, private keys, tokens, or
-  sensitive personal information.
-- Confirm the server still binds locally by default.
-- Confirm mutating tools remain opt-in and path-scoped.
-- Confirm validation still uses approved profiles rather than arbitrary
-  commands.
-- Confirm no tool can push, merge, deploy, reset, stash, rewrite history, or
-  execute arbitrary shell commands.
+## Security Review
 
-## Documentation
+- No tracked config, task state, artifacts, approval files, credentials, local
+  paths, real Tunnel IDs, or account data.
+- Server still binds to loopback and public docs expose only Secure MCP Tunnel.
+- No tool adds roots, reads credentials, executes arbitrary commands, forces a
+  push, or performs release/deployment work.
+- GitHub adapter and Git push boundary remain fixed and separately testable.
+- Owner approval remains exact, expiring, mode 0600, and one-time.
+- Dependency and license policy passes; no forced audit fix was used.
 
-- Read the GitHub-rendered README from the perspective of a first-time user.
-- Check all local documentation links.
-- Confirm technical contributor guides describe current architecture rather
-  than historical implementation work.
-- Confirm examples contain placeholders, not real repository paths, email
-  addresses, connector ids, or tunnel values.
+## Packaging And Publication
 
-## GitHub Release
-
-- Use a concise title and release notes based on `CHANGELOG.md`.
-- Explain user-visible improvements and migration steps before implementation
-  details.
-- Create the version tag from the reviewed release commit.
-- Wait for required CI checks before publishing the release.
-- After publishing, verify the tag, release assets, README links, and install
-  instructions from the public repository.
-
-## npm Publication
-
-- Treat npm publication as a separate explicit decision.
-- Verify package name, version, license, repository metadata, files, and
-  executable entries in the `npm pack --dry-run` output.
-- Confirm the package privacy setting is intentional before publishing.
-- Install the packed archive in a temporary directory and verify the CLI,
-  build output, and server health check.
+- Verify package name, version, license, privacy setting, executable, and packed
+  file list.
+- Install the packed archive in a temporary test directory and verify build,
+  CLI help, config validation, doctor, server start, and health.
+- Create tags, releases, registries, signatures, or deployments only under a
+  separate explicit owner decision.
+- After publication, read back the exact tag, assets, package metadata, and
+  documentation links.

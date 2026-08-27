@@ -28,6 +28,10 @@ import { SecretScanner } from "./secret-scanner.js";
 import { codexRunPaths } from "./codex-run-paths.js";
 import { reviewLoopContext } from "./codex-lineage-service.js";
 import { GitService } from "./git-service.js";
+import {
+  inspectCommittedFinalizerReviewEvidence,
+  type CodexFinalizerReviewEvidence
+} from "./codex-finalizer-review-evidence.js";
 import { buildCodexReviewState, inspectCodexReviewAttestation } from "./codex-review-state.js";
 import {
   buildDelegationV3ProductEvidence,
@@ -182,29 +186,58 @@ export class CodexResultService {
     }
 
     const modernBinding = manifest?.schema_version === 3 && manifest.baseline.initial_path_states !== undefined;
+    const finalizerEvidence = this.root
+      ? await inspectCommittedFinalizerReviewEvidence({
+          root: this.root,
+          repo_id: input.repo_id,
+          run_id: input.run_id,
+          manifest,
+          result: delegationResultV3
+        })
+      : { status: "not_applicable" as const };
+    const finalizerBound = finalizerEvidence.status !== "not_applicable";
+    const finalized = finalizerEvidence.status === "valid";
     const git = this.root ? new GitService(this.root) : undefined;
-    const status = git ? await git.status() : undefined;
-    const gitReview = await this.gitReviewService.review({
-      repo_id: input.repo_id,
-      detail: "compact",
-      ...(modernBinding ? { paths: codexResult.changed_files } : {}),
-      ...(input.max_files ? { max_files: input.max_files } : {})
-    });
+    const status = git && !finalizerBound ? await git.status() : undefined;
+    const gitReview = finalizerBound
+      ? finalizerGitReview(finalizerEvidence)
+      : await this.gitReviewService.review({
+          repo_id: input.repo_id,
+          detail: "compact",
+          ...(modernBinding ? { paths: codexResult.changed_files } : {}),
+          ...(input.max_files ? { max_files: input.max_files } : {})
+        });
     if (manifest?.schema_version === 2 || manifest?.schema_version === 3) {
       integrity.head_matches_baseline = gitReview.head_sha === manifest.baseline.head_sha;
-      if (!integrity.head_matches_baseline) warnings.push("CODEX_BASELINE_HEAD_MISMATCH");
+      if (finalized) {
+        integrity.head_matches_finalizer_commit = true;
+        integrity.finalizer_evidence_matches = true;
+        warnings.push("CODEX_FINALIZER_EVIDENCE_VERIFIED");
+      } else if (finalizerEvidence.status === "invalid") {
+        integrity.head_matches_finalizer_commit = false;
+        integrity.finalizer_evidence_matches = false;
+        warnings.push(finalizerEvidence.warning, "CODEX_FINALIZER_EVIDENCE_INVALID");
+      }
+      if (!integrity.head_matches_baseline && !finalized) warnings.push("CODEX_BASELINE_HEAD_MISMATCH");
     }
-    const currentPaths = status
-      ? status.files.flatMap((entry) => [entry.original_path, entry.path]).filter((path): path is string => Boolean(path))
-      : gitReview.changed_paths.flatMap((entry) => [entry.original_path, entry.path]).filter((path): path is string => Boolean(path));
+    const currentPaths = finalized
+      ? finalizerEvidence.changed_paths
+      : finalizerBound
+        ? []
+        : status
+          ? status.files.flatMap((entry) => [entry.original_path, entry.path]).filter((path): path is string => Boolean(path))
+          : gitReview.changed_paths.flatMap((entry) => [entry.original_path, entry.path]).filter((path): path is string => Boolean(path));
     const currentClaimedPaths = codexResult.changed_files.filter((path) => currentPaths.includes(path));
-    const currentPathStates = git && modernBinding ? await git.pathStates(currentClaimedPaths) : undefined;
+    const currentPathStates = git && modernBinding && !finalizerBound
+      ? await git.pathStates(currentClaimedPaths)
+      : undefined;
     const scopeEvidence = correlateCodexReviewPaths({
       runId: input.run_id,
       manifest,
       currentPaths,
       claimedPaths: codexResult.changed_files,
-      currentPathStates
+      currentPathStates,
+      finalizedPaths: finalized ? finalizerEvidence.changed_paths : undefined
     });
     const acceptanceEvidence = correlateCodexAcceptance(manifest, codexResult);
     const technicalAcceptanceEvidence = correlateTechnicalAcceptance(manifest, codexResult);
@@ -228,11 +261,13 @@ export class CodexResultService {
       result: delegationResultV3,
       gitReview
     });
-    const worktreeFingerprint = git
-      ? modernBinding
-        ? await git.contentFingerprint(scopeEvidence.attributed_paths)
-        : await git.reviewStateFingerprint()
-      : undefined;
+    const worktreeFingerprint = finalizerBound
+      ? finalizerEvidence.review_fingerprint
+      : git
+        ? modernBinding
+          ? await git.contentFingerprint(scopeEvidence.attributed_paths)
+          : await git.reviewStateFingerprint()
+        : undefined;
     const reviewState = buildCodexReviewState({
       manifest: manifest?.schema_version === 3 ? manifest : undefined,
       promptText: prompt,
@@ -264,19 +299,28 @@ export class CodexResultService {
       ...gitReview.recommendation.warnings
     );
     const { suppressHappyPath, gitReview: safeGitReview, technicalReadiness } = readiness;
-    const reviewLoop = await reviewLoopContext(
-      this.root,
-      this.sandbox,
-      input.repo_id,
-      manifest,
-      delegationResultV3,
-      reviewAttestation.status === "valid" && reviewAttestation.verdict === "failed"
-        ? {
-            rationale: reviewAttestation.rationale ?? "Product review failed.",
-            evidence: reviewAttestation.evidence ?? []
-          }
-        : undefined
-    );
+    const reviewLoop = finalizerEvidence.status === "invalid"
+      ? {
+          metadata: invalidFinalizerReviewLoop(
+            manifest,
+            delegationResultV3,
+            finalizerEvidence
+          )
+        }
+      : await reviewLoopContext(
+          this.root,
+          this.sandbox,
+          input.repo_id,
+          manifest,
+          delegationResultV3,
+          reviewAttestation.status === "valid" && reviewAttestation.verdict === "failed"
+            ? {
+                rationale: reviewAttestation.rationale ?? "Product review failed.",
+                evidence: reviewAttestation.evidence ?? []
+              }
+            : undefined,
+          finalized ? finalizerEvidence.head_sha : undefined
+        );
     const nextToolPayloads = {
       ...safeGitReview.next_tool_payloads,
       ...(reviewAttestation.status === "valid"
@@ -390,6 +434,70 @@ export class CodexResultService {
       throw error;
     }
   }
+}
+
+function finalizerGitReview(
+  evidence: Exclude<CodexFinalizerReviewEvidence, { status: "not_applicable" }>
+): NonNullable<CodexReviewResult["git_review"]> {
+  const valid = evidence.status === "valid";
+  return {
+    ok: true,
+    detail: "compact",
+    branch: evidence.branch,
+    head_sha: evidence.head_sha,
+    clean: valid,
+    changed_paths: [],
+    diff_summary: { file_count: 0, truncated: false, files: [] },
+    recommendation: {
+      ready_to_stage: false,
+      recommended_stage_paths: [],
+      excluded_paths: [],
+      suggested_commit_message: "No changes to commit",
+      risk_level: valid ? "low" : "high",
+      warnings: valid ? ["NO_CHANGES"] : [evidence.warning]
+    },
+    delegation_gate: {
+      status: "not_applicable",
+      requested_paths: valid ? evidence.changed_paths : [],
+      applicable_runs: [],
+      blocking_reasons: [],
+      warnings: [],
+      truncated: false
+    },
+    ship_readiness: {
+      validation: valid ? evidence.validation : { status: "missing" }
+    },
+    next_tool_payloads: {}
+  };
+}
+
+function invalidFinalizerReviewLoop(
+  manifest: CodexRunManifest | undefined,
+  result: DelegationResultV3 | undefined,
+  evidence: Extract<CodexFinalizerReviewEvidence, { status: "invalid" }>
+): Awaited<ReturnType<typeof reviewLoopContext>>["metadata"] {
+  const lineage = manifest?.schema_version === 3 ? manifest.task.lineage : undefined;
+  return {
+    status: "blocked",
+    parent_run_id: lineage?.parent_run_id ?? null,
+    root_run_id: lineage?.root_run_id
+      ?? (manifest?.schema_version === 3 ? manifest.run_id : null),
+    next_parent_run_id: null,
+    children_created: lineage?.child_index ?? 0,
+    max_children: 2,
+    next_child_index: null,
+    next_child_kind: null,
+    allowed_paths: [],
+    ...(manifest?.schema_version === 3
+      ? {
+          authorization_scope: [...manifest.authorization.effective_scope],
+          scope_extension_required: result?.scope_extension_required ?? []
+        }
+      : {}),
+    instructions: [
+      `Finalizer evidence is invalid (${evidence.warning}); corrective lineage is not offered from this state.`
+    ]
+  };
 }
 
 function connectedChangesAreComplete(

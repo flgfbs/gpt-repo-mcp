@@ -24,6 +24,7 @@ import {
 } from "../src/contracts/git-operations.contract.js";
 import { CleanupPathsInputSchema, CleanupPathsResultSchema } from "../src/contracts/cleanup.contract.js";
 import { CodexReviewInputSchema, CodexReviewResultSchema } from "../src/contracts/codex-task.contract.js";
+import { RepoFinalizeCodexRunInputSchema, RepoFinalizeCodexRunResultSchema } from "../src/contracts/codex-run-finalizer.contract.js";
 import { CodexReviewWriteInputSchema, CodexReviewWriteResultSchema } from "../src/contracts/codex-review-attestation.contract.js";
 import {
   DelegationPreparedResultV3Schema,
@@ -46,7 +47,7 @@ import { PatchsetApplyInputSchema, PatchsetApplyResultSchema, PatchsetPrepareInp
 import { ValidateInputSchema, ValidateResultSchema } from "../src/contracts/validation.contract.js";
 import { CurrentWorkSessionInputSchema, CurrentWorkSessionResultSchema, StartWorkSessionInputSchema, StartWorkSessionResultSchema, UpdateWorkSessionInputSchema, UpdateWorkSessionResultSchema } from "../src/contracts/work-session.contract.js";
 import { RepoReaderConfigSchema } from "../src/config/schema.js";
-import { nonDestructiveMutationAnnotations, readOnlyAnnotations, safeMutationAnnotations, writeAnnotations } from "../src/tools/annotations.js";
+import { idempotentWriteAnnotations, nonDestructiveMutationAnnotations, readOnlyAnnotations, safeMutationAnnotations, writeAnnotations } from "../src/tools/annotations.js";
 import { toolCatalog } from "../src/tools/catalog.js";
 import { CANONICAL_TOOL_ORDER, toolRegistry, toolsForPackage } from "../src/tools/registry.js";
 import * as handlerExports from "../src/tools/handlers.js";
@@ -65,6 +66,19 @@ function expectFieldDescriptions(fields: Array<[string, { description?: string }
 
 function schemaDescription(schema: unknown): string | undefined {
   return (schema as { description?: string }).description;
+}
+
+function expectTaskAwareInput(
+  actual: { shape: Record<string, unknown> } | undefined,
+  base: { shape: Record<string, unknown> }
+): void {
+  expect(actual).toBeDefined();
+  for (const [key, field] of Object.entries(base.shape)) {
+    expect(actual?.shape[key], key).toBe(field);
+  }
+  for (const key of ["operation_id", "expected_head_sha", "expected_tree_sha"]) {
+    expect(actual?.shape[key], key).toBeDefined();
+  }
 }
 
 describe("tool catalog contracts", () => {
@@ -105,6 +119,7 @@ describe("tool catalog contracts", () => {
       "repo_codex_review",
       "repo_write_codex_review",
       "repo_write_integration_review",
+      "repo_finalize_codex_run",
       "repo_prepare_patchset",
       "repo_apply_patchset",
       "repo_review_patchset",
@@ -115,7 +130,25 @@ describe("tool catalog contracts", () => {
       "repo_current_work_session",
       "repo_write_file",
       "repo_write_changes",
-      "repo_write_handoff"
+      "repo_write_handoff",
+      "repo_task_open",
+      "repo_task_status",
+      "repo_task_close",
+      "repo_task_cleanup",
+      "repo_artifact_read",
+      "repo_remote_status",
+      "repo_write_push",
+      "repo_pr_create_or_update",
+      "repo_pr_status",
+      "repo_pr_review_threads",
+      "repo_write_pr_reply",
+      "repo_write_pr_resolve_thread",
+      "repo_ci_status",
+      "repo_write_ci_retry_failed",
+      "repo_merge_gate_prepare",
+      "repo_write_merge",
+      "repo_post_merge_readback",
+      "repo_task_admission"
     ]);
 
     for (const tool of toolCatalog) {
@@ -123,13 +156,17 @@ describe("tool catalog contracts", () => {
       expect(tool.description.startsWith("Use this when")).toBe(true);
       expect(tool.inputSchema).toBeDefined();
       expect(tool.outputSchema).toBeDefined();
-      if (isMutatingToolName(tool.name)) {
+      if (tool.package === "lifecycle") {
+        expect(tool.annotations.idempotentHint).toBe(true);
+      } else if (isMutatingToolName(tool.name)) {
         expect(tool.annotations).toEqual(
           tool.name === "repo_code_index"
             ? safeMutationAnnotations
             : tool.name === "repo_prepare_patchset"
               ? nonDestructiveMutationAnnotations
-              : writeAnnotations
+              : tool.name === "repo_finalize_codex_run"
+                ? idempotentWriteAnnotations
+                : writeAnnotations
         );
       } else {
         expect(tool.annotations).toEqual(readOnlyAnnotations);
@@ -144,10 +181,10 @@ describe("tool catalog contracts", () => {
     const descriptionPayloadBytes = Buffer.byteLength(toolCatalog.map((tool) => tool.description).join(" "), "utf8");
 
     expect(instructionSourceBytes).toBeLessThan(6_000);
-    expect(descriptionSourceBytes).toBeLessThan(8_500);
-    expect(descriptionPayloadBytes).toBeLessThan(7_500);
+    expect(descriptionSourceBytes).toBeLessThan(11_250);
+    expect(descriptionPayloadBytes).toBeLessThan(9_500);
     expect(instructionSourceBytes).toBeLessThan(Math.floor(15_644 * 0.4));
-    expect(descriptionSourceBytes).toBeLessThan(Math.floor(16_819 * 0.5));
+    expect(descriptionSourceBytes).toBeLessThan(Math.floor(16_819 * 0.7));
 
     const description = (name: string) => toolCatalog.find((tool) => tool.name === name)?.description ?? "";
     expect(description("repo_context_map")).toContain("file-level impact");
@@ -176,6 +213,7 @@ describe("tool catalog contracts", () => {
       "repo_write_agent_reply",
       "repo_write_codex_review",
       "repo_write_integration_review",
+      "repo_finalize_codex_run",
       "repo_prepare_patchset",
       "repo_apply_patchset",
       "repo_rollback_patchset",
@@ -184,7 +222,16 @@ describe("tool catalog contracts", () => {
       "repo_update_work_session",
       "repo_write_file",
       "repo_write_changes",
-      "repo_write_handoff"
+      "repo_write_handoff",
+      "repo_task_open",
+      "repo_task_close",
+      "repo_task_cleanup",
+      "repo_write_push",
+      "repo_pr_create_or_update",
+      "repo_write_pr_reply",
+      "repo_write_pr_resolve_thread",
+      "repo_write_ci_retry_failed",
+      "repo_write_merge"
     ]);
     expect(MUTATING_TOOL_NAMES).toEqual(toolCatalog
       .filter((tool) => tool.annotations.readOnlyHint === false)
@@ -197,6 +244,7 @@ describe("tool catalog contracts", () => {
     const writeAgentReply = toolCatalog.find((tool) => tool.name === "repo_write_agent_reply");
     const codexReview = toolCatalog.find((tool) => tool.name === "repo_codex_review");
     const writeCodexReview = toolCatalog.find((tool) => tool.name === "repo_write_codex_review");
+    const finalizeCodexRun = toolCatalog.find((tool) => tool.name === "repo_finalize_codex_run");
     const writeChanges = toolCatalog.find((tool) => tool.name === "repo_write_changes");
     const writeHandoff = toolCatalog.find((tool) => tool.name === "repo_write_handoff");
     const stageCommit = toolCatalog.find((tool) => tool.name === "repo_write_stage_commit");
@@ -222,7 +270,7 @@ describe("tool catalog contracts", () => {
     expect(prepareCodexTask?.outputSchema).toBe(DelegationPreparedResultV3Schema);
     expect(prepareCodexTask?.annotations).toEqual(readOnlyAnnotations);
     expect(writeCodexTask).toBeDefined();
-    expect(writeCodexTask?.inputSchema).toBe(DelegationTaskV3WriteToolInputSchema);
+    expectTaskAwareInput(writeCodexTask?.inputSchema, DelegationTaskV3WriteToolInputSchema);
     expect(writeCodexTask?.outputSchema).toBe(DelegationWriteResultV3Schema);
     expect(writeCodexTask?.annotations).toEqual(writeAnnotations);
     expect(agentRuns).toBeDefined();
@@ -230,7 +278,7 @@ describe("tool catalog contracts", () => {
     expect(agentRuns?.outputSchema).toBe(AgentRunsResultSchema);
     expect(agentRuns?.annotations).toEqual(readOnlyAnnotations);
     expect(writeAgentReply).toBeDefined();
-    expect(writeAgentReply?.inputSchema).toBe(AgentReplyInputSchema);
+    expectTaskAwareInput(writeAgentReply?.inputSchema, AgentReplyInputSchema);
     expect(writeAgentReply?.outputSchema).toBe(AgentReplyResultSchema);
     expect(writeAgentReply?.annotations).toEqual(writeAnnotations);
     expect(codexReview).toBeDefined();
@@ -238,9 +286,13 @@ describe("tool catalog contracts", () => {
     expect(codexReview?.outputSchema).toBe(CodexReviewResultSchema);
     expect(codexReview?.annotations).toEqual(readOnlyAnnotations);
     expect(writeCodexReview).toBeDefined();
-    expect(writeCodexReview?.inputSchema).toBe(CodexReviewWriteInputSchema);
+    expectTaskAwareInput(writeCodexReview?.inputSchema, CodexReviewWriteInputSchema);
     expect(writeCodexReview?.outputSchema).toBe(CodexReviewWriteResultSchema);
     expect(writeCodexReview?.annotations).toEqual(writeAnnotations);
+    expect(finalizeCodexRun).toBeDefined();
+    expect(finalizeCodexRun?.inputSchema).toBe(RepoFinalizeCodexRunInputSchema);
+    expect(finalizeCodexRun?.outputSchema).toBe(RepoFinalizeCodexRunResultSchema);
+    expect(finalizeCodexRun?.annotations).toEqual(idempotentWriteAnnotations);
     expect(lastWrite).toBeDefined();
     expect(lastWrite?.inputSchema).toBe(LastWriteInputSchema);
     expect(lastWrite?.outputSchema).toBe(LastWriteResultSchema);
@@ -279,35 +331,35 @@ describe("tool catalog contracts", () => {
       expect((toolContracts as Record<string, unknown>)[removedTool]).toBeUndefined();
     }
     expect(writeFile).toBeDefined();
-    expect(writeFile?.inputSchema).toBe(WriteFileInputSchema);
+    expectTaskAwareInput(writeFile?.inputSchema, WriteFileInputSchema);
     expect(writeFile?.outputSchema).toBe(WriteFileResultSchema);
     expect(writeFile?.annotations).toEqual(writeAnnotations);
     expect(writeChanges).toBeDefined();
-    expect(writeChanges?.inputSchema).toBe(WriteChangesInputSchema);
+    expectTaskAwareInput(writeChanges?.inputSchema, WriteChangesInputSchema);
     expect(writeChanges?.outputSchema).toBe(WriteChangesResultSchema);
     expect(writeChanges?.annotations).toEqual(writeAnnotations);
     expect(writeHandoff).toBeDefined();
-    expect(writeHandoff?.inputSchema).toBe(HandoffInputSchema);
+    expectTaskAwareInput(writeHandoff?.inputSchema, HandoffInputSchema);
     expect(writeHandoff?.outputSchema).toBe(HandoffResultSchema);
     expect(writeHandoff?.annotations).toEqual(writeAnnotations);
     expect(stageCommit).toBeDefined();
-    expect(stageCommit?.inputSchema).toBe(GitStageCommitInputSchema);
+    expectTaskAwareInput(stageCommit?.inputSchema, GitStageCommitInputSchema);
     expect(stageCommit?.outputSchema).toBe(GitStageCommitResultSchema);
     expect(stageCommit?.annotations).toEqual(writeAnnotations);
     expect(recover).toBeDefined();
-    expect(recover?.inputSchema).toBe(GitRecoverInputSchema);
+    expectTaskAwareInput(recover?.inputSchema, GitRecoverInputSchema);
     expect(recover?.outputSchema).toBe(GitRecoverResultSchema);
     expect(recover?.annotations).toEqual(writeAnnotations);
     expect(validate).toBeDefined();
-    expect(validate?.inputSchema).toBe(ValidateInputSchema);
+    expectTaskAwareInput(validate?.inputSchema, ValidateInputSchema);
     expect(validate?.outputSchema).toBe(ValidateResultSchema);
     expect(validate?.annotations).toEqual(writeAnnotations);
     expect(startWorkSession).toBeDefined();
-    expect(startWorkSession?.inputSchema).toBe(StartWorkSessionInputSchema);
+    expectTaskAwareInput(startWorkSession?.inputSchema, StartWorkSessionInputSchema);
     expect(startWorkSession?.outputSchema).toBe(StartWorkSessionResultSchema);
     expect(startWorkSession?.annotations).toEqual(writeAnnotations);
     expect(updateWorkSession).toBeDefined();
-    expect(updateWorkSession?.inputSchema).toBe(UpdateWorkSessionInputSchema);
+    expectTaskAwareInput(updateWorkSession?.inputSchema, UpdateWorkSessionInputSchema);
     expect(updateWorkSession?.outputSchema).toBe(UpdateWorkSessionResultSchema);
     expect(updateWorkSession?.annotations).toEqual(writeAnnotations);
     expect(currentWorkSession).toBeDefined();
@@ -316,7 +368,7 @@ describe("tool catalog contracts", () => {
     expect(currentWorkSession?.annotations).toEqual(readOnlyAnnotations);
     const restorePaths = toolCatalog.find((tool) => tool.name === "repo_git_restore_paths");
     expect(restorePaths).toBeDefined();
-    expect(restorePaths?.inputSchema).toBe(GitRestorePathsInputSchema);
+    expectTaskAwareInput(restorePaths?.inputSchema, GitRestorePathsInputSchema);
     expect(restorePaths?.outputSchema).toBe(GitRestorePathsResultSchema);
     expect(restorePaths?.annotations).toEqual(writeAnnotations);
 
@@ -327,7 +379,7 @@ describe("tool catalog contracts", () => {
   test("internal registry composes exact packages without changing the canonical surface", () => {
     expect(toolRegistry).toBe(toolCatalog);
     expect(toolRegistry.map((tool) => tool.name)).toEqual(CANONICAL_TOOL_ORDER);
-    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(46);
+    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(65);
     expect([...CANONICAL_TOOL_ORDER].sort()).toEqual(Object.keys(toolContracts).sort());
 
     expect(toolsForPackage("developer").map((tool) => tool.name)).toEqual([
@@ -356,15 +408,22 @@ describe("tool catalog contracts", () => {
       "repo_write_changes",
       "repo_write_handoff"
     ]);
-    expect(toolsForPackage("delegation")).toHaveLength(7);
+    expect(toolsForPackage("delegation")).toHaveLength(8);
     expect(toolsForPackage("patchsets")).toHaveLength(4);
     expect(toolsForPackage("advanced_operations")).toHaveLength(6);
     expect(toolsForPackage("diagnostics_and_discovery")).toHaveLength(4);
     expect(toolsForPackage("code_index")).toHaveLength(1);
+    expect(toolsForPackage("lifecycle")).toHaveLength(18);
 
     for (const tool of toolRegistry) {
       expect(tool.tier).toBe(tool.package === "developer" ? "default" : "specialist");
-      expect(tool.requiredCapabilities).toEqual(tool.name === "repo_code_index" ? ["code_intelligence"] : []);
+      expect(tool.requiredCapabilities).toEqual(
+        tool.name === "repo_code_index"
+          ? ["code_intelligence"]
+          : tool.package === "lifecycle"
+            ? ["lifecycle"]
+            : []
+      );
     }
   });
 
@@ -900,6 +959,7 @@ describe("tool catalog contracts", () => {
 
     expect(parsed.data?.repos[0]?.operations).toMatchObject({
       cleanup_enabled: false,
+      codex_run_finalize_enabled: false,
       cleanup_allowed_globs: [
         ".chatgpt/tool-tests/**",
         ".chatgpt/backups/**",
@@ -918,6 +978,7 @@ describe("tool catalog contracts", () => {
       enabled: false,
       git_stage_enabled: false,
       git_commit_enabled: false,
+      codex_run_finalize_enabled: false,
       max_paths_per_operation: 50,
       validation_enabled: false,
       validation_test_path_globs: [],
@@ -1018,7 +1079,13 @@ describe("tool catalog contracts", () => {
     expect(source).toContain("new StdioClientTransport");
     expect(source).toContain("args: []");
     expect(source).not.toMatch(/exec\s*\(|execSync\s*\(|shell\s*:\s*true/);
-    expect(toolContracts.repo_code_index.input.keyof().options.sort()).toEqual(["action", "repo_id"]);
+    expect(toolContracts.repo_code_index.input.keyof().options.sort()).toEqual([
+      "action",
+      "expected_head_sha",
+      "expected_tree_sha",
+      "operation_id",
+      "repo_id"
+    ]);
   });
 
   test("config example is a valid empty starter config", () => {
@@ -1111,44 +1178,44 @@ describe("tool catalog contracts", () => {
       {
         name: "repo_write_stage_commit",
         mutating: true,
-        inputKeys: ["dry_run", "expected_head_sha", "message", "paths", "reason", "repo_id", "review_pathset_id"],
+        inputKeys: ["dry_run", "expected_head_sha", "expected_tree_sha", "message", "operation_id", "paths", "reason", "repo_id", "review_pathset_id"],
         outputKeys: ["clean_after", "commit_sha", "committed_paths", "dry_run", "head_after", "head_before", "ok", "remaining_changes", "review_pathset_id", "staged_paths", "warnings"]
       },
       {
         name: "repo_write_recover",
         mutating: true,
-        inputKeys: ["cleanup_paths", "discard_paths", "dry_run", "expected_head_sha", "reason", "repo_id", "restore_paths", "unstage_paths"],
+        inputKeys: ["cleanup_paths", "discard_paths", "dry_run", "expected_head_sha", "expected_tree_sha", "operation_id", "reason", "repo_id", "restore_paths", "unstage_paths"],
         outputKeys: ["clean_after", "deleted", "discarded", "dry_run", "head_sha", "ok", "remaining_changes", "restored_paths", "skipped", "unstaged_paths", "warnings"]
       },
       {
         name: "repo_prepare_patchset",
         mutating: true,
-        inputKeys: ["base_head_sha", "files", "intent", "repo_id", "work_session_id"],
+        inputKeys: ["base_head_sha", "expected_head_sha", "expected_tree_sha", "files", "intent", "operation_id", "repo_id", "work_session_id"],
         outputKeys: ["affected_paths", "manifest", "manifest_path", "next_tool_payloads", "ok", "patchset_id", "warnings"]
       },
       {
         name: "repo_apply_patchset",
         mutating: true,
-        inputKeys: ["dry_run", "expected_head_sha", "patchset_id", "repo_id"],
+        inputKeys: ["dry_run", "expected_head_sha", "expected_tree_sha", "operation_id", "patchset_id", "repo_id"],
         outputKeys: ["changed_paths", "counts", "created_paths", "deleted_paths", "dry_run", "hunk_diagnostics", "modified_paths", "next_tool_payloads", "ok", "operation_id", "operation_receipt", "patchset_id", "renamed_paths", "rollback_hint", "warnings"]
       },
       {
         name: "repo_rollback_patchset",
         mutating: true,
-        inputKeys: ["dry_run", "expected_head_sha", "patchset_id", "repo_id"],
+        inputKeys: ["dry_run", "expected_head_sha", "expected_tree_sha", "operation_id", "patchset_id", "repo_id"],
         outputKeys: ["counts", "deleted_paths", "dry_run", "next_tool_payloads", "ok", "operation_id", "operation_receipt", "patchset_id", "restored_paths", "skipped", "warnings"]
       },
       {
         name: "repo_validate",
         mutating: true,
-        inputKeys: ["dry_run", "profile", "repo_id", "test_paths", "timeout_ms"],
+        inputKeys: ["dry_run", "expected_head_sha", "expected_tree_sha", "operation_id", "profile", "repo_id", "test_paths", "timeout_ms"],
         outputKeys: ["commands", "counts", "dry_run", "focused", "ok", "profile", "repo_id", "status", "test_paths", "validation_artifact", "validation_id", "warnings"]
       }
     ]);
   });
 
-  test("exposed tool surface shape stays stable", () => {
-    expect(toolCatalog.map((tool) => ({
+  test("inherited exposed tool surface shape stays stable", () => {
+    expect(toolCatalog.slice(0, 47).map((tool) => ({
       name: tool.name,
       title: tool.title,
       description: tool.description,
@@ -1444,6 +1511,9 @@ describe("tool catalog contracts", () => {
           "description": "Use this when checking or managing the optional Codebase Memory index. Before action=start, explicitly ask the user; status is safe to inspect without approval.",
           "inputKeys": [
             "action",
+            "expected_head_sha",
+            "expected_tree_sha",
+            "operation_id",
             "repo_id",
           ],
           "name": "repo_code_index",
@@ -1649,6 +1719,8 @@ describe("tool catalog contracts", () => {
           "inputKeys": [
             "dry_run",
             "expected_head_sha",
+            "expected_tree_sha",
+            "operation_id",
             "paths",
             "reason",
             "repo_id",
@@ -1675,6 +1747,8 @@ describe("tool catalog contracts", () => {
           "inputKeys": [
             "dry_run",
             "expected_head_sha",
+            "expected_tree_sha",
+            "operation_id",
             "paths",
             "reason",
             "repo_id",
@@ -1701,6 +1775,8 @@ describe("tool catalog contracts", () => {
           "inputKeys": [
             "dry_run",
             "expected_head_sha",
+            "expected_tree_sha",
+            "operation_id",
             "paths",
             "reason",
             "repo_id",
@@ -1728,7 +1804,9 @@ describe("tool catalog contracts", () => {
             "dry_run",
             "expected_head_sha",
             "expected_staged_paths",
+            "expected_tree_sha",
             "message",
+            "operation_id",
             "reason",
             "repo_id",
           ],
@@ -1755,7 +1833,9 @@ describe("tool catalog contracts", () => {
           "inputKeys": [
             "dry_run",
             "expected_head_sha",
+            "expected_tree_sha",
             "message",
+            "operation_id",
             "paths",
             "reason",
             "repo_id",
@@ -1790,6 +1870,8 @@ describe("tool catalog contracts", () => {
             "discard_paths",
             "dry_run",
             "expected_head_sha",
+            "expected_tree_sha",
+            "operation_id",
             "reason",
             "repo_id",
             "restore_paths",
@@ -1821,6 +1903,9 @@ describe("tool catalog contracts", () => {
           "description": "Use this when separately deleting reviewed untracked generated or local artifacts allowed by cleanup policy. Prefer composite recovery when available.",
           "inputKeys": [
             "dry_run",
+            "expected_head_sha",
+            "expected_tree_sha",
+            "operation_id",
             "paths",
             "reason",
             "repo_id",
@@ -2004,11 +2089,14 @@ describe("tool catalog contracts", () => {
             "assignment",
             "authorization_scope",
             "dry_run",
+            "expected_head_sha",
+            "expected_tree_sha",
             "explicit_exclusions",
             "forbidden_paths",
             "hard_constraints",
             "lineage",
             "must_preserve",
+            "operation_id",
             "outcome",
             "product_alignment",
             "reason",
@@ -2094,7 +2182,10 @@ describe("tool catalog contracts", () => {
           "description": "Use this when answering the exact current structured questions for an awaiting-input run. It rejects stale or incomplete replies and only writes the reply artifact.",
           "inputKeys": [
             "answers",
+            "expected_head_sha",
             "expected_question_sha256",
+            "expected_tree_sha",
+            "operation_id",
             "repo_id",
             "run_id",
             "turn_index",
@@ -2164,7 +2255,10 @@ describe("tool catalog contracts", () => {
           "inputKeys": [
             "dry_run",
             "evidence",
+            "expected_head_sha",
             "expected_review_state_sha256",
+            "expected_tree_sha",
+            "operation_id",
             "product_verdict",
             "rationale",
             "reason",
@@ -2204,6 +2298,8 @@ describe("tool catalog contracts", () => {
             "commit_message",
             "dry_run",
             "expected_head_sha",
+            "expected_tree_sha",
+            "operation_id",
             "reason",
             "repo_id",
             "run_ids",
@@ -2231,6 +2327,55 @@ describe("tool catalog contracts", () => {
         },
         {
           "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": false,
+          },
+          "description": "Use this when finalizing an exact terminal technical Delegation v3 run whose source changes already exist and require bounded provider-free closure. It revalidates the manifest-authorized pathset, creates one unsigned local commit, exports one verified committed-source archive, writes RESULT.json and terminal runner state, and never accepts a shell command, pushes, or contacts GitHub or a model.",
+          "inputKeys": [
+            "archive_label",
+            "change_reason",
+            "commit_message",
+            "dry_run",
+            "expected_absent_refs",
+            "expected_branch",
+            "expected_changed_files",
+            "expected_head_sha",
+            "expected_prior_status",
+            "expected_prior_status_revision",
+            "expected_remote_names",
+            "expected_tracked_path_count",
+            "expected_tree_sha",
+            "operation_id",
+            "repo_id",
+            "run_id",
+            "summary",
+            "technical_acceptance_evidence",
+            "terminal_markers",
+          ],
+          "name": "repo_finalize_codex_run",
+          "outputKeys": [
+            "archive",
+            "changed_paths",
+            "commit_sha",
+            "dry_run",
+            "head_after",
+            "head_before",
+            "ok",
+            "operation_id",
+            "repo_id",
+            "result_json_path",
+            "run_id",
+            "runner_status_path",
+            "status",
+            "validation",
+            "warnings",
+          ],
+          "title": "Finalize exact Delegation v3 run",
+        },
+        {
+          "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
             "openWorldHint": false,
@@ -2239,8 +2384,11 @@ describe("tool catalog contracts", () => {
           "description": "Use this when preparing an atomic create, modify, edit, delete, or rename patchset. It writes only local manifest metadata, not target files.",
           "inputKeys": [
             "base_head_sha",
+            "expected_head_sha",
+            "expected_tree_sha",
             "files",
             "intent",
+            "operation_id",
             "repo_id",
             "work_session_id",
           ],
@@ -2267,6 +2415,8 @@ describe("tool catalog contracts", () => {
           "inputKeys": [
             "dry_run",
             "expected_head_sha",
+            "expected_tree_sha",
+            "operation_id",
             "patchset_id",
             "repo_id",
           ],
@@ -2327,6 +2477,8 @@ describe("tool catalog contracts", () => {
           "inputKeys": [
             "dry_run",
             "expected_head_sha",
+            "expected_tree_sha",
+            "operation_id",
             "patchset_id",
             "repo_id",
           ],
@@ -2356,6 +2508,9 @@ describe("tool catalog contracts", () => {
           "description": "Use this when running an allowlisted test, build, lint, typecheck, smoke, or all profile. A declared repo-owned make target takes priority; npm and safe pytest are fallbacks. Output is streamed into a bounded tail without a shell or arbitrary commands.",
           "inputKeys": [
             "dry_run",
+            "expected_head_sha",
+            "expected_tree_sha",
+            "operation_id",
             "profile",
             "repo_id",
             "test_paths",
@@ -2389,9 +2544,12 @@ describe("tool catalog contracts", () => {
           "inputKeys": [
             "constraints",
             "dry_run",
+            "expected_head_sha",
+            "expected_tree_sha",
             "files_inspected",
             "next_action",
             "objective",
+            "operation_id",
             "repo_id",
             "title",
             "touched_files",
@@ -2427,7 +2585,10 @@ describe("tool catalog contracts", () => {
             "append_unresolved_risks",
             "append_validation_results",
             "dry_run",
+            "expected_head_sha",
+            "expected_tree_sha",
             "next_action",
+            "operation_id",
             "repo_id",
             "status",
             "work_session_id",
@@ -2488,7 +2649,9 @@ describe("tool catalog contracts", () => {
             "expected_head_sha",
             "expected_missing",
             "expected_old_sha256",
+            "expected_tree_sha",
             "find",
+            "operation_id",
             "path",
             "reason",
             "replace",
@@ -2523,6 +2686,8 @@ describe("tool catalog contracts", () => {
             "changes",
             "dry_run",
             "expected_head_sha",
+            "expected_tree_sha",
+            "operation_id",
             "reason",
             "repo_id",
           ],
@@ -2555,9 +2720,12 @@ describe("tool catalog contracts", () => {
             "current_track",
             "decisions",
             "dry_run",
+            "expected_head_sha",
+            "expected_tree_sha",
             "important_files",
             "next_steps",
             "open_questions",
+            "operation_id",
             "repo_id",
             "risks",
             "title",
@@ -2593,7 +2761,9 @@ describe("tool catalog contracts", () => {
     expect(Object.keys(handlerExports).sort()).toEqual([
       "agentRunsHandler",
       "applyPatchsetHandler",
+      "artifactReadHandler",
       "changePlanHandler",
+      "ciStatusHandler",
       "cleanupPathsHandler",
       "codeIndexHandler",
       "codexReviewHandler",
@@ -2602,18 +2772,25 @@ describe("tool catalog contracts", () => {
       "decisionMemoryHandler",
       "failureDiagnoseHandler",
       "fetchFileHandler",
+      "finalizeCodexRunHandler",
       "gitDiffHandler",
       "gitRestorePathsHandler",
       "gitReviewHandler",
       "gitStatusHandler",
       "lastWriteHandler",
       "listRootsHandler",
+      "mergeGatePrepareHandler",
       "operationLedgerHandler",
       "policyExplainHandler",
+      "postMergeReadbackHandler",
+      "prCreateOrUpdateHandler",
+      "prReviewThreadsHandler",
+      "prStatusHandler",
       "prepareCodexTaskHandler",
       "preparePatchsetHandler",
       "projectBriefHandler",
       "readManyHandler",
+      "remoteStatusHandler",
       "reviewPatchsetHandler",
       "rollbackPatchsetHandler",
       "searchHandler",
@@ -2621,18 +2798,28 @@ describe("tool catalog contracts", () => {
       "shipReviewHandler",
       "startWorkSessionHandler",
       "symbolContextHandler",
+      "taskAdmissionHandler",
+      "taskCleanupHandler",
+      "taskCloseHandler",
       "taskInventoryHandler",
+      "taskOpenHandler",
+      "taskStatusHandler",
       "treeHandler",
       "updateWorkSessionHandler",
       "validateHandler",
       "writeAgentReplyHandler",
       "writeChangesHandler",
+      "writeCiRetryFailedHandler",
       "writeCodexReviewHandler",
       "writeCodexTaskHandler",
       "writeCommitHandler",
       "writeFileHandler",
       "writeHandoffHandler",
       "writeIntegrationReviewHandler",
+      "writeMergeHandler",
+      "writePrReplyHandler",
+      "writePrResolveThreadHandler",
+      "writePushHandler",
       "writeRecoverHandler",
       "writeStageCommitHandler",
       "writeStageHandler",

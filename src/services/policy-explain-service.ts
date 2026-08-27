@@ -39,6 +39,7 @@ export class PolicyExplainService {
       enabled: operationsPolicy.config.enabled,
       git_stage_enabled: operationsPolicy.config.git_stage_enabled,
       git_commit_enabled: operationsPolicy.config.git_commit_enabled,
+      codex_run_finalize_enabled: operationsPolicy.config.codex_run_finalize_enabled,
       validation_enabled: operationsPolicy.config.validation_enabled,
       cleanup_enabled: operationsPolicy.config.cleanup_enabled,
       max_paths_per_operation: operationsPolicy.config.max_paths_per_operation

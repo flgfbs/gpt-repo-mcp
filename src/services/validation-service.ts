@@ -1,24 +1,28 @@
-import { randomUUID } from "node:crypto";
-import { access, lstat, readFile, readdir, realpath, stat } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { access, lstat, open, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
-import { delimiter, isAbsolute, join, relative, sep } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, relative, sep } from "node:path";
 import ignore from "ignore";
 import { ValidateInputSchema, type ValidateInput, type ValidateResult, type ValidationProfile } from "../contracts/validation.contract.js";
 import { RepoReaderError } from "../runtime/errors.js";
 import { atomicWriteJson } from "../runtime/fs-helpers.js";
-import { redactSensitiveText } from "../runtime/result-envelope.js";
+import { redactHostPaths, redactSensitiveText } from "../runtime/result-envelope.js";
 import { OperationsPolicy } from "./operations-policy.js";
 import { validateRepoPath } from "./path-sandbox.js";
 import { IgnoreEngine } from "./ignore-engine.js";
 import { GitService } from "./git-service.js";
 import { NodeRuntimeResolver, type NodeRuntimeResolverOptions, type NodeRuntimeSource } from "./node-runtime-resolver.js";
 import { runProcessWithTail } from "./process-exec.js";
+import {
+  attachValidationArtifactCapture,
+  type CapturedValidationCommand
+} from "./validation-artifact-capture.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const OUTPUT_TAIL_CHARS = 4_000;
+const MAX_CAPTURED_VALIDATION_BYTES = 3_500_000;
 const ALL_PROFILE_ORDER = ["typecheck", "lint", "test", "build", "smoke"] as const;
 const VALIDATION_ROOT = ".chatgpt/validation";
-type ConcreteProfile = typeof ALL_PROFILE_ORDER[number];
 
 type CommandPlan = {
   profile: ValidationProfile;
@@ -28,7 +32,16 @@ type CommandPlan = {
   args: string[];
   pathPrefix?: string;
   runtime?: { name: "node"; version: string; source: NodeRuntimeSource };
+  cwd?: string;
+  env?: Record<string, string>;
+  timeout_ms?: number;
+  executable_sha256?: string;
 };
+
+const BLOCKED_EXECUTABLES = new Set(["sh", "bash", "zsh", "fish", "cmd", "cmd.exe", "powershell", "pwsh"]);
+const PACKAGE_MANAGERS = new Set(["npm", "npm.cmd", "pnpm", "yarn", "bun"]);
+const PACKAGE_MUTATION_ARGS = new Set(["add", "ci", "install", "remove", "uninstall", "update", "upgrade"]);
+const SENSITIVE_ENV_NAME = /(TOKEN|SECRET|PASSWORD|PASSWD|COOKIE|CREDENTIAL|PRIVATE|AUTH|KEY)/i;
 
 const PYTHON_SCAN_EXCLUDES = new Set([".git", ".venv", "venv", "node_modules", "build", "dist", ".cache", ".pytest_cache", "__pycache__", ".tox"]);
 const MAX_PYTHON_SCAN_ENTRIES = 2_000;
@@ -40,7 +53,8 @@ export class ValidationService {
   constructor(
     private readonly root: string,
     private readonly policy: OperationsPolicy,
-    private readonly nodeRuntimeOptions: NodeRuntimeResolverOptions = {}
+    private readonly nodeRuntimeOptions: NodeRuntimeResolverOptions = {},
+    private readonly hostNodeExecutable: string = process.execPath
   ) {}
 
   async validate(input: ValidateInput): Promise<ValidateResult> {
@@ -70,9 +84,29 @@ export class ValidationService {
       };
     }
 
-    const results = [];
+    const results: ValidateResult["commands"] = [];
+    const capturedCommands: CapturedValidationCommand[] = [];
+    let remainingCaptureBytes = MAX_CAPTURED_VALIDATION_BYTES;
     for (const command of commands) {
-      results.push(await this.runCommand(command, args.timeout_ms ?? DEFAULT_TIMEOUT_MS));
+      const execution = await this.runCommand(command, args.timeout_ms ?? DEFAULT_TIMEOUT_MS, remainingCaptureBytes);
+      if (execution.capture.truncated) {
+        throw new RepoReaderError("VALIDATION_ARTIFACT_TOO_LARGE", "Validation output exceeds the full-log artifact limit.");
+      }
+      remainingCaptureBytes -= Buffer.byteLength(execution.capture.stdout, "utf8")
+        + Buffer.byteLength(execution.capture.stderr, "utf8");
+      results.push(execution.result);
+      capturedCommands.push({
+        profile: command.profile,
+        script: command.script,
+        command: command.command,
+        status: execution.result.status === "passed" ? "passed" : "failed",
+        ...(execution.result.exit_code === undefined ? {} : { exit_code: execution.result.exit_code }),
+        ...(execution.signal === undefined ? {} : { signal: execution.signal }),
+        timed_out: execution.timedOut,
+        duration_ms: execution.result.duration_ms ?? 0,
+        stdout: redactHostPaths(execution.capture.stdout),
+        stderr: redactHostPaths(execution.capture.stderr)
+      });
     }
     const failed = results.filter((result) => result.status === "failed").length;
     const passed = results.filter((result) => result.status === "passed").length;
@@ -91,10 +125,17 @@ export class ValidationService {
     };
     const artifactPath = await this.writeValidationArtifact(result);
 
-    return {
+    return attachValidationArtifactCapture({
       ...result,
       validation_artifact: { path: artifactPath }
-    };
+    }, {
+      schema_version: 1,
+      validation_id: validationId,
+      repo_id: args.repo_id,
+      profile: args.profile,
+      status: result.status === "passed" ? "passed" : "failed",
+      commands: capturedCommands
+    });
   }
 
   private async readScripts(): Promise<Record<string, string>> {
@@ -126,7 +167,24 @@ export class ValidationService {
     const owned = this.policy.config.validation_profiles[profile];
     if (owned) {
       if (testPaths) {
-        throw new RepoReaderError("VALIDATION_TEST_PATHS_DISABLED", "Focused test paths are not supported by the declared make validation profile.");
+        throw new RepoReaderError("VALIDATION_TEST_PATHS_DISABLED", "Focused test paths are not supported by the declared repository validation profile.");
+      }
+      if (owned.runner === "exec") {
+        assertSafeConfiguredInvocation(owned.executable, owned.args, owned.env);
+        const executable = await this.resolveConfiguredExecutable(owned.executable);
+        const cwd = await this.resolveConfiguredCwd(owned.cwd);
+        assertSafeConfiguredInvocation(executable.path, owned.args, owned.env);
+        return [{
+          profile,
+          script: `exec:${profile}`,
+          executable: executable.path,
+          command: `${basename(executable.path)} (${profile})`,
+          args: owned.args,
+          cwd,
+          ...(owned.env ? { env: owned.env } : {}),
+          ...(owned.timeout_ms ? { timeout_ms: owned.timeout_ms } : {}),
+          executable_sha256: executable.sha256
+        }];
       }
       return [{
         profile,
@@ -136,7 +194,11 @@ export class ValidationService {
         args: [owned.target]
       }];
     }
-    const npmProfiles = profile === "all" ? ALL_PROFILE_ORDER.filter((candidate) => candidate in scripts) : [profile as ConcreteProfile].filter((candidate) => candidate in scripts);
+    const npmProfiles = profile === "all"
+      ? ALL_PROFILE_ORDER.filter((candidate) => candidate in scripts)
+      : profile in scripts
+        ? [profile]
+        : [];
     const selectedNode = npmProfiles.length > 0
       ? await new NodeRuntimeResolver(this.root, this.nodeRuntimeOptions).resolve()
       : undefined;
@@ -149,7 +211,8 @@ export class ValidationService {
       executable: "npm",
       command: testPaths && candidate === "test" ? `npm run test -- ${testPaths.join(" ")}` : `npm run ${candidate}`,
       args: testPaths && candidate === "test" ? ["run", candidate, "--", ...testPaths] : ["run", candidate],
-      ...(selectedNode ? { pathPrefix: selectedNode.bin_directory, runtime } : {})
+      pathPrefix: selectedNode?.bin_directory ?? dirname(this.hostNodeExecutable),
+      ...(runtime ? { runtime } : {})
     }));
     const needsPytest = !("test" in scripts) && (profile === "test" || profile === "all") && await this.hasPythonTestSuite();
     if (needsPytest) {
@@ -164,7 +227,7 @@ export class ValidationService {
       };
       if (profile === "all") {
         const testIndex = ALL_PROFILE_ORDER.indexOf("test");
-        const insertionIndex = plans.findIndex((plan) => plan.profile !== "all" && ALL_PROFILE_ORDER.indexOf(plan.profile) > testIndex);
+        const insertionIndex = plans.findIndex((plan) => profileOrder(plan.profile) > testIndex);
         plans.splice(insertionIndex === -1 ? plans.length : insertionIndex, 0, pytestPlan);
       } else {
         plans.push(pytestPlan);
@@ -178,31 +241,44 @@ export class ValidationService {
     return plans;
   }
 
-  private async runCommand(command: CommandPlan, timeoutMs: number): Promise<ValidateResult["commands"][number]> {
+  private async runCommand(command: CommandPlan, timeoutMs: number, captureBytes: number): Promise<{
+    result: ValidateResult["commands"][number];
+    capture: { stdout: string; stderr: string; truncated: boolean };
+    signal?: string;
+    timedOut: boolean;
+  }> {
     const result = await runProcessWithTail({
       executable: command.executable,
       args: command.args,
-      cwd: this.root,
-      timeout_ms: timeoutMs,
+      cwd: command.cwd ?? this.root,
+      timeout_ms: Math.min(timeoutMs, command.timeout_ms ?? timeoutMs),
       tail_bytes: OUTPUT_TAIL_CHARS * 4,
+      capture_bytes: captureBytes,
       env: {
         PATH: command.pathPrefix ? `${command.pathPrefix}${delimiter}${process.env.PATH ?? ""}` : process.env.PATH ?? "",
         CI: "1",
         NO_COLOR: "1",
-        npm_config_color: "false"
+        npm_config_color: "false",
+        ...command.env
       }
     });
     const passed = result.exit_code === 0 && !result.timed_out;
     return {
-      profile: command.profile,
-      script: command.script,
-      command: command.command,
-      ...(command.runtime ? { runtime: command.runtime } : {}),
-      status: passed ? "passed" : "failed",
-      ...(typeof result.exit_code === "number" ? { exit_code: result.exit_code } : {}),
-      duration_ms: result.duration_ms,
-      stdout_tail: tail(result.stdout_tail),
-      stderr_tail: tail(result.timed_out ? `${result.stderr_tail}\nCommand timed out after ${timeoutMs}ms.` : result.stderr_tail)
+      result: {
+        profile: command.profile,
+        script: command.script,
+        command: command.command,
+        ...(command.runtime ? { runtime: command.runtime } : {}),
+        ...(command.executable_sha256 ? { executable_sha256: command.executable_sha256 } : {}),
+        status: passed ? "passed" : "failed",
+        ...(typeof result.exit_code === "number" ? { exit_code: result.exit_code } : {}),
+        duration_ms: result.duration_ms,
+        stdout_tail: tail(result.stdout_tail),
+        stderr_tail: tail(result.timed_out ? `${result.stderr_tail}\nCommand timed out after ${timeoutMs}ms.` : result.stderr_tail)
+      },
+      capture: result.captured_output ?? { stdout: "", stderr: "", truncated: true },
+      ...(result.signal ? { signal: result.signal } : {}),
+      timedOut: result.timed_out
     };
   }
 
@@ -225,6 +301,34 @@ export class ValidationService {
       return false;
     };
     return scan(this.root, 0);
+  }
+
+  private async resolveConfiguredExecutable(configuredPath: string): Promise<{ path: string; sha256: string }> {
+    if (!isAbsolute(configuredPath)) {
+      throw new RepoReaderError("VALIDATION_PROFILE_UNAVAILABLE", "Configured validation executable is not absolute.");
+    }
+    const [linkInfo, resolved] = await Promise.all([lstat(configuredPath), realpath(configuredPath)]);
+    if (!linkInfo.isFile() && !linkInfo.isSymbolicLink()) {
+      throw new RepoReaderError("VALIDATION_PROFILE_UNAVAILABLE", "Configured validation executable is not a regular file.");
+    }
+    const resolvedInfo = await stat(resolved);
+    if (!resolvedInfo.isFile()) {
+      throw new RepoReaderError("VALIDATION_PROFILE_UNAVAILABLE", "Configured validation executable does not resolve to a regular file.");
+    }
+    await access(resolved, fsConstants.X_OK);
+    return { path: resolved, sha256: await sha256File(resolved) };
+  }
+
+  private async resolveConfiguredCwd(configuredCwd: string | undefined): Promise<string> {
+    if (!configuredCwd) return this.root;
+    if (isAbsolute(configuredCwd) || configuredCwd.split("/").includes("..") || configuredCwd.includes("\\")) {
+      throw new RepoReaderError("VALIDATION_PROFILE_UNAVAILABLE", "Configured validation cwd must be a safe repository-relative path.");
+    }
+    const [rootReal, cwdReal] = await Promise.all([realpath(this.root), realpath(join(this.root, configuredCwd))]);
+    if (!isWithinRoot(rootReal, cwdReal) || !(await stat(cwdReal)).isDirectory()) {
+      throw new RepoReaderError("VALIDATION_PROFILE_UNAVAILABLE", "Configured validation cwd escapes the repository or is not a directory.");
+    }
+    return cwdReal;
   }
 
   private async selectPython(): Promise<{ executable: string; prefixArgs: string[]; display: string }> {
@@ -354,6 +458,57 @@ function tail(value: string | Buffer | undefined): string | undefined {
 
 function createValidationId(): string {
   return `validation-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
+}
+
+function assertSafeConfiguredInvocation(
+  executable: string,
+  args: string[],
+  env: Record<string, string> | undefined
+): void {
+  const executableName = basename(executable).toLowerCase();
+  if (BLOCKED_EXECUTABLES.has(executableName)) {
+    throw new RepoReaderError("VALIDATION_PROFILE_UNAVAILABLE", "Shell executables are prohibited in validation profiles.");
+  }
+  if (PACKAGE_MANAGERS.has(executableName) && args.some((arg) => PACKAGE_MUTATION_ARGS.has(arg.toLowerCase()))) {
+    throw new RepoReaderError("VALIDATION_PROFILE_UNAVAILABLE", "Dependency installation and mutation are prohibited at validation runtime.");
+  }
+  if (args.some((arg) => arg.includes("\0"))) {
+    throw new RepoReaderError("VALIDATION_PROFILE_UNAVAILABLE", "Validation arguments contain an invalid NUL byte.");
+  }
+  for (const [name, value] of Object.entries(env ?? {})) {
+    if (SENSITIVE_ENV_NAME.test(name)) {
+      throw new RepoReaderError("VALIDATION_PROFILE_UNAVAILABLE", "Credential-bearing environment names are prohibited in validation profiles.");
+    }
+    if (value.includes("\0")) {
+      throw new RepoReaderError("VALIDATION_PROFILE_UNAVAILABLE", "Validation environment contains an invalid NUL byte.");
+    }
+  }
+}
+
+async function sha256File(path: string): Promise<string> {
+  const file = await open(path, "r");
+  const hash = createHash("sha256");
+  const buffer = Buffer.allocUnsafe(64 * 1_024);
+  let position = 0;
+  try {
+    while (true) {
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, position);
+      if (bytesRead === 0) break;
+      hash.update(buffer.subarray(0, bytesRead));
+      position += bytesRead;
+      if (position > 512 * 1_024 * 1_024) {
+        throw new RepoReaderError("VALIDATION_PROFILE_UNAVAILABLE", "Configured validation executable exceeds the identity-check size limit.");
+      }
+    }
+    return hash.digest("hex");
+  } finally {
+    await file.close();
+  }
+}
+
+function profileOrder(profile: ValidationProfile): number {
+  const index = ALL_PROFILE_ORDER.indexOf(profile as typeof ALL_PROFILE_ORDER[number]);
+  return index < 0 ? Number.MAX_SAFE_INTEGER : index;
 }
 
 function isWithinRoot(root: string, candidate: string): boolean {

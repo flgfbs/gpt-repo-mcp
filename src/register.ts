@@ -9,7 +9,7 @@ export { SERVER_INSTRUCTIONS };
 export function createMcpServer(context: RuntimeContext): McpServer {
   const server = new McpServer(
     {
-      name: "gpt-repo-mcp",
+      name: "chat-pro-repository-mcp",
       version: "0.1.0"
     },
     {

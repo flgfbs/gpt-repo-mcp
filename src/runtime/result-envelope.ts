@@ -26,7 +26,11 @@ export type ErrorEnvelope = {
 };
 
 export function redactSensitiveText(value: string): string {
-  return redactSecretValues(value)
+  return redactHostPaths(redactSecretValues(value));
+}
+
+export function redactHostPaths(value: string): string {
+  return value
     .replace(/(?:\/Users|\/home|\/private|\/var|\/tmp)\/[^\s"'`]+/g, "[REDACTED_PATH]")
     .replace(/[A-Za-z]:\\[^\s"'`]+/g, "[REDACTED_PATH]");
 }
@@ -87,6 +91,10 @@ function sanitizeDiagnostics(diagnostics: Record<string, unknown>): Record<strin
   copyShaDiagnostic(diagnostics, safe, "expected_head_sha");
   copyShaDiagnostic(diagnostics, safe, "current_sha256");
   copyShaDiagnostic(diagnostics, safe, "expected_old_sha256");
+  copyShaDiagnostic(diagnostics, safe, "result_sha256");
+  copySafeIdentifierDiagnostic(diagnostics, safe, "operation_id");
+  copySafeIdentifierDiagnostic(diagnostics, safe, "phase");
+  copySafeIdentifierDiagnostic(diagnostics, safe, "failure_code");
   copySafeTextDiagnostic(diagnostics, safe, "recovery_hint");
 
   return Object.keys(safe).length > 0 ? safe : undefined;
@@ -126,6 +134,11 @@ function copySafeTextDiagnostic(source: Record<string, unknown>, target: Record<
   if (redacted === value) {
     target[key] = value;
   }
+}
+
+function copySafeIdentifierDiagnostic(source: Record<string, unknown>, target: Record<string, unknown>, key: string): void {
+  const value = source[key];
+  if (typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(value)) target[key] = value;
 }
 
 function isSafeRepoPath(value: unknown): value is string {

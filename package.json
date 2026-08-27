@@ -1,18 +1,10 @@
 {
-  "name": "gpt-repo-mcp",
-  "version": "0.2.0",
+  "name": "chat-pro-repository-mcp",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "license": "MIT",
-  "description": "Read-mostly MCP server for controlled ChatGPT access to approved local repositories with opt-in safe file and git operations.",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/CAHN91/gpt-repo-mcp.git"
-  },
-  "bugs": {
-    "url": "https://github.com/CAHN91/gpt-repo-mcp/issues"
-  },
-  "homepage": "https://github.com/CAHN91/gpt-repo-mcp#readme",
+  "description": "Production-oriented local Repository MCP for task-isolated development, GitHub lifecycle handling, and exact-head owner-approved merges.",
   "keywords": [
     "mcp",
     "chatgpt",
@@ -25,46 +17,46 @@
   },
   "main": "dist/server.js",
   "bin": {
-    "gpt-repo": "dist/cli/connect-gpt.js",
-    "connect-gpt": "dist/cli/connect-gpt.js"
+    "chat-pro-repo": "dist/cli/chat-pro-repo.js"
   },
   "scripts": {
     "dev": "tsx src/server.ts",
-    "mcp": "GPT_REPO_CONFIG=./config.local.json PORT=8787 npm run dev",
-    "tunnel": "ngrok http 8787 --log=stdout",
-    "connect": "node scripts/connect-dev.mjs",
-    "connect:cloudflare": "PORT=8788 node scripts/connect-cloudflare.mjs",
-    "connect:secure": "node scripts/connect-secure.mjs",
-    "add": "node dist/cli/connect-gpt.js add",
-    "remove": "node dist/cli/connect-gpt.js remove",
-    "list": "node dist/cli/connect-gpt.js list",
-    "check:config": "node dist/cli/connect-gpt.js check",
-    "doctor": "npm run build && node dist/cli/connect-gpt.js doctor",
-    "build": "tsup src/server.ts --format esm --dts --clean --external typescript && tsup src/cli/connect-gpt.ts --format esm --out-dir dist/cli --external typescript",
+    "mcp": "CHAT_PRO_REPOSITORY_MCP_CONFIG=./config.local.json PORT=8789 npm run dev",
+    "add": "node dist/cli/chat-pro-repo.js repo add",
+    "add-project-root": "node dist/cli/chat-pro-repo.js project-root add",
+    "remove": "node dist/cli/chat-pro-repo.js repo remove",
+    "remove-project-root": "node dist/cli/chat-pro-repo.js project-root remove",
+    "list": "node dist/cli/chat-pro-repo.js repo list",
+    "list-project-roots": "node dist/cli/chat-pro-repo.js project-root list",
+    "check:config": "node dist/cli/chat-pro-repo.js config validate",
+    "doctor": "npm run build && node dist/cli/chat-pro-repo.js doctor",
+    "build": "tsup src/server.ts --format esm --dts --clean --external typescript && tsup src/cli/chat-pro-repo.ts --format esm --out-dir dist/cli --external typescript",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "smoke": "npm run check:public && npm run build && node scripts/smoke-dist-server.mjs",
     "check:public": "node scripts/check-public.mjs",
+    "security:export": "node scripts/export-security-candidate.mjs",
     "security:scan": "node scripts/oss-security-scan.mjs",
     "test": "vitest run",
     "verify:dist": "npm run build && node scripts/smoke-dist-server.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "express": "^5.1.0",
-    "ignore": "^7.0.5",
-    "typescript": "^5.9.3",
-    "zod": "^4.1.12"
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "express": "5.2.1",
+    "ignore": "7.0.5",
+    "typescript": "5.9.3",
+    "zod": "4.4.3"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.1",
-    "@types/express": "^5.0.5",
-    "@types/node": "^24.10.1",
-    "eslint": "^9.39.1",
-    "tsup": "^8.5.1",
-    "tsx": "^4.20.6",
-    "typescript-eslint": "^8.48.0",
-    "vitest": "^4.0.14"
+    "@eslint/js": "9.39.4",
+    "@types/express": "5.0.6",
+    "@types/node": "24.12.4",
+    "eslint": "9.39.4",
+    "tsup": "8.5.1",
+    "tsx": "4.22.3",
+    "typescript-eslint": "8.60.0",
+    "vitest": "4.1.7"
   },
   "overrides": {
     "@hono/node-server": "2.0.12"

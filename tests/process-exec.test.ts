@@ -26,6 +26,37 @@ describe("runProcessWithTail", () => {
     });
   });
 
+  test("keeps bounded tails separate from a complete internal artifact capture", async () => {
+    const result = await runProcessWithTail({
+      ...baseInput,
+      executable: process.execPath,
+      args: ["-e", "process.stdout.write('complete-stdout'); process.stderr.write('complete-stderr');"],
+      timeout_ms: 2_000,
+      tail_bytes: 6,
+      capture_bytes: 1_024
+    });
+
+    expect(result.stdout_tail).toBe("stdout");
+    expect(result.stderr_tail).toBe("stderr");
+    expect(result.captured_output).toEqual({
+      stdout: "complete-stdout",
+      stderr: "complete-stderr",
+      truncated: false
+    });
+  });
+
+  test("marks an internal capture incomplete instead of silently truncating a full log", async () => {
+    const result = await runProcessWithTail({
+      ...baseInput,
+      executable: process.execPath,
+      args: ["-e", "process.stdout.write('0123456789');"],
+      timeout_ms: 2_000,
+      capture_bytes: 5
+    });
+
+    expect(result.captured_output).toEqual({ stdout: "01234", stderr: "", truncated: true });
+  });
+
   test("returns spawn failures without waiting for the timeout", async () => {
     const result = await runProcessWithTail({
       ...baseInput,

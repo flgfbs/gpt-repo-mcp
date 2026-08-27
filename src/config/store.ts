@@ -9,6 +9,7 @@ export function resolveConfigPath(options: {
   cwd: string;
 }): string {
   const selected = options.cliConfigPath
+    ?? options.env.CHAT_PRO_REPOSITORY_MCP_CONFIG
     ?? options.env.GPT_REPO_CONFIG
     ?? options.env.REPO_READER_CONFIG
     ?? "./config.local.json";

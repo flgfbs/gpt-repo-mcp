@@ -39,7 +39,7 @@ export function createCodebaseMemoryClientFactory(executable: string): CodebaseM
       stderr: "pipe"
     });
     transport.stderr?.on("data", () => undefined);
-    const client = new Client({ name: "gpt-repo-mcp-code-intelligence", version: "1.0.0" });
+    const client = new Client({ name: "chat-pro-repository-mcp-code-intelligence", version: "1.0.0" });
     await client.connect(transport);
 
     return {

@@ -1,156 +1,173 @@
 # Architecture
 
-This is a contributor reference for understanding and extending the server.
-Users looking for product behavior should start with the
-[Capability guide](CAPABILITIES.md) and [Security model](SECURITY.md).
+Chat Pro Repository MCP is a contract-first, local-first MCP server. The public
+surface is a closed catalog of exactly 65 tools. Task/worktree lifecycle is
+local; only the GitHub-enabled external subset is open-world because it
+contacts the configured Git remote and GitHub.
 
-GPT Repo MCP (`gpt-repo-mcp`) is a tool-only MCP server. It does not add a
-custom interface inside ChatGPT. The server exposes a Streamable HTTP `/mcp`
-endpoint plus a local health route.
+## Contract-First Tool Path
 
-## Boundaries
-
-- `src/server.ts` owns the HTTP server, `/mcp` transport, and `/health`.
-- `src/instructions.ts` contains server-wide MCP instructions for cross-tool workflows.
-- `src/register.ts` creates the MCP server and registers tools.
-- `src/contracts/*` contains Zod input and output contracts.
-- `src/tools/contracts.ts` is the single tool-name to contract map; `ToolName` is derived from its keys.
-- `src/tools/tool-definition.ts` defines internal package, tier, capability, contract, annotation, and handler metadata.
-- `src/tools/packages/*` owns each tool definition exactly once in one of six internal packages.
-- `src/tools/registry.ts` validates package completeness and duplicates, then composes the canonical 46-tool order.
-- `src/tools/catalog.ts` is a thin compatibility re-export of the registry.
-- `src/tools/define-tool.ts` converts registry contract objects to MCP SDK schemas and registers metadata.
-- `src/tools/handlers/*` contains package-scoped thin adapters from tool input to services; `src/tools/handlers.ts` is a compatibility barrel.
-- `src/tools/handler-support.ts` centralizes input parsing, error envelopes, legacy delegation migration guidance, and HEAD guards shared by handlers.
-- `src/delegation/*` contains the public, repository-owned delegation artifact contracts and safe stores. It does not execute agents or manage external processes.
-- `src/services/*` contains filesystem, git, search, tree, read, write, project, task, decision, and advisory planning logic.
-- `src/policies/*` contains shared limits, excludes, write defaults, and secret patterns.
-- `src/runtime/*` contains context, structured errors, result envelopes, and audit logging.
-
-## Tool Registration Flow
-
-The intended flow is:
+Every tool follows one path:
 
 ```text
-contracts -> toolContracts -> package definitions -> registry -> define-tool -> package handlers -> services
+src/contracts/*.contract.ts
+  -> src/tools/contracts.ts
+  -> src/tools/packages/*.ts
+  -> src/tools/registry.ts
+  -> src/register.ts + src/tools/define-tool.ts
+  -> src/tools/handlers/*.ts
+  -> src/services/*.ts
 ```
 
-Contracts define schemas. `toolContracts` assigns exactly one input and output contract to each tool and supplies the derived `ToolName` type. Package modules assign title, annotation, package, tier, optional capability requirements, and handler exactly once. The central registry rejects duplicate or missing definitions and restores the canonical public order before registration. `define-tool` is the only layer that turns Zod objects into MCP SDK `inputSchema` and `outputSchema` shapes. Package handlers resolve approved repos and call services.
+- Contract modules own strict Zod input/output schemas.
+- `src/tools/contracts.ts` is the only tool-name-to-contract map.
+- Package modules attach title, description, annotations, tier, capability, and
+  thin handler.
+- `src/tools/registry.ts` rejects duplicates, missing definitions, and unknown
+  definitions, then constructs the canonical 65-tool order.
+- `src/register.ts` iterates that registry and registers each tool through
+  `src/tools/define-tool.ts`.
+- Handlers parse, call one runtime/service boundary, audit safe metadata, and
+  return a shared envelope.
+- Services own policy, state, Git, filesystem, artifacts, and external effects.
 
-The runtime registers the complete 46-tool surface. The registry keeps each
-definition unique, preserves a stable public order, and rejects missing or
-duplicate definitions. Package and tier metadata organize implementation code;
-they are not additional user-facing tools or permissions.
+The first 47 local names are preserved exactly. The lifecycle package appends
+the 18 names listed in [Tool Surface](TOOL_SURFACE.md); compatibility aliases
+are not registered.
 
-## Data Flow
+## Runtime Construction Seams
 
-ChatGPT calls a tool with `repo_id` and repo-relative POSIX paths or globs. The handler resolves `repo_id` through `RootRegistry`, creates the required services, and returns a result envelope.
+The server construction root creates a `RuntimeContext` and passes it to every
+registered handler. Its dependencies are deliberately explicit:
 
-Read filesystem access goes through shared safety layers:
+- `RootRegistry` resolves registered repository ids to canonical roots and
+  policy;
+- optional code intelligence is injected behind its client factory;
+- `LifecycleRuntime` is the strict handler boundary for the 18 lifecycle tools;
+- task-state/worktree storage owns task bindings and terminal state;
+- the artifact store owns content-addressed bytes and opaque public ids;
+- the optional Git push boundary accepts a fixed argument shape for the
+  server-owned task branch only; and
+- the optional `GitHubAdapter` owns repository, pull-request, CI, review, merge,
+  and post-merge operations using installed `gh` fixed subcommands and JSON.
+
+Production wiring uses the real fixed boundaries. Tests inject deterministic
+fakes and make no live GitHub contact. Neither interface exposes an arbitrary
+command, URL, repository selector, branch selector, or credential value.
+
+## Local Repository Plane
+
+The root registry is the sole repository admission boundary. Explicit roots
+are canonicalized directly; owner-configured project roots expand read-only to
+their direct, real child directories that are exact standalone Git worktree
+roots. Linked worktree and submodule `.git` indirection files are not admitted.
+Explicit repository entries override a discovered child root; a project root
+inside an explicit repository, an ambiguous id, or a project-root overlap fails
+closed. Sandboxed path
+resolution canonicalizes each target under its root, applies ignore and secret
+classification, rejects traversal and symlink escape, and enforces size limits.
+
+Write policy, operations policy, validation profiles, expected file bytes,
+expected HEAD, exact staged paths, and review evidence are checked in services,
+not trusted from host confirmation or model reasoning.
+
+## Task And Worktree Plane
+
+A task manifest binds:
 
 ```text
-PathSandbox -> IgnoreEngine -> FileClassifier -> SecretScanner/FileReader
+task id + base repo + base branch + base commit + base tree
++ authority + exact goal + branch slug
 ```
 
-Write filesystem access stays separate from read services:
+The server derives a task repository id, task branch, and isolated worktree.
+The task cannot escape its registered base repository or increase its bound
+authority. State transitions are open -> closed -> cleaned; cleanup is limited
+to server-owned resources.
+
+A lifecycle policy is either `local` or `github`. Both share task authority,
+allowed base branches, worktree root, clean-base admission, concurrency, and
+cleanup rules. The local form ends at reviewed local Git. The GitHub form adds
+remote identity, repository identity, checks, merge method, and external-effect
+policy. Legacy policy objects without a discriminator are parsed as GitHub
+policies.
+
+## External Effect Plane
+
+This plane exists only for a GitHub lifecycle policy. A local lifecycle is
+rejected with `LIFECYCLE_POLICY_DENIED` before any adapter call. When enabled,
+push and GitHub API work are separate seams:
 
 ```text
-PathSandbox -> WritePolicy -> FileWriter
-                         \-> WriteChangesService -> FileWriter
-write handlers -> OperationReceiptService
+exact task state -> durable pre-contact record -> fixed external call
+                 -> authoritative read-back -> durable effect classification
 ```
 
-`repo_write_file` has its own contract, write annotations, repo-level policy, and service. The handler only resolves `repo_id`, builds the sandbox and write policy, and delegates to `FileWriter`.
+`repo_write_push` uses Git directly with a fixed argument vector, exact branch,
+fast-forward-only policy, and no force. GitHub operations use `GitHubAdapter`
+through `gh`. Mutating or external requests carry an operation id and exact task
+state so an identical request can be recognized and stale requests fail closed.
 
-`repo_write_changes` is the multi-file writer and edit-pack applier. It has its own contract and handler, applies ordered changes through `FileWriter`, and inherits the same repo-local path validation, write policy, symlink, unsupported file type, UTF-8 edit target, hard-risk secret path, resulting-content secret scan, and atomic per-file write guardrails. Grouped same-file edits read one existing file, apply exact-match nested edits in memory, and write once only after every nested edit succeeds. It does not stage, commit, restore, reset, or run shell commands; Git review and recovery workflows are the safety layer after a successful edit pack.
+When a process exits after contact but before a normal response, recovery reads
+the durable contact record and authoritative remote state. It reports no
+change, a confirmed effect, or a queryable/uncertain effect; it does not
+silently replay.
 
-`OperationReceiptService` writes lightweight local receipt metadata after successful actual changed write operations and reads it through `repo_last_write`. Receipts live at `.chatgpt/operations/last-write.json`, are ignored by Git, and contain only safe metadata such as repo-relative paths, counts, timestamps, best-effort HEAD SHAs, and summaries. They do not store contents, snippets, diffs, prompts, command output, secrets, or absolute paths.
+## Merge Approval Plane
 
-Read-only git status and diff operations are owned by `GitService`. Safe local git staging, one-call reviewed stage-and-commit, commit, and explicit worktree restore operations are separate opt-in mutating tools with their own contracts, policy checks, and service logic. Advisory services call existing factual services where practical instead of bypassing repo policy.
+Merge preparation is read-only. It creates an expiring manifest binding the
+repository, task, pull request, base and task branches, exact HEAD and tree,
+merge method, mandatory remote-task-branch retention, CI runs, review threads,
+timestamps, and manifest digest.
 
-Git recovery is separate from write tools. `repo_write_file` and `repo_write_changes` write files only. `repo_write_recover` is the reviewed composite recovery helper: after `expected_head_sha` verification it can unstage explicit paths, restore explicit tracked worktree paths, and clean explicit generated artifacts through cleanup policy in one approved call. `repo_git_restore_paths` remains the granular worktree-only restore tool with fixed `git restore -- <paths>` arguments; it does not unstage, stage, commit, reset, checkout, clean, stash, restore the whole repo, or run shell commands.
+The owner CLI is the only approval writer:
 
-`repo_git_review` remains read-only, but it is the workflow hub after write operations. It classifies changed paths and returns ready-to-run payloads for composite `repo_write_stage_commit` and `repo_write_recover` workflows, plus granular explicit worktree restore, cleanup-eligible generated untracked paths, unstage, stage, and commit operations without executing any of them. Safe untracked source, test, and documentation files can enter the same stage-and-commit happy path as tracked edits, while secret candidates, generated/cache/dependency paths, local ChatGPT/Codex artifacts, deleted paths, and renamed paths stay excluded. When staged paths exist, it adds guidance that granular restore is worktree-only while `repo_write_recover` can explicitly unstage and restore the same reviewed path in one approved call.
-
-The preferred high-level mutation flow is `repo_git_review` followed by the review-provided `repo_write_stage_commit` or `repo_write_recover` payload through the host approval UI. Granular tools remain available for specific requested operations, staged-only commits, troubleshooting, or cases where composite payloads are absent.
-
-## Canonical Development Workflow
-
-The normal direct-development path is intentionally linear:
-
-```text
-repo_project_brief or repo_current_work_session
-        |
-repo_search -> repo_fetch_file / repo_read_many
-        |
-repo_context_map / repo_symbol_context only when needed
-        |
-repo_write_file / repo_write_changes
-        |
-repo_validate
-        |
-repo_ship_review or repo_git_review
-        |
-repo_write_stage_commit or repo_write_recover
+```bash
+chat-pro-repo approve-merge --gate-id <opaque-id>
 ```
 
-Authority remains separated:
+The CLI resolves the content-addressed gate, displays its bound details,
+requires owner confirmation, and writes a mode-0600 approval. Merge consumes
+that approval once. Changed or expired bindings require a newly prepared gate
+and a new owner decision.
 
-- `repo_project_brief` supplies repository-owned product and technical context, but never selects work.
-- `repo_current_work_session` returns full active or blocked current-pointer continuity, but only compact identity metadata for completed history; explicit `work_session_id` lookup retrieves the full historical session.
-- `repo_change_plan` analyzes how to implement an explicit caller-supplied goal.
-- `repo_task_inventory` discovers backlog markers only when explicitly requested.
-- `repo_decision_memory` supplies supporting historical evidence only.
-- `repo_git_review` and `repo_ship_review` own current-state and readiness decisions; no planning router sits between them and ChatGPT.
+## Artifact Strategy
 
-Patchsets, delegation, standalone semantic review, failure diagnosis, code indexing, and granular Git operations remain specialist workflows. They are not inserted into the normal path unless the request requires their distinct capability.
+Lifecycle services keep durable evidence outside normal source reads. Public
+results contain opaque ids and hashes, not local paths. The single public
+conversion seam resolves an `artifact_id` to internal storage identity;
+callers cannot choose a filesystem location.
 
-## Multi-Run Integration Review
+Artifacts hold task manifests, operation receipts, bounded validation logs,
+large diffs, remote observations, push and pull-request evidence, review and CI
+evidence, merge-gate evidence, merge receipts, and post-merge evidence.
+`repo_artifact_read` streams bounded byte windows with a digest and EOF state.
 
-Modern Delegation v3 runs capture content fingerprints for paths already dirty at baseline. `repo_codex_review` scopes diff loading and state binding to the run's claimed and deterministically attributed paths. Unrelated work outside that pathset does not stale the run; HEAD drift or any content change inside it does. Older v3 artifacts without path states retain the conservative whole-worktree binding.
+## Transport Plane
 
-`repo_write_integration_review` is a separate specialist authority boundary for an owner-selected set of currently attested runs. `IntegrationReviewService` requires exact coverage of the current project changes, current full validation, product verdicts, complete semantic evidence, path safety, and all applicable gates. It writes a hash-bound `.chatgpt/integration-reviews/**` artifact containing the exact HEAD, run review hashes, pathset, content fingerprint, validation hash, and commit message.
+The MCP HTTP service binds to loopback and is started on port `8789` by the
+public package script. `/health` is a minimal local liveness endpoint and `/mcp`
+is the Streamable HTTP endpoint. ChatGPT reaches it only through an activated
+OpenAI Secure MCP Tunnel. The repository does not own tunnel credentials or
+publish a public ingress endpoint.
 
-The existing `repo_write_stage_commit` consumes either explicit paths for the normal flow or an opaque integration pathset id. The token path is resolved server-side and rechecked before and after staging; clients cannot add paths or change the reviewed message. See the stable [Delegation Artifact Protocol](DELEGATION_ARTIFACTS.md).
+## Semantic Worker Execution Boundary
 
-## Delegation Drift Evidence
+Delegation uses versioned repository-owned task, result, interaction, and review
+artifacts. The provider-neutral execution substrate adds three bounded layers:
 
-`DelegationDriftService` is an internal read-only analysis service, not a public planning tool. It scans at most the latest 250 validated Delegation v3 runs and reads only strict `run.json`, strict `RESULT.json`, and hash-valid `review.json` artifacts through existing safe run-artifact boundaries.
+1. `repo_task_admission` reads whether the expected exact task is absent, is the
+   sole matching active task, or conflicts with active lifecycle state.
+2. An admitted Delegation v3 run receives one immutable dispatch record followed
+   by at most one immutable launch-intent record.
+3. A supervisor-owned queue consumer records typed service identity and health,
+   then accepts one bounded launch outcome. A persisted launch intent without a
+   result, or any unknown effect, is terminal no-replay evidence.
 
-The service is projected in two bounded places:
-
-- `repo_agent_runs` list mode returns the complete aggregate `drift_summary`;
-- `repo_project_brief.product_brief` returns only `delegation_checkpoint`.
-
-`DelegationV3TaskService` may add drift signal codes to the task's normal
-`delegation_audit` warnings. These signals are advisory: they never block task
-creation, choose priorities, alter authorization, replace work-session
-direction, or create next-tool payloads. A passed product review already
-provides checkpoint evidence, so no separate checkpoint file, write tool,
-database, or dashboard is required.
-
-A dedicated workflow-drift regression suite protects the intentional 46-tool
-surface, canonical documentation, and the authority separation between work
-sessions, explicit-goal planning, run evidence, integration approval, and
-Git/ship review.
-
-## Adding a Tool
-
-Add a new tool by following the contract-first path:
-
-1. Add input and output Zod objects under `src/contracts/*`.
-2. Add the tool entry to `src/tools/contracts.ts`; `ToolName` updates automatically from the map key.
-3. Add a concise `Use this when...` description in `src/tools/descriptions.ts`.
-4. Add one definition to the appropriate `src/tools/packages/*` module with title, annotation, package, tier, capability metadata, and handler.
-5. Add the name once to `CANONICAL_TOOL_ORDER` in `src/tools/registry.ts`.
-6. Add a thin handler to the matching `src/tools/handlers/*` module and keep shared parsing/error behavior in `handler-support.ts`.
-7. Put real logic in a service under `src/services/*`.
-8. Add service tests, MCP contract coverage, registry/package invariants, tool contract discipline tests, and golden prompts when routing changes.
-
-Do not duplicate path validation, ignore handling, secret scanning, schema definitions, or result envelope logic inside individual tools.
-
-## Mutating Tools
-
-Mutating tools are disabled by default per repository and must be enabled through explicit repo-local policy. `repo_write_file` can write or exact-match edit one file inside configured allowed globs and outside configured denied globs. `repo_write_changes` applies the same write/edit semantics to an ordered multi-file edit pack and supports grouped same-file exact-match edits without allowing duplicate top-level paths.
-
-Mutating tools must stay separate from read tools. Do not loosen read services to support mutation, do not add shell execution, and do not add broad git automation. Safe git tools stage explicit paths, unstage explicit paths, restore explicit worktree paths, or create a local commit from an exact staged path list only after policy and HEAD checks. Cleanup tools remove only explicit generated artifacts allowed by cleanup policy.
+The normal server construction does not automatically start that queue consumer
+or select a provider. The launcher is an injected boundary, so provider-free
+tests can qualify admission, dispatch, exactly-once, health, and no-replay
+semantics without contacting a model. Provider adapters, credentials, model
+selection, and live execution authority remain outside public MCP inputs and
+default server startup. A worker result is evidence; repository validation and
+review remain authoritative.

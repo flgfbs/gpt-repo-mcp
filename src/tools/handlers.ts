@@ -5,3 +5,4 @@ export * from "./handlers/patchsets.js";
 export * from "./handlers/advanced-operations.js";
 export * from "./handlers/diagnostics-and-discovery.js";
 export * from "./handlers/code-index.js";
+export * from "./handlers/lifecycle.js";

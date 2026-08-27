@@ -5,6 +5,9 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
+import { URL } from "node:url";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 const START_TIMEOUT_MS = 5_000;
 const POLL_INTERVAL_MS = 100;
@@ -13,15 +16,20 @@ const tempRoot = await mkdtemp(join(tmpdir(), "gpt-repo-dist-smoke-"));
 const configPath = join(tempRoot, "config.json");
 const port = await reserveAvailablePort();
 let child;
+let client;
 
 try {
-  await writeFile(configPath, JSON.stringify({ repos: [], limits: {} }), "utf8");
+  await writeFile(configPath, JSON.stringify({
+    repos: [],
+    limits: {},
+    runtime_root: join(tempRoot, "runtime")
+  }), "utf8");
   child = spawn(process.execPath, ["dist/server.js"], {
     cwd: process.cwd(),
     env: {
       ...process.env,
-      GPT_REPO_CONFIG: configPath,
-      GPT_REPO_HOST: "127.0.0.1",
+      CHAT_PRO_REPOSITORY_MCP_CONFIG: configPath,
+      CHAT_PRO_REPOSITORY_MCP_HOST: "127.0.0.1",
       PORT: String(port)
     },
     stdio: ["ignore", "pipe", "pipe"]
@@ -36,8 +44,36 @@ try {
   });
 
   await waitForHealth(child, port, () => output);
-  process.stdout.write("Built server passed the /health runtime smoke test.\n");
+  client = new Client({ name: "chat-pro-repository-mcp-dist-smoke", version: "1.0.0" }, {
+    capabilities: {}
+  });
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`));
+  await client.connect(transport);
+  const capabilities = client.getServerCapabilities();
+  if (!capabilities?.tools || Object.hasOwn(capabilities, "resources")) {
+    throw new Error("Built server must advertise tools without a repository resource-discovery surface.");
+  }
+  const listed = await client.listTools();
+  if (listed.tools.length !== 65 || new Set(listed.tools.map(({ name }) => name)).size !== 65) {
+    throw new Error(`Built server exposed ${listed.tools.length} tools instead of 65 unique tools.`);
+  }
+  if (!listed.tools.every(({ annotations }) =>
+    typeof annotations?.readOnlyHint === "boolean" &&
+    typeof annotations?.destructiveHint === "boolean" &&
+    typeof annotations?.idempotentHint === "boolean" &&
+    typeof annotations?.openWorldHint === "boolean"
+  )) {
+    throw new Error("Built server omitted truthful read/write annotations from one or more tools.");
+  }
+  if (!listed.tools.some(({ annotations }) => annotations?.readOnlyHint === true) ||
+      !listed.tools.some(({ annotations }) => annotations?.readOnlyHint === false)) {
+    throw new Error("Built server did not expose both read-only and mutating tool annotations.");
+  }
+  process.stdout.write("Built server passed health, MCP initialize, 65-tool discovery, annotations, and resource-purity smoke checks.\n");
 } finally {
+  if (client) {
+    await client.close().catch(() => undefined);
+  }
   await stopChild(child);
   await rm(tempRoot, { recursive: true, force: true });
 }
@@ -71,7 +107,7 @@ async function waitForHealth(childProcess, port, readOutput) {
       });
       if (response.ok) {
         const body = await response.json();
-        if (body?.ok === true && body?.name === "gpt-repo-mcp") {
+        if (body?.ok === true && body?.name === "chat-pro-repository-mcp") {
           return;
         }
       }

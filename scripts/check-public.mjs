@@ -23,6 +23,7 @@ const scanRoots = [
   "CONTRIBUTING.md",
   "SECURITY.md",
   "LICENSE",
+  "NOTICE",
   "package.json",
   "config.example.json",
   ".gitleaks.toml",
@@ -53,7 +54,8 @@ const blockedMarkers = [
 ];
 
 const allowlistedMarkerHits = new Set([
-  "LICENSE::Promptiva"
+  "LICENSE::Promptiva",
+  "NOTICE::Promptiva"
 ]);
 
 function gitLsFiles() {

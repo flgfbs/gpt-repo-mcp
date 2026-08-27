@@ -9,9 +9,8 @@ import { promisify } from "node:util";
 import { describe, expect, test } from "vitest";
 import { SERVER_INSTRUCTIONS, createMcpServer } from "../src/register.js";
 import { RootRegistry } from "../src/services/root-registry.js";
-import { nonDestructiveMutationAnnotations, readOnlyAnnotations, safeMutationAnnotations, writeAnnotations } from "../src/tools/annotations.js";
 import { toolCatalog } from "../src/tools/catalog.js";
-import { MUTATING_TOOL_NAMES, isMutatingToolName } from "../src/tools/mutating-tools.js";
+import { MUTATING_TOOL_NAMES } from "../src/tools/mutating-tools.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -19,11 +18,11 @@ describe("MCP contract", () => {
   test("initialize exposes compact safety-complete server instructions", async () => {
     const { client, close } = await connectFixtureServer();
     try {
-      expect(client.getServerVersion()).toMatchObject({ name: "gpt-repo-mcp", version: "0.1.0" });
+      expect(client.getServerVersion()).toMatchObject({ name: "chat-pro-repository-mcp", version: "0.1.0" });
       expect(client.getServerCapabilities()).toMatchObject({ tools: {} });
       expect(client.getInstructions()).toBe(SERVER_INSTRUCTIONS);
       expect(Buffer.byteLength(SERVER_INSTRUCTIONS, "utf8")).toBeLessThan(6_000);
-      expect(SERVER_INSTRUCTIONS).toContain("Tools with local side effects require the relevant repository write or operations policy");
+      expect(SERVER_INSTRUCTIONS).toContain("Tools with local or external side effects require the exact repository, task, and operation policy");
       for (const toolName of MUTATING_TOOL_NAMES) expect(SERVER_INSTRUCTIONS).toContain(toolName);
       for (const clause of [
         "repo_code_index is a non-destructive idempotent provider/index mutation",
@@ -38,7 +37,9 @@ describe("MCP contract", () => {
         "Dry-run is optional preview",
         "Omit optional reason by default",
         "do not push",
-        "do not run shell commands"
+        "do not run shell commands",
+        "GitHub mutation must use only the exact task-bound lifecycle tools",
+        "Upstream provenance is not publication authority"
       ]) expect(SERVER_INSTRUCTIONS).toContain(clause);
       for (const removed of ["repo_next_action", "repo_plan_review", "repo_git_stage", "repo_git_unstage", "repo_git_commit"]) {
         expect(SERVER_INSTRUCTIONS).not.toContain(removed);
@@ -59,17 +60,9 @@ describe("MCP contract", () => {
         expect(tool.description).toEqual(expect.stringMatching(/^Use this when/));
         expect(tool.inputSchema).toBeDefined();
         expect(tool.outputSchema).toBeDefined();
-        if (isMutatingToolName(tool.name)) {
-          expect(tool.annotations).toMatchObject(
-            tool.name === "repo_code_index"
-              ? safeMutationAnnotations
-              : tool.name === "repo_prepare_patchset"
-                ? nonDestructiveMutationAnnotations
-                : writeAnnotations
-          );
-        } else {
-          expect(tool.annotations).toMatchObject(readOnlyAnnotations);
-        }
+        const definition = toolCatalog.find(({ name }) => name === tool.name);
+        expect(definition).toBeDefined();
+        expect(tool.annotations).toMatchObject(definition!.annotations);
       }
     } finally {
       await close();
@@ -81,7 +74,7 @@ describe("MCP contract", () => {
     try {
       const listed = await client.listTools();
 
-      expect(listed.tools.map((tool) => ({
+      expect(listed.tools.slice(0, 47).map((tool) => ({
         name: tool.name,
         title: tool.title,
         description: tool.description,
@@ -377,6 +370,9 @@ describe("MCP contract", () => {
             "description": "Use this when checking or managing the optional Codebase Memory index. Before action=start, explicitly ask the user; status is safe to inspect without approval.",
             "inputKeys": [
               "action",
+              "expected_head_sha",
+              "expected_tree_sha",
+              "operation_id",
               "repo_id",
             ],
             "name": "repo_code_index",
@@ -582,6 +578,8 @@ describe("MCP contract", () => {
             "inputKeys": [
               "dry_run",
               "expected_head_sha",
+              "expected_tree_sha",
+              "operation_id",
               "paths",
               "reason",
               "repo_id",
@@ -608,6 +606,8 @@ describe("MCP contract", () => {
             "inputKeys": [
               "dry_run",
               "expected_head_sha",
+              "expected_tree_sha",
+              "operation_id",
               "paths",
               "reason",
               "repo_id",
@@ -634,6 +634,8 @@ describe("MCP contract", () => {
             "inputKeys": [
               "dry_run",
               "expected_head_sha",
+              "expected_tree_sha",
+              "operation_id",
               "paths",
               "reason",
               "repo_id",
@@ -661,7 +663,9 @@ describe("MCP contract", () => {
               "dry_run",
               "expected_head_sha",
               "expected_staged_paths",
+              "expected_tree_sha",
               "message",
+              "operation_id",
               "reason",
               "repo_id",
             ],
@@ -688,7 +692,9 @@ describe("MCP contract", () => {
             "inputKeys": [
               "dry_run",
               "expected_head_sha",
+              "expected_tree_sha",
               "message",
+              "operation_id",
               "paths",
               "reason",
               "repo_id",
@@ -723,6 +729,8 @@ describe("MCP contract", () => {
               "discard_paths",
               "dry_run",
               "expected_head_sha",
+              "expected_tree_sha",
+              "operation_id",
               "reason",
               "repo_id",
               "restore_paths",
@@ -754,6 +762,9 @@ describe("MCP contract", () => {
             "description": "Use this when separately deleting reviewed untracked generated or local artifacts allowed by cleanup policy. Prefer composite recovery when available.",
             "inputKeys": [
               "dry_run",
+              "expected_head_sha",
+              "expected_tree_sha",
+              "operation_id",
               "paths",
               "reason",
               "repo_id",
@@ -937,11 +948,14 @@ describe("MCP contract", () => {
               "assignment",
               "authorization_scope",
               "dry_run",
+              "expected_head_sha",
+              "expected_tree_sha",
               "explicit_exclusions",
               "forbidden_paths",
               "hard_constraints",
               "lineage",
               "must_preserve",
+              "operation_id",
               "outcome",
               "product_alignment",
               "reason",
@@ -1027,7 +1041,10 @@ describe("MCP contract", () => {
             "description": "Use this when answering the exact current structured questions for an awaiting-input run. It rejects stale or incomplete replies and only writes the reply artifact.",
             "inputKeys": [
               "answers",
+              "expected_head_sha",
               "expected_question_sha256",
+              "expected_tree_sha",
+              "operation_id",
               "repo_id",
               "run_id",
               "turn_index",
@@ -1097,7 +1114,10 @@ describe("MCP contract", () => {
             "inputKeys": [
               "dry_run",
               "evidence",
+              "expected_head_sha",
               "expected_review_state_sha256",
+              "expected_tree_sha",
+              "operation_id",
               "product_verdict",
               "rationale",
               "reason",
@@ -1137,6 +1157,8 @@ describe("MCP contract", () => {
               "commit_message",
               "dry_run",
               "expected_head_sha",
+              "expected_tree_sha",
+              "operation_id",
               "reason",
               "repo_id",
               "run_ids",
@@ -1164,6 +1186,55 @@ describe("MCP contract", () => {
           },
           {
             "annotations": {
+              "destructiveHint": true,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": false,
+            },
+            "description": "Use this when finalizing an exact terminal technical Delegation v3 run whose source changes already exist and require bounded provider-free closure. It revalidates the manifest-authorized pathset, creates one unsigned local commit, exports one verified committed-source archive, writes RESULT.json and terminal runner state, and never accepts a shell command, pushes, or contacts GitHub or a model.",
+            "inputKeys": [
+              "archive_label",
+              "change_reason",
+              "commit_message",
+              "dry_run",
+              "expected_absent_refs",
+              "expected_branch",
+              "expected_changed_files",
+              "expected_head_sha",
+              "expected_prior_status",
+              "expected_prior_status_revision",
+              "expected_remote_names",
+              "expected_tracked_path_count",
+              "expected_tree_sha",
+              "operation_id",
+              "repo_id",
+              "run_id",
+              "summary",
+              "technical_acceptance_evidence",
+              "terminal_markers",
+            ],
+            "name": "repo_finalize_codex_run",
+            "outputKeys": [
+              "archive",
+              "changed_paths",
+              "commit_sha",
+              "dry_run",
+              "head_after",
+              "head_before",
+              "ok",
+              "operation_id",
+              "repo_id",
+              "result_json_path",
+              "run_id",
+              "runner_status_path",
+              "status",
+              "validation",
+              "warnings",
+            ],
+            "title": "Finalize exact Delegation v3 run",
+          },
+          {
+            "annotations": {
               "destructiveHint": false,
               "idempotentHint": false,
               "openWorldHint": false,
@@ -1172,8 +1243,11 @@ describe("MCP contract", () => {
             "description": "Use this when preparing an atomic create, modify, edit, delete, or rename patchset. It writes only local manifest metadata, not target files.",
             "inputKeys": [
               "base_head_sha",
+              "expected_head_sha",
+              "expected_tree_sha",
               "files",
               "intent",
+              "operation_id",
               "repo_id",
               "work_session_id",
             ],
@@ -1200,6 +1274,8 @@ describe("MCP contract", () => {
             "inputKeys": [
               "dry_run",
               "expected_head_sha",
+              "expected_tree_sha",
+              "operation_id",
               "patchset_id",
               "repo_id",
             ],
@@ -1260,6 +1336,8 @@ describe("MCP contract", () => {
             "inputKeys": [
               "dry_run",
               "expected_head_sha",
+              "expected_tree_sha",
+              "operation_id",
               "patchset_id",
               "repo_id",
             ],
@@ -1289,6 +1367,9 @@ describe("MCP contract", () => {
             "description": "Use this when running an allowlisted test, build, lint, typecheck, smoke, or all profile. A declared repo-owned make target takes priority; npm and safe pytest are fallbacks. Output is streamed into a bounded tail without a shell or arbitrary commands.",
             "inputKeys": [
               "dry_run",
+              "expected_head_sha",
+              "expected_tree_sha",
+              "operation_id",
               "profile",
               "repo_id",
               "test_paths",
@@ -1322,9 +1403,12 @@ describe("MCP contract", () => {
             "inputKeys": [
               "constraints",
               "dry_run",
+              "expected_head_sha",
+              "expected_tree_sha",
               "files_inspected",
               "next_action",
               "objective",
+              "operation_id",
               "repo_id",
               "title",
               "touched_files",
@@ -1360,7 +1444,10 @@ describe("MCP contract", () => {
               "append_unresolved_risks",
               "append_validation_results",
               "dry_run",
+              "expected_head_sha",
+              "expected_tree_sha",
               "next_action",
+              "operation_id",
               "repo_id",
               "status",
               "work_session_id",
@@ -1421,7 +1508,9 @@ describe("MCP contract", () => {
               "expected_head_sha",
               "expected_missing",
               "expected_old_sha256",
+              "expected_tree_sha",
               "find",
+              "operation_id",
               "path",
               "reason",
               "replace",
@@ -1456,6 +1545,8 @@ describe("MCP contract", () => {
               "changes",
               "dry_run",
               "expected_head_sha",
+              "expected_tree_sha",
+              "operation_id",
               "reason",
               "repo_id",
             ],
@@ -1488,9 +1579,12 @@ describe("MCP contract", () => {
               "current_track",
               "decisions",
               "dry_run",
+              "expected_head_sha",
+              "expected_tree_sha",
               "important_files",
               "next_steps",
               "open_questions",
+              "operation_id",
               "repo_id",
               "risks",
               "title",

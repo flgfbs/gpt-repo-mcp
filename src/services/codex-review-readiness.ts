@@ -76,9 +76,15 @@ export function evaluateCodexTechnicalReadiness(input: {
     : Boolean(input.manifest.validation);
   const checks: CodexTechnicalReadiness["checks"] = {
     integrity: input.integrity.manifest_bound ? "passed" : "failed",
-    baseline: input.integrity.head_matches_baseline === true
-      ? "passed"
-      : input.integrity.head_matches_baseline === false ? "failed" : "incomplete",
+    baseline: input.integrity.finalizer_evidence_matches === false
+      ? "failed"
+      : input.integrity.head_matches_baseline === true
+        || (
+          input.integrity.head_matches_finalizer_commit === true
+          && input.integrity.finalizer_evidence_matches === true
+        )
+        ? "passed"
+        : input.integrity.head_matches_baseline === false ? "failed" : "incomplete",
     authorization: input.manifest.schema_version === 3
       ? input.integrity.authorization_matches === true ? "passed" : "failed"
       : input.integrity.manifest_bound ? "passed" : "failed",

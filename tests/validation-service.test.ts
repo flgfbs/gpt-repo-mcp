@@ -7,6 +7,7 @@ import { OperationsPolicy } from "../src/services/operations-policy.js";
 import { ValidateInputSchema } from "../src/contracts/validation.contract.js";
 import { descriptions } from "../src/tools/descriptions.js";
 import type { NodeRuntimeResolverOptions } from "../src/services/node-runtime-resolver.js";
+import { readValidationArtifactCapture } from "../src/services/validation-artifact-capture.js";
 
 describe("ValidationService", () => {
   test("tool and contract describe repo-owned priority plus safe fallbacks without shell execution", async () => {
@@ -106,7 +107,7 @@ describe("ValidationService", () => {
   test("validation artifact records the pytest runner and display command", async () => {
     const root = await fixtureRepo({ pythonMarker: true, localPython: true });
     const result = await service(root).validate({ repo_id: "fixture", profile: "test" });
-    const artifact = JSON.parse(await readFile(join(root, result.validation_artifact!.path), "utf8"));
+    const artifact = JSON.parse(await readFile(join(root, result.validation_artifact!.path!), "utf8"));
     expect(artifact.commands[0]).toMatchObject({ script: "pytest", command: ".venv/bin/python -m pytest" });
   });
 
@@ -141,6 +142,25 @@ describe("ValidationService", () => {
     expect(result.commands[0]?.runtime).toBeUndefined();
   });
 
+  test.skipIf(process.platform === "win32")("finds npm beside the trusted running Node executable when the service PATH omits it", async () => {
+    const root = await fixtureRepo({ scripts: { smoke: "should-not-be-read-by-fake-npm" } });
+    const runtimeBin = await mkdtemp(join(tmpdir(), "gpt-host-node-bin-"));
+    const npm = join(runtimeBin, "npm");
+    await writeFile(npm, `#!${process.execPath}\nconsole.log(process.argv.slice(2).join("|"));\n`);
+    await chmod(npm, 0o755);
+
+    const result = await service(root, {}, {}, join(runtimeBin, "node"))
+      .validate({ repo_id: "fixture", profile: "smoke" });
+
+    expect(result).toMatchObject({
+      status: "passed",
+      commands: [{
+        command: "npm run smoke",
+        stdout_tail: "run|smoke"
+      }]
+    });
+  });
+
   test("fails safely when an exact requested Node runtime is not installed", async () => {
     const root = await fixtureRepo({ scripts: { test: "echo ok" }, nvmrc: "24.18.0" });
     await expect(service(root, {}, { home: await mkdtemp(join(tmpdir(), "gpt-empty-runtime-")), env: {} })
@@ -163,7 +183,7 @@ describe("ValidationService", () => {
     const root = await fixtureRepo({ scripts: { smoke: "echo ok" }, nodeVersion: "24.18.0" });
     const runtime = await fakeNvmRuntime("24.18.0");
     const result = await service(root, {}, runtime.options).validate({ repo_id: "fixture", profile: "smoke" });
-    const artifactText = await readFile(join(root, result.validation_artifact!.path), "utf8");
+    const artifactText = await readFile(join(root, result.validation_artifact!.path!), "utf8");
     expect(JSON.parse(artifactText).commands[0].runtime).toEqual({ name: "node", version: "24.18.0", source: ".node-version" });
     expect(artifactText).not.toContain(runtime.home);
   });
@@ -218,6 +238,25 @@ describe("ValidationService", () => {
       warnings: []
     });
     expect(result.commands[0]?.stdout_tail?.length).toBeLessThanOrEqual(4000);
+    const capture = readValidationArtifactCapture(result);
+    expect(capture?.commands[0]).toMatchObject({
+      status: "passed",
+      stdout: expect.stringContaining("smoke ok"),
+      timed_out: false
+    });
+    expect(JSON.stringify(result)).not.toContain("validation-artifact-capture");
+  });
+
+  test("redacts host absolute paths from the full validation capture", async () => {
+    const hostPath = "/Users/example/private-worktree/result.json";
+    const root = await fixtureRepo({
+      scripts: { smoke: `node -e "console.log('${hostPath}')"` }
+    });
+
+    const result = await service(root).validate({ repo_id: "fixture", profile: "smoke" });
+    const capture = readValidationArtifactCapture(result);
+    expect(capture?.commands[0]?.stdout).toContain("[REDACTED_PATH]");
+    expect(capture?.commands[0]?.stdout).not.toContain(hostPath);
   });
 
   test("reports validation failure as a structured result instead of a tool error", async () => {
@@ -296,7 +335,7 @@ describe("ValidationService", () => {
     });
     expect(result.validation_id).toMatch(/^validation-/);
 
-    const artifact = JSON.parse(await readFile(join(root, result.validation_artifact!.path), "utf8")) as {
+    const artifact = JSON.parse(await readFile(join(root, result.validation_artifact!.path!), "utf8")) as {
       validation_id?: string;
       focused?: boolean;
       test_paths?: string[];
@@ -336,13 +375,14 @@ describe("ValidationService", () => {
 function service(
   root: string,
   operations: Partial<ConstructorParameters<typeof OperationsPolicy>[0]> = {},
-  runtimeOptions: NodeRuntimeResolverOptions = {}
+  runtimeOptions: NodeRuntimeResolverOptions = {},
+  hostNodeExecutable: string = process.execPath
 ): ValidationService {
   return new ValidationService(root, new OperationsPolicy({
     enabled: true,
     validation_enabled: true,
     ...operations
-  }), runtimeOptions);
+  }), runtimeOptions, hostNodeExecutable);
 }
 
 async function fixtureRepo(options: {

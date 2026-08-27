@@ -1,275 +1,267 @@
-# Setup
+# Setup And Operations
 
-This guide gets a local GPT Repo MCP (`gpt-repo-mcp`) server configured for approved repositories. For ChatGPT Developer Mode connection steps, see [CHATGPT_CONNECT.md](CHATGPT_CONNECT.md). For tunnel choices, see [CONNECTION_OPTIONS.md](CONNECTION_OPTIONS.md).
+This guide installs Chat Pro Repository MCP, registers repositories, starts the
+loopback service on port `8789`, activates OpenAI Secure MCP Tunnel, and covers
+health, rollback, and uninstall.
 
-## Requirements
+## Prerequisites
 
 - Node.js 20 or newer
-- npm
-- git
-- ngrok for the built-in `npm run connect` convenience tunnel, or another HTTPS tunnel for manual setup
-- ChatGPT account with Developer Mode access
+- Git
+- `gh` installed and authenticated only when GitHub lifecycle tools are needed
+- an OpenAI workspace where Secure MCP Tunnel and custom ChatGPT apps are
+  available
 
-ChatGPT cannot call `localhost` directly. The fastest OSS setup is `npm run connect`, which starts the local MCP server, starts or reuses ngrok, and prints a temporary public HTTPS URL ending in `/t/<random-token>/mcp`.
-
-## Install ngrok from zero
-
-Use this section if you have never installed or used ngrok before. GPT Repo MCP uses the ngrok Agent CLI to expose your local MCP server on a temporary HTTPS URL for ChatGPT.
-
-### 1. Create an ngrok account
-
-Create a free ngrok account in the ngrok dashboard. After signing in, open the dashboard setup page. The dashboard shows a one-time account connection command for your machine.
-
-### 2. Install the ngrok Agent CLI
-
-macOS with Homebrew:
-
-```bash
-brew install ngrok
-```
-
-Debian/Ubuntu Linux:
-
-```bash
-curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc \
-  | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null \
-  && echo "deb https://ngrok-agent.s3.amazonaws.com buster main" \
-  | sudo tee /etc/apt/sources.list.d/ngrok.list \
-  && sudo apt update \
-  && sudo apt install ngrok
-```
-
-Windows:
-
-Install ngrok from the Microsoft Store or from the ngrok download page, then open PowerShell or Terminal.
-
-### 3. Verify ngrok is installed
-
-Run `ngrok help`. If this prints ngrok help text, the CLI is available on your PATH.
-
-### 4. Connect ngrok to your account
-
-Copy the account connection command from your ngrok dashboard and run it once in your terminal. Do not commit the account value from that command to this repo or paste it into ChatGPT.
-
-### 5. Use ngrok through GPT Repo MCP
-
-After ngrok is installed and connected to your account, use the normal quickstart: `npm run connect`.
-
-`npm run connect` starts the local MCP server on port `8787`, starts or reuses ngrok, and prints the ChatGPT connector URL ending in `/t/<random-token>/mcp`. You do not need to run `ngrok http 8787` yourself unless you are following the manual tunnel flow.
+The MCP server never reads credentials. `gh` owns its installed authentication,
+and Secure MCP Tunnel credentials remain in the OpenAI-managed tunnel runtime.
 
 ## Install
 
-```bash
-git clone https://github.com/CAHN91/gpt-repo-mcp.git
-cd gpt-repo-mcp
-npm install
-```
-
-## Build
-
-Run `npm run build`. Before a release or packaged deployment, run
-`npm run verify:dist` to rebuild, start the real `dist/server.js` artifact,
-and verify its `/health` endpoint.
-
-## Create Local Config
-
-Run `cp config.example.json config.local.json`. This creates a valid empty local config with no approved repositories. `config.local.json` is ignored by git and should stay uncommitted.
-
-## Add A Repository
+From a trusted checkout:
 
 ```bash
-npm run add -- /path/to/your/repo
+npm ci
+npm run build
+cp config.example.json config.local.json
 ```
 
-The CLI adds the first approved local repository root to the empty `config.local.json`. It prompts for a permission mode when stdin is interactive: `read`, `write`, or `ship`. Non-interactive runs default to read mode.
+`config.example.json` is intentionally empty. `config.local.json` is local-only
+and must not be committed.
 
-Use explicit mode flags when you want predictable setup:
+## Register A Repository
+
+Use the owner CLI through the package shortcuts:
 
 ```bash
-npm run add -- /path/to/your/repo --mode read
-npm run add -- /path/to/your/repo --mode write
-npm run add -- /path/to/your/repo --mode ship
+npm run add -- /path/to/your/repo --mode <mode>
+npm run list
+npm run check:config
 ```
 
-- `read`: read-only tools.
-- `write`: read tools plus broad repo-local writes guarded by hard denied paths, secret checks, path sandboxing, and size limits.
-- `ship`: write mode plus local validation, git stage, commit, recover, and cleanup operations.
+Replace `<mode>` with explicit `read`, `write`, or `ship`:
 
-No mode enables push, pull, reset, checkout, switch, rebase, merge, stash, clean, force, branch deletion, shell execution, or arbitrary command execution.
+- `read` enables bounded inspection;
+- `write` additionally enables policy-checked edits; and
+- `ship` additionally admits reviewed local Git; task-bound GitHub lifecycle
+  work is available only when a GitHub lifecycle policy is configured.
 
-Permission mode summary:
+The CLI resolves and records the canonical root. It rejects duplicate ids and
+roots. No MCP tool can register a root or change its mode.
 
-| Mode | Effect |
-| --- | --- |
-| `read` | Read-only repository tools; writes and local operations stay disabled. |
-| `write` | Read tools plus broad repo-local writes guarded by hard denied paths, secret checks, path sandboxing, and size limits. |
-| `ship` | Same write policy as `write`, plus local validation, stage, commit, recover, and cleanup operations. |
+To choose stable labels:
 
-## List Repositories
-
-Run `npm run list`. Use the listed `repo_id` in prompts such as:
-
-```text
-Use GPT Repo MCP. Give me a project brief for <repo_id>.
+```bash
+npm run add -- /path/to/your/repo --mode ship --id project-id --name "Project Name"
 ```
 
-## Remove A Repository
+For a repository with no GitHub remote, register a local-only lifecycle:
 
-Run `npm run remove -- <repo_id>`. The `gpt-repo` binary is also available when the package is linked or installed. Clone-based setup should use the npm scripts above.
+```bash
+npm run add -- /path/to/your/repo --mode ship --local-only --id project-id
+```
 
-## Check Config
+For a GitHub-backed `ship` lifecycle, select the publication remote. `origin` is the default:
 
-Run `npm run check:config`.
+```bash
+npm run add -- /path/to/your/repo --mode ship \
+  --remote-name origin \
+  --id project-id
+```
 
-Configuration objects are strict at every level. Unknown top-level, repository,
-write-policy, operations-policy, and limits fields are rejected so a misspelled
-permission or limit cannot silently fall back to its default. Correct the
-reported key before using `add`, `list`, `check`, `doctor`, or starting the
-server.
+The CLI derives both the canonical remote identity and `OWNER/REPOSITORY` from that remote and stores them as one binding. No repository-name retyping is required. `--expected-remote-identity` and `--github-repository` remain optional assertions for scripted setup; when supplied, they must match the selected remote exactly. A source-provenance upstream or fork parent is not substituted automatically.
 
-## Repository-owned validation profiles
+This admits isolated task worktrees, validation, stage, local commit, close, and
+cleanup. It does not configure a remote, GitHub repository, required checks, or
+merge method. Remote, push, pull-request, CI, review-thread, merge, and
+post-merge tools fail closed with `LIFECYCLE_POLICY_DENIED`.
 
-A repository can declare canonical allowlisted `make` targets under its `operations` config. Declared profiles take precedence over npm and pytest detection:
+Manual configuration remains possible for advanced operators, but the CLI is
+recommended because it performs canonicalization and validation.
+
+### Enable Exact Delegation Run Finalization Without Ship Mode
+
+`repo_finalize_codex_run` is separately default-off. It does not inherit
+permission from `write` or `ship`, and it does not require enabling generic
+stage, commit, validation, or cleanup operations. For one trusted explicit
+repository that needs manifest-bound recovery of an already-created terminal
+Delegation v3 run, add only this field to that repository entry:
 
 ```json
 {
   "operations": {
-    "enabled": true,
-    "validation_enabled": true,
-    "validation_profiles": {
-      "test": { "runner": "make", "target": "test" },
-      "lint": { "runner": "make", "target": "lint" },
-      "typecheck": { "runner": "make", "target": "typecheck" },
-      "smoke": { "runner": "make", "target": "smoke" },
-      "all": { "runner": "make", "target": "verify" }
-    }
+    "codex_run_finalize_enabled": true
   }
 }
 ```
 
-Targets are schema-allowlisted and executed directly as `make <target>` without a shell. Output is streamed and only a bounded tail is retained. Existing configs without `validation_profiles` remain valid.
+All other operation fields may remain false. Validate the config and restart
+the local MCP service. The finalizer still requires exact run, prior status,
+branch, HEAD, tree, changed-file digest, tracked-path, remote, absent-ref,
+commit-message, and acceptance-evidence bindings. It never accepts a command
+string, pushes, contacts GitHub, or invokes a model.
 
-## Doctor
+## Register A Project Root
 
-Run `npm run doctor`. The doctor command checks config validation, package scripts, ngrok availability, tunnel state, port `8787`, and git status without dumping raw config or secrets. Run it after adding a repository for full green status. Before adding a repository, the empty starter config still validates and doctor may report `WARN config has no repositories`.
+Register one owner-controlled directory to discover every direct Git
+repository beneath it:
 
-## Quickstart: Start MCP And Built-In Tunnel
-
-Use the built-in convenience path first: `npm run connect`.
-
-This starts the local MCP server and tries to use or reuse ngrok. It should print:
-
-```text
-ChatGPT MCP URL: https://<ngrok-host>/t/<random-token>/mcp
+```bash
+npm run add-project-root -- /path/to/projects
+npm run list-project-roots
+npm run list
+npm run check:config
 ```
 
-Paste the exact printed URL into ChatGPT Developer Mode connector settings. The random path token is guess-resistance only, not authentication. Anyone with the full URL can reach the endpoint while the tunnel is running. Treat public tunnel URLs as temporary local development endpoints and stop them between sessions.
+Discovery is read-only and limited to direct, real child directories that are
+exact standalone Git worktree roots. Non-Git directories, symlinks, `.git`
+indirection files used by linked worktrees or submodules, and deeper nested
+repositories are not admitted. Repeatable `--exclude <directory-name>` values
+are matched case-insensitively. Use `--repo-id-prefix <prefix>` if several
+project roots could produce the same repository id; the resulting repository id
+must not exceed 200 characters.
 
-## Manual Tunnel Setup
+Register a repository explicitly with `write` or `ship` when it needs file
+mutation or task worktrees. Use `--local-only` when those tasks must remain
+local; omit it only when configuring the GitHub lifecycle, required checks, and
+merge behavior. An explicit entry overrides discovery for the same canonical
+child root. A project root cannot be equal to or nested inside an explicit
+repository root.
 
-Use `npm run mcp` when you want to run the local server yourself and expose port `8787` through your own HTTPS tunnel, reverse proxy, or network setup:
+Restart the local MCP server after changing project-root registration. The
+Secure MCP Tunnel can remain connected while the loopback server restarts.
+
+## Validate And Diagnose
+
+```bash
+npm run check:config
+npm run doctor
+```
+
+Success means configuration is valid, required local executables are visible,
+the loopback binding is usable, and no blocking diagnostic is reported. An
+empty starter config can validate, but the doctor reports that no repository is
+registered.
+
+## Start, Health, And Stop
+
+Start the development runtime with the local configuration and required port:
 
 ```bash
 npm run mcp
 ```
 
-`npm run mcp` starts only the local MCP server on `127.0.0.1`. It does not start a tunnel and does not generate a public path token by itself.
+After a build, the production entrypoint can be started explicitly:
 
-For a manual public tunnel, start the MCP server with an explicit random public path value. See [CONNECTION_OPTIONS.md](CONNECTION_OPTIONS.md) for the advanced environment-variable form.
+```bash
+CHAT_PRO_REPOSITORY_MCP_CONFIG=./config.local.json PORT=8789 npm start
+```
 
-Then start a tunnel in another terminal with `ngrok http 8787` or `cloudflared tunnel --url http://localhost:8787`.
+The service binds to `127.0.0.1`, exposes MCP at
+`http://127.0.0.1:8789/mcp`, and exposes local health at:
 
-Use `https://<public-host>/t/<that-token>/mcp`.
+```bash
+curl http://127.0.0.1:8789/health
+```
 
-You can also use `npm run tunnel` to start only the bundled ngrok command for local debugging.
+Success is an HTTP 200 JSON response with `ok: true`. Stop the foreground
+server with `Ctrl-C`. Stopping the process does not remove repository
+registration, tasks, receipts, or approvals.
 
-## Advanced: OpenAI Secure MCP Tunnel
+## Activate OpenAI Secure MCP Tunnel
 
-For longer-lived or private connector setups, and for workspaces that support it, use OpenAI Secure MCP Tunnel. Run `cp .env.example .env`, fill `.env` with your OpenAI Secure MCP Tunnel runtime API key, `tunnel-client` binary path, and profile name, then run `npm run connect:secure`. The profile name in `.env.example` is only a convention; create or configure that profile locally, or replace it with your own configured profile name. See [CONNECTION_OPTIONS.md](CONNECTION_OPTIONS.md) for connection details.
+Tunnel activation is an OpenAI workspace operation, not a script in this
+repository:
 
-## How To Know It Worked
+1. Keep `npm run mcp` running and confirm local health.
+2. In the OpenAI workspace administration surface, create or activate a Secure
+   MCP Tunnel that forwards to `http://127.0.0.1:8789/mcp`.
+3. Keep the tunnel runtime active on the same machine as the loopback server.
+4. Record the returned `tunnel_...` identifier in the workspace connection
+   surface, not in this repository.
+5. Follow [ChatGPT Connection](CHATGPT_CONNECT.md) to create the app.
 
-- `npm run connect` prints an HTTPS URL ending in `/t/<random-token>/mcp`.
-- Or `npm run connect:secure` starts the local MCP server and `tunnel-client`.
-- ChatGPT Developer Mode accepts the connector URL.
-- A new ChatGPT conversation can call the connector.
-- This prompt returns your configured repos:
+The supported public documentation covers Secure MCP Tunnel activation only.
+It does not expose the loopback server through a public URL.
+
+## First ChatGPT Check
+
+After creating the app and refreshing its tools, ask:
 
 ```text
-Use GPT Repo MCP. Which repositories can you access?
+Use Chat Pro Repository MCP. Which repositories can you access?
 ```
 
-## Common Commands
+The answer should contain only registered `repo_id` values. Then request a
+bounded project brief or tree read before authorizing changes.
 
-| Command | Purpose |
-| --- | --- |
-| `npm run build` | Build the MCP server and CLI. |
-| `npm run doctor` | Check local setup and tunnel readiness. |
-| `npm run connect` | Start the server and try to use or reuse ngrok. |
-| `npm run connect:secure` | Start the server and OpenAI Secure MCP Tunnel. |
-| `npm run mcp` | Start only the local MCP server. |
-| `npm run tunnel` | Start only the ngrok tunnel. |
-| `npm run list` | List approved repositories. |
-| `npm run add -- <path>` | Add an approved repository root. |
-| `npm run add -- <path> --mode <mode>` | Add a repository root with explicit `read`, `write`, or `ship` mode. |
-| `npm run remove -- <repo_id>` | Remove an approved repository root. |
-| `npm run check:config` | Validate local config. |
-| `npm test -- tests/tool-contracts.test.ts tests/mcp-contract.test.ts` | Run focused MCP contract checks. |
+## Owner Merge Approval
 
-## Opt-In Mutating Tools
+When `repo_merge_gate_prepare` reports an eligible exact-head gate, it prints:
 
-The default setup is read-mostly. Mutating tools are disabled by default and should only be enabled for trusted repositories.
-
-Enable them per repo in `config.local.json`:
-
-```json
-{
-  "repos": [
-    {
-      "repo_id": "example-repo",
-      "writes": {
-        "enabled": true
-      },
-      "operations": {
-        "enabled": true,
-        "git_stage_enabled": true,
-        "git_commit_enabled": true,
-        "validation_enabled": true,
-        "validation_test_path_globs": ["tests/**", "**/*.test.ts", "**/*.spec.ts"],
-        "cleanup_enabled": true
-      }
-    }
-  ]
-}
+```bash
+chat-pro-repo approve-merge --gate-id <opaque-id>
 ```
 
-Write, validation, git, and cleanup actions are still policy-limited. The ChatGPT host approval UI is the normal confirmation point for mutating tool calls unless you choose to remember approval for the conversation.
+Run that command in the owner terminal. Verify the displayed repository, task,
+pull request, exact HEAD/tree, method, mandatory remote-task-branch retention,
+review/CI state, digest, and expiration before confirming. The resulting
+approval is mode 0600, expires with the gate, and can be consumed once.
 
-Codebase Memory is an optional local add-on rather than a package dependency. To enable graph enrichment, add a global block with the absolute path to an already installed `codebase-memory-mcp` binary:
+## Rollback And Uninstall
 
-```json
-{
-  "code_intelligence": {
-    "provider": "codebase_memory",
-    "executable": "/absolute/path/to/codebase-memory-mcp",
-    "query_timeout_ms": 3000,
-    "index_timeout_ms": 1800000
-  }
-}
+To roll back access without deleting repository data:
+
+1. stop the MCP server;
+2. stop or deactivate its Secure MCP Tunnel;
+3. disable or remove the ChatGPT app;
+4. unregister project roots with `npm run remove-project-root -- <project_root_id>`
+   and explicit roots with `npm run remove -- <repo_id>`; and
+5. run `npm run list` to confirm the registry is empty.
+
+Unregistering a root does not delete the repository. Before removing this
+checkout, preserve any desired local configuration or lifecycle evidence in a
+secure location. Remove the checkout only after confirming no task worktree or
+unconsumed owner approval is still needed.
+
+If the CLI was globally linked, remove that link using the package manager's
+normal unlink operation. No uninstall step should delete a registered source
+repository.
+
+## Updating
+
+Update only from a trusted revision, then review dependency and public-contract
+changes:
+
+```bash
+npm ci
+npm run build
+npm run check:config
+npm run typecheck
+npm test
+npm run lint
+npm run check:public
+npm run verify:dist
 ```
 
-If an approved repository has no matching index, `repo_symbol_context` returns native evidence with `provider.status: "index_required"`. ChatGPT asks before calling `repo_code_index` with `action: "start"`; index status is then monitored with `action: "status"`.
+For release preparation, also run the content-bound export and security scan in
+[Dependency Security](DEPENDENCY_SECURITY.md) from a clean exact HEAD.
 
-If a read, write, or cleanup path is unexpectedly blocked, ask ChatGPT to run `repo_policy_explain` with the repo id and path. It explains read/write/cleanup policy decisions and local git operation toggles without reading or mutating files.
+Do not use `npm audit fix --force`. See
+[Dependency Security](DEPENDENCY_SECURITY.md) and [Migration](MIGRATION.md).
 
-## Common Failure Modes
+## Troubleshooting
 
-- `config.local.json` is missing: run `cp config.example.json config.local.json`.
-- Unknown `repo_id`: run `npm run list`.
-- ChatGPT cannot connect through Secure MCP Tunnel: confirm `npm run connect:secure` is still running, refresh connector metadata, and verify the connector uses Tunnel.
-- ChatGPT cannot connect through a public tunnel: confirm the URL is public HTTPS and exactly matches the current `/t/<token>/mcp` URL.
-- Tunnel URL changed: update or refresh the ChatGPT connector.
-- Port `8787` is busy: stop the process using it, then rerun `npm run connect`.
-- ngrok endpoint already online: `npm run connect` tries to reuse an existing HTTPS tunnel from the local ngrok API.
-- Schema mismatch in ChatGPT: refresh connector metadata, then run `npm test -- tests/tool-contracts.test.ts tests/mcp-contract.test.ts`.
-- Write disabled: keep the default read-mostly setup, or explicitly enable `writes.enabled` for a trusted repo.
+- Health fails: confirm the server is running and port `8789` is free.
+- Tools are absent in ChatGPT: confirm the Tunnel ID and refresh app metadata.
+- `UNKNOWN_REPO`: run `npm run list`; only the owner CLI can register the root.
+- `LIFECYCLE_POLICY_DENIED`: confirm whether the repository is read-only,
+  local-only, or GitHub-backed. Do not add a remote merely to bypass this
+  policy; use `--local-only` for isolated local tasks.
+- `REMOTE_IDENTITY_MISMATCH` or `GITHUB_REPOSITORY_MISMATCH`: the optional assertion disagrees with the selected remote; correct the remote or remove the redundant assertion.
+- `PUBLICATION_TARGET_BINDING_MISMATCH`, `PUBLICATION_TARGET_ARCHIVED`, or `PUBLICATION_TARGET_NOT_WRITABLE`: stop before external mutation and correct the selected remote or GitHub authority. Do not fall back to direct `gh`, another connector, or browser automation.
+- GitHub reads fail: run `gh auth status` in the owner terminal; do not paste
+  authentication output or tokens into ChatGPT.
+- A state-bound call is stale: read current task/GitHub state and prepare a new
+  exact operation rather than weakening the expected state.
+- A merge approval is rejected: prepare a fresh gate; approvals cannot be
+  edited, replayed, or transferred to a changed manifest.

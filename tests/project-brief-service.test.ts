@@ -239,7 +239,7 @@ describe("ProjectBriefService", () => {
     expect(sandbox.resolvedPaths).not.toContain(".chatgpt/backlog/README.md");
   });
 
-  test("dogfoods a product-grounded and technically complete brief for GPT Repo MCP", async () => {
+  test("dogfoods a product-grounded and technically complete brief for Chat Pro Repository MCP", async () => {
     const root = process.cwd();
     const result = await new ProjectBriefService({
       repo_id: "chatgpt-mcp-oss",
@@ -250,7 +250,7 @@ describe("ProjectBriefService", () => {
     expect(ProjectBriefResultSchema.safeParse(result).success).toBe(true);
     expect(result.product_brief).toMatchObject({
       status: "configured",
-      product: { name: "GPT Repo MCP" },
+      product: { name: "Chat Pro Repository MCP" },
       governance: { mode: "advisory" },
       delegation_checkpoint: {
         governance_mode: "advisory",

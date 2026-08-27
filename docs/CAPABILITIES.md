@@ -1,229 +1,163 @@
 # Capability Guide
 
-GPT Repo MCP gives ChatGPT a focused set of local repository capabilities.
-Instead of uploading a project into the conversation or giving ChatGPT a
-general-purpose shell, you approve a repository and choose whether it can be
-read, changed, or prepared for a local commit.
+Chat Pro Repository MCP exposes exactly 65 repository tools. The first 47 keep
+their canonical local order and semantics; 18 task and optional GitHub lifecycle
+tools are appended in one canonical order. There are no aliases.
 
-This guide explains the experience in terms of outcomes. You normally describe
-the result you want and let ChatGPT choose the tools. For the available tool
-groups and their individual responsibilities, see
-[TOOL_SURFACE.md](TOOL_SURFACE.md).
+## Everyday Repository Work
 
-## What Changes When ChatGPT Is Connected
+Use the bounded read tools to list registered repositories, inspect trees,
+search, read files, map context, inspect symbols, and review Git state. Direct
+edits use `repo_write_file` or `repo_write_changes`; atomic multi-step edits can
+use the patchset tools. All paths are repository-relative and server checked.
 
-Without repository tools, ChatGPT works from the files and text provided in the
-conversation. With GPT Repo MCP, ChatGPT can gather current evidence from an
-approved local repository and act on that evidence within its configured
-permission mode.
+`repo_validate` runs only configured or safely detected validation profiles.
+It does not accept a command line or shell program. `repo_git_review`,
+`repo_semantic_review`, and `repo_ship_review` reason from current repository
+state and recorded evidence rather than from a claimed result.
 
-A normal implementation can move through one connected workflow:
+## Registration And Permission Modes
 
-1. Understand the goal and repository context.
-2. Locate and read only the relevant code.
-3. Edit one file or a cohesive set of files.
-4. Run an approved validation profile.
-5. Review the actual changes and current Git state.
-6. Recover the change or prepare a local commit when authorized.
+Repository roots are registered by the owner CLI, never by an MCP tool:
 
-The user still chooses the goal, repository, permission mode, and whether work
-should be committed, pushed, or deployed.
-
-## How ChatGPT Adapts Its Workflow
-
-GPT Repo MCP provides several kinds of guidance when the connector starts and
-while tools are used:
-
-- **Workflow instructions** describe the recommended direct-development path
-  and when specialist workflows are appropriate.
-- **Tool descriptions and schemas** explain what each capability does, when it
-  should be used, and which inputs are valid.
-- **Safety annotations** tell the host which calls are read-only and which have
-  local side effects that require approval.
-- **Structured results** return current evidence, warnings, and exact safe next
-  steps when another action is available.
-
-ChatGPT uses this information to select tools for the current request. The
-selection is guided, not hard-coded: a code question may stop after reading,
-while a feature request may continue through editing, tests, review, and local
-commit preparation.
-
-The server remains the enforcement boundary. It validates every request against
-the configured repository, policy, paths, sizes, secrets, current HEAD and file
-state, validation profiles, and allowed Git operations. A model instruction
-cannot bypass those checks.
-
-## Understand And Navigate A Codebase
-
-ChatGPT can:
-
-- list approved repositories and inspect their high-level structure;
-- search for code, text, usages, configuration, or likely entry points;
-- read one known file, a line range, or a bounded set of relevant files;
-- map file dependencies, symbol references, affected tests, and likely impact;
-- summarize repository-owned product context, scripts, architecture, and active
-  work without treating old notes as current truth.
-
-This helps ChatGPT build a current picture from the repository instead of
-guessing from filenames or relying only on conversation history.
-
-Example request:
-
-```text
-Understand how authentication is structured in this repo. Read only the
-relevant files and tell me which tests would be affected by changing session
-expiry.
+```bash
+npm run add -- /path/to/your/repo --mode <mode>
 ```
 
-## Build And Edit Complete Changes
+Use `--local-only` for a repository that needs isolated task worktrees and local
+Git but must not gain any remote or GitHub authority:
 
-In `write` or `ship` mode, ChatGPT can:
-
-- create or precisely edit a single file;
-- apply one cohesive set of changes across multiple files;
-- use exact-match edits for focused replacements and insertions;
-- prepare transactional patchsets when explicit apply and rollback semantics
-  are useful;
-- inspect the resulting diff before proposing the next action.
-
-Direct file editing is the default. Patchsets and granular Git operations are
-specialist paths, not required ceremony for ordinary work.
-
-Example request:
-
-```text
-Add CSV export to the reports page. Update the implementation, tests, and user
-documentation, then show me the resulting diff.
+```bash
+npm run add -- /path/to/your/repo --mode ship --local-only
 ```
 
-Every write still passes repository policy, path containment, denied-path,
-file-size, stale-state, and secret-content checks.
+Choose an explicit `read`, `write`, or `ship` mode. Registration resolves the
+canonical root and writes local configuration. A tool cannot add a root, change
+its mode, or expand its path policy.
 
-## Test, Diagnose, And Correct Failures
+For many sibling repositories, register their owner-controlled parent once:
 
-ChatGPT can run repository-approved validation profiles for tests, builds,
-linting, type checks, smoke checks, or the complete configured suite. Results
-are bounded and structured so ChatGPT can identify the relevant failure without
-receiving unrestricted command execution.
-
-When validation fails, ChatGPT can correlate saved validation evidence,
-normalize useful diagnostics, inspect the implicated code, make a correction,
-and validate again.
-
-Example request:
-
-```text
-Run the approved test profile. Diagnose the failure, fix the underlying issue,
-and rerun the narrowest check that proves the correction.
+```bash
+npm run add-project-root -- /path/to/projects
 ```
 
-GPT Repo MCP does not expose an arbitrary terminal or allow ChatGPT to invent
-new shell commands. Validation is limited to configured, allowlisted workflows.
+Direct standalone Git children become independent read-only repository ids with
+separate canonical path sandboxes. Symlinks and `.git` indirection files are
+excluded; configured directory exclusions are case-insensitive. Add an explicit
+`write` or `ship` repository entry only where broader authority is required.
 
-## Review And Prepare Work For Shipping
+## Task-Isolated Development
 
-ChatGPT can review the repository's actual Git status and diff, combine that
-evidence with validation and semantic risk findings, and determine whether the
-work is ready for a local commit.
+`repo_task_open` binds a caller-generated operation id and task id to an exact
+base repository, base branch, commit, tree, authority (`inspect`, `implement`,
+or `ship`), goal, and lowercase branch slug. The server derives the task branch
+and owns its worktree.
 
-A successful review can return an exact next-step payload for staging and
-committing the reviewed paths. Before mutation, the server rechecks the current
-HEAD, file bytes, path set, validation evidence, and relevant review gates.
+Task status, terminal close outcomes (`completed`, `blocked`, `abandoned`, or
+`superseded`), and cleanup are explicit. Cleanup acts only on eligible closed,
+server-owned task resources and preserves a durable receipt.
 
-Example request:
+`repo_task_admission` is read-only. Given an expected exact task binding, it
+returns one of three typed states: no active task, one matching active task, or
+conflicting active task state. It never opens, claims, closes, or retries a task.
 
-```text
-Review everything currently changed. Check validation and semantic risk, then
-prepare one local commit if the result is ready.
+The lifecycle policy has two forms. `kind: "local"` admits task open/status,
+local implementation, validation, review, stage, commit, close, and cleanup.
+`kind: "github"` adds the external lifecycle. Legacy entries without `kind`
+parse as `kind: "github"`, preserving existing configuration behavior.
+
+## Validation, Git, And Recovery
+
+Local mutation remains deny-first:
+
+- file edits require enabled write policy and allowed paths;
+- validation is allowlisted;
+- stage and commit require reviewed paths and exact Git state;
+- restore and cleanup are path-scoped, never broad reset or clean; and
+- repeated mutating calls use `operation_id` replay protection where the
+  contract requires it.
+
+Crash recovery begins with `repo_task_status`, `repo_last_write`,
+`repo_operation_ledger`, or the relevant remote status/read-back tool. An
+unknown external effect is queried and classified before any retry.
+
+## GitHub, Pull Requests, CI, And Review
+
+These capabilities require a `kind: "github"` lifecycle and `ship` task
+authority. A local-only task rejects every external lifecycle call with
+`LIFECYCLE_POLICY_DENIED` before remote contact. GitHub lifecycle calls use an
+installed authenticated `gh` process through a strict adapter with fixed
+subcommands and JSON parsing. Tests use a deterministic
+fake; implementation tests do not contact GitHub.
+
+For a `ship` task, the server can:
+
+- observe exact remote refs;
+- fast-forward push the exact server-owned task branch without force;
+- create or update its pull request while keeping it Draft;
+- read pull-request status and bounded review threads;
+- reply to or version-safely resolve a bound review thread;
+- read GitHub Actions state for the exact task HEAD; and
+- retry only failed run ids from a bound CI snapshot.
+
+Every external input carries an `operation_id`, task identity, and expected HEAD
+and tree where applicable. A caller cannot supply an arbitrary repository,
+branch, pull-request number, URL, Git command, or GitHub command.
+
+## Exact-Head Merge
+
+`repo_merge_gate_prepare` is read-only. It re-reads pull-request, review, CI,
+branch, HEAD, tree, the configured merge method, and mandatory remote-branch
+retention state and returns either blockers or an expiring content-bound
+manifest. When eligible it prints:
+
+```bash
+chat-pro-repo approve-merge --gate-id <opaque-id>
 ```
 
-The server can create an authorized local commit. It does not push, merge,
-deploy, rewrite history, or broaden repository access.
+Only the repository owner runs that CLI command. The CLI shows the bound gate
+details, confirms them, and writes an owner-only approval. `repo_write_merge`
+can consume that exact approval once while it is unexpired and all bound state
+still matches. `repo_post_merge_readback` then verifies GitHub state.
 
-## Recover Safely
+ChatGPT's **Allow all actions** option does not replace or widen this approval.
 
-Writes and reviews produce bounded evidence that can be used for recovery.
-ChatGPT can inspect the latest write, review current Git state, and use an exact
-recovery payload for approved paths.
+## Artifacts And Bounded Evidence
 
-Transactional patchsets can also provide first-class rollback when the applied
-state, HEAD, and affected files still match the recorded operation.
+Large or durable evidence is returned as an opaque `artifact_id`, media type,
+length, SHA-256, and timestamp. `repo_artifact_read` accepts only `repo_id`, the
+opaque id, a byte offset, and a length of at most 65,536 bytes. It never accepts
+a path.
 
-Example request:
+Artifact kinds cover task manifests, operation receipts, validation logs,
+large diffs, remote observations, push receipts, pull requests, review
+evidence, CI evidence, merge-gate evidence, merge receipts, and post-merge
+evidence.
 
-```text
-The latest edit is not correct. Review what changed and safely recover only the
-paths from that operation.
-```
+## Specialist Capabilities
 
-Recovery does not use hidden `reset`, `stash`, or force operations.
+Context maps, optional code indexing, failure diagnosis, decision memory,
+work sessions, transactional patchsets, and delegation artifacts are available
+when a task benefits from them. They are not mandatory workflow ceremony.
 
-## Continue Across Conversations
+The current delegation format interoperates with external workers through
+repository-owned artifacts. Its provider-neutral execution substrate can bind
+one admitted dispatch to one supervisor-owned launch intent, publish typed
+service health, and stop permanently on an unknown effect. The normal MCP server
+does not auto-start the queue consumer or choose a provider, and no public input
+accepts credentials, model identifiers, commands, or retry authority.
 
-Optional work sessions preserve content-free progress such as status, touched
-paths, decisions, validation references, risks, and the next action. Local
-handoffs can store a human-readable continuation note for a future ChatGPT
-conversation.
+## What Chat Pro Repository MCP Does Not Do
 
-These capabilities support continuity without turning historical notes into
-automatic product authority. The user still selects the next goal.
+The server deliberately does not provide:
 
-Example request:
+- arbitrary shell, process, Git, or GitHub API execution;
+- root registration or permission expansion through MCP tools;
+- credential-store, token, environment-secret, or SSH-key reads;
+- force push, history rewrite, arbitrary branch selection, or branch deletion;
+- merge without one exact owner CLI approval;
+- automatic implementation-agent execution or provider authentication; or
+- release, deployment, signing, publication, or infrastructure operations.
 
-```text
-Create a local handoff for the next ChatGPT conversation with the current
-state, decisions, risks, and remaining work.
-```
-
-## Review Work From External Agents
-
-GPT Repo MCP does not include or run an implementation agent. If you separately
-operate Codex, Claude, or another agent, ChatGPT can prepare a bounded task file
-and later review the returned result against the authorized scope, current
-repository state, acceptance criteria, and real Git diff.
-
-Agent claims are treated as evidence, not proof. ChatGPT reviews the actual
-result and diff before the normal ship-readiness and local-commit gates apply.
-
-Example request:
-
-```text
-Prepare a focused Codex task for this migration. After the implementation is
-complete, review its result against the real diff and acceptance criteria.
-```
-
-Writing a task does not start, resume, or control an implementation agent. It
-also does not stage, commit, push, or deploy. Starting the external agent and
-deciding what it may access remain your responsibility.
-
-## What GPT Repo MCP Does Not Do
-
-GPT Repo MCP deliberately does not provide:
-
-- an unrestricted terminal or arbitrary command execution;
-- automatic push, merge, deployment, or history rewriting;
-- access outside repositories you explicitly approve;
-- silent write access — writes and local Git operations remain opt-in;
-- a built-in agent runner or provider credentials; or
-- a custom interface inside ChatGPT.
-
-These limits keep the connection focused on repository work that can be
-validated, reviewed, and approved through explicit server policies.
-
-## Permission Modes
-
-| Mode | Intended use | Available outcome |
-| --- | --- | --- |
-| `read` | Exploration and review | Understand code, inspect Git state, and plan work |
-| `write` | Direct implementation | Read capabilities plus guarded file changes |
-| `ship` | Reviewed local completion | Write capabilities plus approved validation, recovery, staging, and local commits |
-
-No mode enables arbitrary shell execution, automatic push, automatic deploy,
-force operations, branch deletion, or unrestricted filesystem access.
-
-## Where To Go Next
-
-- Start with the [README quickstart](../README.md#quickstart).
-- See [TOOL_SURFACE.md](TOOL_SURFACE.md) for tools and recommended workflows.
-- See [WRITE_WORKFLOWS.md](WRITE_WORKFLOWS.md) for write and recovery details.
-- See [SECURITY.md](SECURITY.md) for enforced boundaries.
+See [Tool Surface](TOOL_SURFACE.md), [Write Workflows](WRITE_WORKFLOWS.md), and
+[Security](SECURITY.md) for the exact contracts and boundaries.

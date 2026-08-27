@@ -1,5 +1,6 @@
 {
   "repos": [],
+  "project_roots": [],
   "limits": {
     "max_files": 50,
     "max_bytes_per_file": 128000,

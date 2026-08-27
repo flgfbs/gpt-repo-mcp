@@ -21,13 +21,13 @@ describe("server network boundary", () => {
     expect(server.output()).toContain(`http://127.0.0.1:${server.port}/mcp`);
   });
 
-  test("rejects an external bind unless it is explicitly authorized", async () => {
-    const server = await startServer({ GPT_REPO_HOST: "0.0.0.0" });
+  test("rejects an external bind with no override", async () => {
+    const server = await startServer({ CHAT_PRO_REPOSITORY_MCP_HOST: "0.0.0.0" });
     const exited = await waitForExit(server.child, 4_000);
 
     expect(exited).toBe(true);
     expect(server.child.exitCode).not.toBe(0);
-    expect(server.output()).toContain("GPT_REPO_ALLOW_EXTERNAL_BIND=true");
+    expect(server.output()).toContain("loopback-only");
   });
 
   test("rejects browser requests from a non-loopback origin and host", async () => {
@@ -42,18 +42,8 @@ describe("server network boundary", () => {
     expect(response).toMatchObject({ status: 403, body: "Forbidden origin" });
   });
 
-  test("allows an explicitly authorized external bind", async () => {
-    const server = await startServer({
-      GPT_REPO_ALLOW_EXTERNAL_BIND: "true",
-      GPT_REPO_HOST: "0.0.0.0"
-    });
-
-    await waitForHealth(server);
-    expect(server.output()).toContain(`http://0.0.0.0:${server.port}/mcp`);
-  });
-
   test("bounds MCP sessions and releases capacity on DELETE", async () => {
-    const server = await startServer({ GPT_REPO_MAX_SESSIONS: "1" });
+    const server = await startServer({ CHAT_PRO_REPOSITORY_MCP_MAX_SESSIONS: "1" });
     await waitForHealth(server);
 
     const first = await initializeSession(server.port);
@@ -78,6 +68,31 @@ describe("server network boundary", () => {
     expect(replacement.status).toBe(200);
     expect(replacement.sessionId).toEqual(expect.any(String));
   });
+
+  test("default capacity admits connector initialization bursts beyond one hundred sessions", async () => {
+    const server = await startServer();
+    await waitForHealth(server);
+    const sessionIds: string[] = [];
+
+    for (let index = 0; index < 101; index += 1) {
+      const initialized = await initializeSession(server.port);
+      expect(initialized.status).toBe(200);
+      expect(initialized.sessionId).toEqual(expect.any(String));
+      sessionIds.push(initialized.sessionId!);
+    }
+
+    await Promise.all(sessionIds.map(async (sessionId) => {
+      const response = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
+        method: "DELETE",
+        headers: {
+          Accept: "application/json, text/event-stream",
+          "mcp-session-id": sessionId
+        }
+      });
+      await response.text();
+      expect(response.ok).toBe(true);
+    }));
+  }, 30_000);
 
   test("audits an invalid session with safe category and request correlation", async () => {
     const server = await startServer();
@@ -123,13 +138,17 @@ async function startServer(extraEnv: Record<string, string> = {}) {
   const fixtureRoot = await mkdtemp(join(tmpdir(), "gpt-repo-network-boundary-"));
   const configPath = join(fixtureRoot, "config.json");
   const port = await freePort();
-  await writeFile(configPath, JSON.stringify({ repos: [], limits: {} }), "utf8");
+  await writeFile(configPath, JSON.stringify({
+    repos: [],
+    limits: {},
+    runtime_root: join(fixtureRoot, "runtime")
+  }), "utf8");
   let output = "";
   const child = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], {
     cwd: process.cwd(),
     env: {
       ...process.env,
-      GPT_REPO_CONFIG: configPath,
+      CHAT_PRO_REPOSITORY_MCP_CONFIG: configPath,
       PORT: String(port),
       ...extraEnv
     },

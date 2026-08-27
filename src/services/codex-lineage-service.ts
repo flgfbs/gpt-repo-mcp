@@ -155,7 +155,8 @@ export async function reviewLoopContext(
   repoId: string,
   manifest: CodexRunManifest | undefined,
   result?: DelegationResultV3,
-  productReviewCorrection?: DelegationV3ProductReviewCorrection
+  productReviewCorrection?: DelegationV3ProductReviewCorrection,
+  verifiedFinalizerHead?: string
 ): Promise<ReviewLoopContextResult> {
   if (manifest?.schema_version === 3) {
     if (!root) {
@@ -176,7 +177,13 @@ export async function reviewLoopContext(
         }
       };
     }
-    return new DelegationV3LineageService(root, sandbox).reviewLoop(repoId, manifest, result, productReviewCorrection);
+    return new DelegationV3LineageService(root, sandbox).reviewLoop(
+      repoId,
+      manifest,
+      result,
+      productReviewCorrection,
+      verifiedFinalizerHead
+    );
   }
   return {
     metadata: await reviewLoopMetadata(root, repoId, manifest)

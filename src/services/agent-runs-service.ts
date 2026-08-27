@@ -440,6 +440,8 @@ function publicSupervisorState(
     last_claimed_run_id: state.last_claimed_run_id,
     active_run_id: state.active_run_id,
     stale_after_ms: state.stale_after_ms,
+    ...(state.service_identity ? { service_identity: state.service_identity } : {}),
+    ...(state.health_attestation ? { health_attestation: state.health_attestation } : {}),
     warnings: [...new Set([...state.warnings, ...(stale ? ["RUNNER_SUPERVISOR_STALE"] : [])])].slice(0, 20)
   };
 }

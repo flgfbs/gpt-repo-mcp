@@ -32,6 +32,7 @@ export const DELEGATION_V3_BASELINE_HEAD = "a".repeat(40);
 export const DELEGATION_V3_BASELINE_FINGERPRINT = "clean";
 
 export type QueuedV3RunOptions = {
+  repo_id?: string;
   runner?: "codex_sdk" | "opencode_sdk";
   task_kind?: "technical_infrastructure" | "product_slice" | "product_correction";
   max_runtime_ms?: number;
@@ -53,6 +54,7 @@ export async function writeQueuedV3Run(
     : productTaskInput(kind);
   const input = {
     ...baseInput,
+    repo_id: options.repo_id ?? baseInput.repo_id,
     run_id: runId,
     authorization_scope: options.authorization_scope ?? ["src/**"],
     forbidden_paths: options.forbidden_paths ?? [],

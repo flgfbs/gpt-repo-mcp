@@ -3,7 +3,9 @@ import {
   AgentRunnerEventSchema,
   AgentRunnerMetadataSchema,
   AgentRunnerRunIdSchema,
-  AgentRunnerStatusSchema
+  AgentRunnerStatusSchema,
+  ExecutionSupervisorHealthAttestationSchema,
+  ExecutionSupervisorServiceIdentitySchema
 } from "../delegation/artifact-contracts.js";
 import { RepoInputSchema } from "./repo.contract.js";
 import { DelegationDriftSummarySchema } from "./delegation-drift.contract.js";
@@ -86,6 +88,8 @@ const AgentRunnerSupervisorPublicStateSchema = z.object({
   last_claimed_run_id: AgentRunnerRunIdSchema.nullable(),
   active_run_id: AgentRunnerRunIdSchema.nullable(),
   stale_after_ms: z.number().int().positive().nullable(),
+  service_identity: ExecutionSupervisorServiceIdentitySchema.optional(),
+  health_attestation: ExecutionSupervisorHealthAttestationSchema.optional(),
   warnings: z.array(z.string().max(500))
 }).strict();
 

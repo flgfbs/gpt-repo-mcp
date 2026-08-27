@@ -1,11 +1,9 @@
 const DEFAULT_SERVER_HOST = "127.0.0.1";
 
 export function resolveServerHost(env: NodeJS.ProcessEnv): string {
-  const host = env.GPT_REPO_HOST?.trim() || DEFAULT_SERVER_HOST;
-  if (!isLoopbackHostname(host) && env.GPT_REPO_ALLOW_EXTERNAL_BIND !== "true") {
-    throw new Error(
-      `Refusing external MCP bind on ${host}. Set GPT_REPO_ALLOW_EXTERNAL_BIND=true only when the network boundary is intentional.`
-    );
+  const host = env.CHAT_PRO_REPOSITORY_MCP_HOST?.trim() || DEFAULT_SERVER_HOST;
+  if (!isLoopbackHostname(host)) {
+    throw new Error(`Refusing non-loopback MCP bind on ${host}. Chat Pro Repository MCP is loopback-only.`);
   }
   return host;
 }

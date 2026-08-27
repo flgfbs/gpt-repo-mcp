@@ -10,6 +10,11 @@ export type ProcessTailResult = {
   duration_ms: number;
   stdout_tail: string;
   stderr_tail: string;
+  captured_output?: {
+    stdout: string;
+    stderr: string;
+    truncated: boolean;
+  };
 };
 
 export async function runProcessWithTail(input: {
@@ -19,6 +24,7 @@ export async function runProcessWithTail(input: {
   env: NodeJS.ProcessEnv;
   timeout_ms: number;
   tail_bytes: number;
+  capture_bytes?: number;
 }): Promise<ProcessTailResult> {
   const started = Date.now();
   return new Promise((resolve) => {
@@ -30,12 +36,31 @@ export async function runProcessWithTail(input: {
     });
     let stdout = Buffer.alloc(0);
     let stderr = Buffer.alloc(0);
+    let capturedStdout = Buffer.alloc(0);
+    let capturedStderr = Buffer.alloc(0);
+    let capturedBytes = 0;
+    let captureTruncated = false;
     const append = (current: Buffer, chunk: Buffer) => {
       const combined = Buffer.concat([current, chunk]);
       return combined.length > input.tail_bytes ? combined.subarray(combined.length - input.tail_bytes) : combined;
     };
-    child.stdout.on("data", (chunk: Buffer) => { stdout = append(stdout, chunk); });
-    child.stderr.on("data", (chunk: Buffer) => { stderr = append(stderr, chunk); });
+    const capture = (stream: "stdout" | "stderr", chunk: Buffer): void => {
+      if (input.capture_bytes === undefined) return;
+      const remaining = Math.max(0, input.capture_bytes - capturedBytes);
+      const selected = chunk.subarray(0, remaining);
+      capturedBytes += selected.length;
+      if (selected.length < chunk.length) captureTruncated = true;
+      if (stream === "stdout") capturedStdout = Buffer.concat([capturedStdout, selected]);
+      else capturedStderr = Buffer.concat([capturedStderr, selected]);
+    };
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout = append(stdout, chunk);
+      capture("stdout", chunk);
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr = append(stderr, chunk);
+      capture("stderr", chunk);
+    });
     let timedOut = false;
     let forced = false;
     let settled = false;
@@ -55,13 +80,21 @@ export async function runProcessWithTail(input: {
       const stderrText = result.stderrSuffix
         ? append(stderr, Buffer.from(`\n${result.stderrSuffix}`, "utf8")).toString("utf8").trim()
         : stderr.toString("utf8");
+      if (result.stderrSuffix) capture("stderr", Buffer.from(`\n${result.stderrSuffix}`, "utf8"));
       const processResult = { ...result };
       delete processResult.stderrSuffix;
       resolve({
         ...processResult,
         duration_ms: Date.now() - started,
         stdout_tail: stdout.toString("utf8"),
-        stderr_tail: stderrText
+        stderr_tail: stderrText,
+        ...(input.capture_bytes === undefined ? {} : {
+          captured_output: {
+            stdout: capturedStdout.toString("utf8"),
+            stderr: capturedStderr.toString("utf8"),
+            truncated: captureTruncated
+          }
+        })
       });
     };
 

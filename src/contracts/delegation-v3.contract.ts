@@ -530,7 +530,13 @@ export const DelegationWriteResultV3Schema = z.object({
 
 function assertDelegationToolTask(value: unknown, context: z.RefinementCtx): void {
   const taskValue = typeof value === "object" && value !== null && !Array.isArray(value)
-    ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "dry_run" && key !== "reason"))
+    ? Object.fromEntries(Object.entries(value).filter(([key]) => ![
+        "dry_run",
+        "reason",
+        "operation_id",
+        "expected_head_sha",
+        "expected_tree_sha"
+      ].includes(key)))
     : value;
   const parsed = DelegationTaskV3InputSchema.safeParse(taskValue);
   if (parsed.success) return;

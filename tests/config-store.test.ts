@@ -49,6 +49,15 @@ describe("config store", () => {
       name: "limits",
       path: ["limits"],
       document: { repos: [], limits: { max_filse: 10 } }
+    },
+    {
+      name: "project root",
+      path: ["project_roots", 0],
+      document: {
+        repos: [],
+        project_roots: [{ project_root_id: "projects", root: "/tmp", discover_depth: 2 }],
+        limits: {}
+      }
     }
   ])("rejects unknown fields in $name", async ({ document, path }) => {
     const sandbox = await mkdtemp(join(tmpdir(), "config-store-"));
