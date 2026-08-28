@@ -150,6 +150,110 @@ describe("Codex App Server initial runner", () => {
     await successor.close();
   });
 
+  test("does not adopt or retain a continuation turn owned by the HTTP bridge", async () => {
+    const fixture = await runnerFixture();
+    const channels: FakeAppServerChannel[] = [];
+    const runner = new CodexAppServerInitialRunner(fixture.registry, fixture.bundle.tasks, {
+      connection_factory: connectionFactory(fixture, channels)
+    });
+    const supervisor = fixture.bundle.executionRuntime.createQueueSupervisor({
+      repo_id: fixture.repoId,
+      runner: "codex_app_server",
+      service_identity: serviceIdentity(),
+      launcher: runner,
+      mode: "external_worker"
+    });
+    expect(await supervisor.scanOnce()).toMatchObject({ outcome: "launched" });
+
+    const sessions = new DelegationInteractionStore(fixture.taskRoot);
+    const attempts = new DelegationAttemptStore(fixture.taskRoot);
+    const session = await sessions.readSession(fixture.repoId, RUN_ID);
+    expect(session).not.toBeNull();
+    await sessions.writeSession({ ...session!, turn_index: 2 });
+    await attempts.write({
+      repo_id: fixture.repoId,
+      run_id: RUN_ID,
+      provider: "codex_app_server",
+      operation: "resume",
+      turn_index: 2,
+      state: "in_flight",
+      app_server_turn_id: "private-continuation-turn",
+      active_runtime_ms_before: 0,
+      started_at: new Date().toISOString()
+    });
+
+    expect(await runner.reconcileRepository(fixture.repoId)).toEqual({
+      examined: 1,
+      rebound: 0,
+      settled: 0,
+      failed_closed: 0
+    });
+    expect(channels).toHaveLength(1);
+    expect(channels[0]!.closed).toBe(true);
+    expect(channels[0]!.sent.filter(({ method }) => method === "thread/read")).toHaveLength(0);
+    await runner.close();
+  });
+
+  test("requires an explicit network-disabled thread-start response", async () => {
+    const fixture = await runnerFixture();
+    const channels: FakeAppServerChannel[] = [];
+    const runner = new CodexAppServerInitialRunner(fixture.registry, fixture.bundle.tasks, {
+      connection_factory: connectionFactory(fixture, channels, "missing-network-access")
+    });
+    const supervisor = fixture.bundle.executionRuntime.createQueueSupervisor({
+      repo_id: fixture.repoId,
+      runner: "codex_app_server",
+      service_identity: serviceIdentity(),
+      launcher: runner,
+      mode: "external_worker"
+    });
+
+    expect(await supervisor.scanOnce()).toMatchObject({
+      outcome: "blocked_unknown_effect",
+      reason: "APP_SERVER_THREAD_START_EFFECT_UNKNOWN"
+    });
+    expect(channels[0]!.sent.filter(({ method }) => method === "thread/start")).toHaveLength(1);
+    expect(channels[0]!.sent.filter(({ method }) => method === "turn/start")).toHaveLength(0);
+    await runner.close();
+  });
+
+  test("preserves unknown provider effect when blocking-status persistence fails", async () => {
+    const fixture = await runnerFixture();
+    const channels: FakeAppServerChannel[] = [];
+    const originalWriteStatus = DelegationRunStore.prototype.writeStatus;
+    const writeStatus = vi.spyOn(DelegationRunStore.prototype, "writeStatus");
+    writeStatus.mockImplementationOnce(function (
+      this: DelegationRunStore,
+      input: Parameters<DelegationRunStore["writeStatus"]>[0]
+    ) {
+      return originalWriteStatus.call(this, input);
+    });
+    writeStatus.mockRejectedValueOnce(new Error("fixture status write failure"));
+    const runner = new CodexAppServerInitialRunner(fixture.registry, fixture.bundle.tasks, {
+      connection_factory: connectionFactory(fixture, channels, "disconnect-thread-start")
+    });
+    const supervisor = fixture.bundle.executionRuntime.createQueueSupervisor({
+      repo_id: fixture.repoId,
+      runner: "codex_app_server",
+      service_identity: serviceIdentity(),
+      launcher: runner,
+      mode: "external_worker"
+    });
+
+    expect(await supervisor.scanOnce()).toMatchObject({
+      outcome: "blocked_unknown_effect",
+      reason: "APP_SERVER_INITIAL_LAUNCH_BOUNDARY_UNKNOWN"
+    });
+    expect(await new DelegationDispatchStore(fixture.taskRoot).readResult(RUN_ID)).toMatchObject({
+      effect_state: "unknown",
+      provider_contact: "unknown",
+      replay_allowed: false,
+      outcome_code: "APP_SERVER_INITIAL_LAUNCH_BOUNDARY_UNKNOWN"
+    });
+    writeStatus.mockRestore();
+    await runner.close();
+  });
+
   test("fails closed when thread start acknowledgement is lost", async () => {
     const fixture = await runnerFixture();
     const channels: FakeAppServerChannel[] = [];
@@ -245,7 +349,7 @@ async function runnerFixture() {
 function connectionFactory(
   fixture: Awaited<ReturnType<typeof runnerFixture>>,
   channels: FakeAppServerChannel[],
-  behavior: "normal" | "active" | "disconnect-thread-start" = "normal"
+  behavior: "normal" | "active" | "disconnect-thread-start" | "missing-network-access" = "normal"
 ) {
   return (): InitialRunnerConnection => {
     const channel = new FakeAppServerChannel(fixture.taskRoot, behavior);
@@ -270,11 +374,12 @@ type JsonMessage = Record<string, unknown> & { method?: string; id?: string | nu
 
 class FakeAppServerChannel implements CodexAppServerMessageChannel {
   readonly sent: JsonMessage[] = [];
+  closed = false;
   private handlers?: { message(value: string): void; close(): void; error(): void };
 
   constructor(
     private readonly taskRoot: string,
-    private readonly behavior: "normal" | "active" | "disconnect-thread-start"
+    private readonly behavior: "normal" | "active" | "disconnect-thread-start" | "missing-network-access"
   ) {}
 
   async open(handlers: { message(value: string): void; close(): void; error(): void }): Promise<void> {
@@ -293,7 +398,12 @@ class FakeAppServerChannel implements CodexAppServerMessageChannel {
         queueMicrotask(() => this.handlers?.close());
         return;
       }
-      this.respond(message.id, threadStartResponse(this.taskRoot));
+      const response = threadStartResponse(this.taskRoot);
+      if (this.behavior === "missing-network-access") {
+        this.respond(message.id, { ...response, sandbox: { type: "workspaceWrite" } });
+        return;
+      }
+      this.respond(message.id, response);
       return;
     }
     if (message.method === "turn/start") {
@@ -313,7 +423,9 @@ class FakeAppServerChannel implements CodexAppServerMessageChannel {
     }
   }
 
-  async close(): Promise<void> {}
+  async close(): Promise<void> {
+    this.closed = true;
+  }
 
   respond(id: JsonMessage["id"], result: unknown): void {
     if (id === undefined) return;

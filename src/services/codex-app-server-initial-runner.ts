@@ -44,6 +44,11 @@ export type CodexAppServerReconciliationResult = {
   failed_closed: number;
 };
 
+type ActiveInitialConnection = {
+  connection: InitialRunnerConnection;
+  binding: ManagedCodexAppServerTurnBinding;
+};
+
 /**
  * Owner-local initial-run executor for the existing durable delegation queue.
  *
@@ -54,7 +59,7 @@ export type CodexAppServerReconciliationResult = {
 export class CodexAppServerInitialRunner implements BoundedWorkerLauncher {
   private readonly now: () => Date;
   private readonly connectionFactory: () => InitialRunnerConnection;
-  private readonly activeConnections = new Map<string, InitialRunnerConnection>();
+  private readonly activeConnections = new Map<string, ActiveInitialConnection>();
 
   constructor(
     private readonly registry: RootRegistry,
@@ -71,7 +76,8 @@ export class CodexAppServerInitialRunner implements BoundedWorkerLauncher {
 
   async launch(input: Parameters<BoundedWorkerLauncher["launch"]>[0]): Promise<WorkerLaunchOutcome> {
     let connection: InitialRunnerConnection | undefined;
-    let providerContact = false;
+    let contactAttempted = false;
+    let threadStartConfirmed = false;
     let turnStartInvoked = false;
     let acceptedBinding: ManagedCodexAppServerTurnBinding | undefined;
     const key = runKey(input.run.repo_id, input.run.run_id);
@@ -148,11 +154,11 @@ export class CodexAppServerInitialRunner implements BoundedWorkerLauncher {
           return await connection.adapter.withNotificationDeliveryBarrier(async () => {
             let prepared;
             try {
+              contactAttempted = true;
               prepared = await connection!.adapter.startThread({ repo_root: root });
-              providerContact = true;
+              threadStartConfirmed = true;
             } catch (error) {
               if (error instanceof CodexAppServerThreadStartError && error.effect_state === "not_started") {
-                providerContact = true;
                 await failStatus(runs, input.run, "APP_SERVER_THREAD_START_REJECTED", this.now);
                 return knownFailure("APP_SERVER_THREAD_START_REJECTED", true);
               }
@@ -230,7 +236,7 @@ export class CodexAppServerInitialRunner implements BoundedWorkerLauncher {
             });
             connection!.adapter.bindAcceptedTurn(binding);
             acceptedBinding = binding;
-            this.activeConnections.set(key, connection!);
+            this.activeConnections.set(key, { connection: connection!, binding });
             await runs.appendEvent({
               repo_id: input.run.repo_id,
               run_id: input.run.run_id,
@@ -245,11 +251,11 @@ export class CodexAppServerInitialRunner implements BoundedWorkerLauncher {
             } satisfies WorkerLaunchOutcome;
           });
         } catch {
-          if (providerContact && !turnStartInvoked) {
+          if (threadStartConfirmed && !turnStartInvoked) {
             await failStatus(runs, input.run, "APP_SERVER_INITIAL_STATE_PERSIST_FAILED", this.now).catch(() => undefined);
             return knownFailure("APP_SERVER_INITIAL_STATE_PERSIST_FAILED", true);
           }
-          if (providerContact) {
+          if (contactAttempted) {
             await blockUnknownStatus(runs, input.run, "APP_SERVER_INITIAL_LAUNCH_BOUNDARY_UNKNOWN", this.now).catch(() => undefined);
             return unknownOutcome("APP_SERVER_INITIAL_LAUNCH_BOUNDARY_UNKNOWN");
           }
@@ -258,7 +264,7 @@ export class CodexAppServerInitialRunner implements BoundedWorkerLauncher {
         }
       });
     } catch {
-      return providerContact
+      return contactAttempted
         ? unknownOutcome("APP_SERVER_INITIAL_LAUNCH_BOUNDARY_UNKNOWN")
         : knownFailure("APP_SERVER_INITIAL_PRECONTACT_FAILED", false);
     } finally {
@@ -281,28 +287,45 @@ export class CodexAppServerInitialRunner implements BoundedWorkerLauncher {
         const active = this.activeConnections.get(key);
         if (active) {
           this.activeConnections.delete(key);
-          await active.close().catch(() => undefined);
+          await active.connection.close().catch(() => undefined);
         }
         continue;
       }
       if (status.status !== "running" && status.status !== "awaiting_input") continue;
       result.examined += 1;
-      if (this.activeConnections.has(key)) continue;
       const [attempt, session] = await Promise.all([
         attempts.read(repoId, run.run_id),
         interactions.readSession(repoId, run.run_id)
       ]);
-      if (
-        !attempt
-        || attempt.state !== "in_flight"
-        || !attempt.app_server_turn_id
-        || !session
-        || session.provider !== "codex_app_server"
-        || session.turn_index !== attempt.turn_index
-      ) {
+      const ownsInitialTurn = Boolean(
+        attempt
+        && attempt.operation === "start"
+        && attempt.turn_index === 1
+        && attempt.state === "in_flight"
+        && attempt.app_server_turn_id
+        && session
+        && session.provider === "codex_app_server"
+        && session.turn_index === 1
+      );
+      const active = this.activeConnections.get(key);
+      if (active) {
+        if (
+          ownsInitialTurn
+          && session
+          && attempt?.app_server_turn_id
+          && active.binding.thread_id === session.thread_id
+          && active.binding.app_server_turn_id === attempt.app_server_turn_id
+          && active.binding.turn_index === 1
+        ) {
+          continue;
+        }
+        this.activeConnections.delete(key);
+        await active.connection.close().catch(() => undefined);
+        if (!ownsInitialTurn) continue;
         result.failed_closed += 1;
         continue;
       }
+      if (!ownsInitialTurn || !attempt?.app_server_turn_id || !session) continue;
       const connection = this.connectionFactory();
       const binding: ManagedCodexAppServerTurnBinding = {
         repo_id: repoId,
@@ -315,7 +338,7 @@ export class CodexAppServerInitialRunner implements BoundedWorkerLauncher {
         const turnStatus = await connection.adapter.reconcileTurn({ binding, repo_root: root });
         if (turnStatus === "inProgress") {
           await repairLaunchResult(root, run, "unknown", this.now);
-          this.activeConnections.set(key, connection);
+          this.activeConnections.set(key, { connection, binding });
           result.rebound += 1;
         } else {
           await waitForTerminalStatus(runs, run.run_id);
@@ -342,7 +365,7 @@ export class CodexAppServerInitialRunner implements BoundedWorkerLauncher {
   }
 
   async close(): Promise<void> {
-    const connections = [...this.activeConnections.values()];
+    const connections = [...this.activeConnections.values()].map(({ connection }) => connection);
     this.activeConnections.clear();
     await Promise.all(connections.map((connection) => connection.close().catch(() => undefined)));
   }

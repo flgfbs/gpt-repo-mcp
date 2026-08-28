@@ -90,7 +90,7 @@ const ThreadStartResponseSchema = z.object({
   approvalPolicy: z.literal("never"),
   sandbox: z.object({
     type: z.literal("workspaceWrite"),
-    networkAccess: z.boolean().optional()
+    networkAccess: z.literal(false)
   }).passthrough()
 }).passthrough();
 const TurnStartResponseSchema = z.object({
@@ -147,12 +147,6 @@ export class CodexAppServerAdapter {
       throw new RepoReaderError(
         "RUNNER_POLICY_BLOCKED",
         "Codex App Server returned inconsistent model-provider bindings for the new thread."
-      );
-    }
-    if (started.sandbox.networkAccess === true) {
-      throw new RepoReaderError(
-        "RUNNER_POLICY_BLOCKED",
-        "Codex App Server enabled network access for a new managed thread; initial launch requires the local workspace boundary."
       );
     }
     return {
