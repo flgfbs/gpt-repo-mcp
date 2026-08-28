@@ -28,7 +28,12 @@
 - Admitted dispatch, launch intent, and launch result records are immutable;
   one launch intent is the replay boundary, and unknown effects never retry.
 - Supervisor identity and health attestations are typed and content-bound; the
-  default server does not auto-start a provider queue consumer.
+  default HTTP server does not auto-start a provider queue consumer. The
+  separately built owner runner has no listener or public MCP surface.
+- Initial App Server execution tests cover exact-root thread creation,
+  workspace-write/network-disabled/never-approve policy, returned model/provider
+  binding, one accepted turn, terminal settlement, lost-ack unknown/no-replay,
+  and restart rebind without another start.
 - Managed continuation reuses task `operation_id` state and private
   runner-session/attempt artifacts; it does not require exact HEAD/tree merely
   to start the next turn and never exposes private App Server identifiers.

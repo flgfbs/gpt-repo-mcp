@@ -62,6 +62,7 @@ describe("package and public documentation", () => {
     expect(pkg.scripts?.["list-project-roots"]).toBe("node dist/cli/chat-pro-repo.js project-root list");
     expect(pkg.scripts?.["check:config"]).toBe("node dist/cli/chat-pro-repo.js config validate");
     expect(pkg.scripts?.doctor).toBe("npm run build && node dist/cli/chat-pro-repo.js doctor");
+    expect(pkg.scripts?.build).toContain("tsup src/owner-agent-runner.ts --format esm --out-dir dist");
   });
 
   test("removes obsolete connection scripts, examples, and static mockups", async () => {

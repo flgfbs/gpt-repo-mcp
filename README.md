@@ -169,10 +169,15 @@ merge only.
   tree where applicable.
 - Unknown push effects are durably classified and read back; they are not
   blindly replayed.
-- Managed continuation lazily uses only the existing same-user, owner-only
-  Codex App Server control socket, keeps thread/turn ids private, sends no Local
-  authority overrides, and never grants an App Server approval. Bridge-originating
-  approval requests are canceled or receive an empty permission grant.
+- The separate owner-local agent runner may consume only exact admitted
+  `codex_app_server` queue entries through the existing same-user, owner-only
+  App Server control socket. It creates one workspace-write, network-disabled,
+  never-approve thread and one turn, keeps private ids in local control artifacts,
+  and never grants an App Server approval. The HTTP MCP server is not its control
+  plane and does not start workers.
+- Managed continuation reuses that private session without model, sandbox,
+  approval, repository, or machine overrides. Bridge-originating approval
+  requests are canceled or receive an empty permission grant.
 - Release, deployment, signing, package publication, and infrastructure change
   are out of scope.
 
@@ -193,10 +198,11 @@ See [Tool Surface](docs/TOOL_SURFACE.md) for the complete ordered catalog and
 | Build | `npm run build` |
 | Start locally | `npm run mcp` |
 | Production start after build | `PORT=8789 npm start` |
+| Owner-local queued agent runner | `node dist/owner-agent-runner.js --config <path>` |
 | Health | `curl http://127.0.0.1:8789/health` |
 | Diagnose | `npm run doctor` |
 | Validate config | `npm run check:config` |
-| Stop | Press `Ctrl-C` in the server terminal. |
+| Stop | Stop the separately managed server or owner-runner process. |
 
 For rollback and uninstall, stop the server and Secure MCP Tunnel first,
 remove the ChatGPT app/tunnel association, unregister roots with

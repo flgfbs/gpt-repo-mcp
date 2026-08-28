@@ -11,7 +11,10 @@ import {
   type CodexAppServerServerRequest,
   type CodexAppServerServerRequestDisposition
 } from "../src/delegation/codex-app-server-control-rpc.js";
-import { CodexAppServerTurnStartError } from "../src/delegation/codex-app-server-adapter.js";
+import {
+  CodexAppServerThreadStartError,
+  CodexAppServerTurnStartError
+} from "../src/delegation/codex-app-server-adapter.js";
 import type { ManagedCodexAppServerTurnBinding } from "../src/delegation/codex-app-server-adapter.js";
 
 describe("Codex App Server control RPC", () => {
@@ -222,6 +225,17 @@ describe("Codex App Server control RPC", () => {
     const rpc = new CodexAppServerControlRpc(sink, { channel_factory: () => channel });
     await expect(rpc.request("turn/start", { threadId: "private-thread", input: [] }))
       .rejects.toBeInstanceOf(CodexAppServerTurnStartError);
+    await rpc.close();
+  });
+
+  test("classifies a JSON-RPC thread-start rejection as confirmed not-started", async () => {
+    const sink = new RecordingSink();
+    const channel = new FakeMessageChannel((message, current) => {
+      if (message.method === "thread/start") current.fail(message.id);
+    });
+    const rpc = new CodexAppServerControlRpc(sink, { channel_factory: () => channel });
+    await expect(rpc.request("thread/start", { cwd: "/private/tmp/fixture" }))
+      .rejects.toBeInstanceOf(CodexAppServerThreadStartError);
     await rpc.close();
   });
 

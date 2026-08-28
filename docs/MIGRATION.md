@@ -66,14 +66,22 @@ turn id and `thread/read` confirms that id as the unique latest turn. Older or
 partial attempts without that evidence remain no-replay and require no format
 migration.
 
+Initial queued `codex_app_server` execution is supplied by the separate built
+entrypoint `dist/owner-agent-runner.js`. It is not started by the HTTP server and
+must be activated as an owner-local process against the same validated config.
+It exposes no public tool or listener. Existing manual runs and runs without an
+active exact task binding remain readable and are not attached automatically.
+
 ## Execution-Runtime Artifact Migration
 
-Queued Delegation v3 runs may now be bound to immutable
+Queued Delegation v3 runs are bound to immutable
 `admitted-dispatch.json`, `worker-launch-intent.json`, and
-`worker-launch-result.json` records. Existing runs without these records remain
-readable and are not launched automatically. A launch intent without a result is
+`worker-launch-result.json` records before initial execution. Only explicit
+queued `codex_app_server` requests under a sole exact active task are eligible.
+A launch intent without a result is
 classified as an unknown effect and cannot be replayed; recovery requires
-separate authority rather than a compatibility rewrite.
+an exact persisted App Server turn id and query-only reconciliation rather than
+a compatibility rewrite.
 
 Supervisor state may additionally contain a typed service identity and
 content-bound health attestation. The default MCP server does not create or

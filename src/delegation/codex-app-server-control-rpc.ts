@@ -5,6 +5,7 @@ import { lstat, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import WebSocket from "ws";
 import {
+  CodexAppServerThreadStartError,
   CodexAppServerTurnStartError,
   type CodexAppServerMethod,
   type CodexAppServerRpc,
@@ -97,6 +98,9 @@ export class CodexAppServerControlRpc implements CodexAppServerRpc {
     try {
       return await this.sendRequest(method, params);
     } catch (error) {
+      if (method === "thread/start" && error instanceof CodexAppServerRpcResponseError) {
+        throw new CodexAppServerThreadStartError("not_started");
+      }
       if (method === "turn/start" && error instanceof CodexAppServerRpcResponseError) {
         throw new CodexAppServerTurnStartError("not_started");
       }

@@ -94,7 +94,7 @@ export type CodexAppServerRunSinkOptions = {
 };
 
 /**
- * Owner-side settlement for turns started by the continuation bridge.
+ * Owner-side settlement for initial and continuation App Server turns.
  * Public observation remains runner.status.json through repo_agent_runs; this
  * sink only advances the existing private session/attempt and status artifacts.
  */
@@ -505,8 +505,8 @@ export class CodexAppServerRunSink implements CodexAppServerEventSink {
         run_id: binding.run_id,
         event_type: terminal === "completed" ? "completed" : terminal === "canceled" ? "canceled" : "failed",
         summary: terminal === "completed"
-          ? "The managed Codex continuation turn completed."
-          : "The managed Codex continuation turn ended without a fresh completed result."
+          ? "The managed Codex turn completed."
+          : "The managed Codex turn ended without a fresh completed result."
       });
     });
   }

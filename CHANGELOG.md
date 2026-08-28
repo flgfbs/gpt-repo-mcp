@@ -27,6 +27,10 @@ Notable public changes to Chat Pro Repository MCP are recorded here.
 - Provider-neutral immutable dispatch, one-launch-intent, supervisor identity
   and health, exactly-once, and unknown-effect no-replay contracts with
   provider-free integrated qualification.
+- A separate owner-local `owner-agent-runner` build entrypoint that consumes
+  only exact admitted `codex_app_server` runs, creates one workspace-write,
+  network-disabled, never-approve thread and turn, and query-rebinds an exact
+  persisted in-flight turn after restart without replay.
 - Server-bound task worktrees, opaque lifecycle artifacts, exact-state remote
   observation, fixed-argument non-force push, Draft pull requests, review and
   CI handling, exact merge-gate preparation, one-time owner CLI approval, and
@@ -65,5 +69,8 @@ Notable public changes to Chat Pro Repository MCP are recorded here.
 - Agent continuation reuses task `operation_id` receipts, preserves local
   sandbox and approval authority, and becomes no-replay as soon as turn-start
   contact has an unknown outcome.
+- Initial App Server execution is outside the HTTP MCP process, exposes no
+  listener or public control surface, never grants approval, and records
+  uncertain thread/turn starts as unknown/no-replay.
 - Merge requires one exact, unexpired approval created by the owner CLI and
   consumed once.

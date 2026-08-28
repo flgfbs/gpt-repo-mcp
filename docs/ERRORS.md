@@ -94,6 +94,13 @@ the attempt already contains the exact App Server turn id, a fresh operation can
 query and rebind that unique latest turn without replaying it. If the id is absent,
 not unique, or not latest, the run remains blocked.
 
+Initial owner-runner execution uses the same rule one level earlier. A confirmed
+`thread/start` or `turn/start` rejection is a known failed launch. Disconnect,
+timeout, malformed acknowledgement, or local persistence uncertainty after
+contact is recorded as `UNKNOWN_EFFECT_NO_REPLAY`; the runner does not create a
+replacement thread or turn. Restart reconciliation is admitted only when the
+exact App Server turn id was already persisted.
+
 ## Merge Recovery
 
 Owner approval is content-bound, unexpired, and one-time. If merge returns no
