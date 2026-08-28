@@ -36,10 +36,12 @@ export class CodexAppServerTurnStartError extends Error {
 }
 
 export class CodexAppServerThreadStartError extends Error {
-  constructor(readonly effect_state: "not_started" | "unknown") {
-    super(effect_state === "not_started"
-      ? "Codex App Server confirmed that the thread was not started."
-      : "Codex App Server thread-start effect is unknown.");
+  constructor(readonly effect_state: "request_not_sent" | "not_started" | "unknown") {
+    super(effect_state === "request_not_sent"
+      ? "The Codex App Server thread-start request was not sent."
+      : effect_state === "not_started"
+        ? "Codex App Server confirmed that the thread was not started."
+        : "Codex App Server thread-start effect is unknown.");
     this.name = "CodexAppServerThreadStartError";
   }
 }

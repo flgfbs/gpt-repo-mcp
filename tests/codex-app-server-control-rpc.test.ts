@@ -239,6 +239,48 @@ describe("Codex App Server control RPC", () => {
     await rpc.close();
   });
 
+  test("reconnects once before thread start when the first initialization does not complete", async () => {
+    const sink = new RecordingSink();
+    const first = new FakeMessageChannel(undefined, false);
+    const second = new FakeMessageChannel((message, current) => {
+      if (message.method === "thread/start") {
+        current.respond(message.id, { thread: { id: "private-thread" } });
+      }
+    });
+    const channels = [first, second];
+    const rpc = new CodexAppServerControlRpc(sink, {
+      channel_factory: () => channels.shift() ?? second,
+      initialize_timeout_ms: 100
+    });
+
+    await expect(rpc.request("thread/start", { cwd: "/private/tmp/fixture" }))
+      .resolves.toEqual({ thread: { id: "private-thread" } });
+    expect(first.sent.filter(({ method }) => method === "thread/start")).toHaveLength(0);
+    expect(first.sent.map(({ method }) => method)).toEqual(["initialize"]);
+    expect(second.sent.filter(({ method }) => method === "thread/start")).toHaveLength(1);
+    expect(second.sent.map(({ method }) => method)).toEqual(["initialize", "initialized", "thread/start"]);
+    await rpc.close();
+  });
+
+  test("reports request-not-sent after two pre-send connection failures", async () => {
+    const sink = new RecordingSink();
+    const channels = [
+      new FakeMessageChannel(undefined, true, true),
+      new FakeMessageChannel(undefined, true, true)
+    ];
+    const rpc = new CodexAppServerControlRpc(sink, {
+      channel_factory: () => channels.shift() ?? new FakeMessageChannel(undefined, true, true)
+    });
+
+    await expect(rpc.request("thread/start", { cwd: "/private/tmp/fixture" }))
+      .rejects.toMatchObject({
+        name: "CodexAppServerThreadStartError",
+        effect_state: "request_not_sent"
+      });
+    expect(channels).toHaveLength(0);
+    await rpc.close();
+  });
+
   test("bounds initialization when the owner control connection never acknowledges", async () => {
     const sink = new RecordingSink();
     const channel = new FakeMessageChannel(undefined, false);
@@ -318,10 +360,12 @@ class FakeMessageChannel implements CodexAppServerMessageChannel {
 
   constructor(
     private readonly onSend?: (message: JsonMessage, channel: FakeMessageChannel) => void,
-    private readonly respondToInitialize = true
+    private readonly respondToInitialize = true,
+    private readonly failOpen = false
   ) {}
 
   async open(handlers: { message(value: string): void; close(): void; error(): void }): Promise<void> {
+    if (this.failOpen) throw new Error("fixture connection failure");
     this.handlers = handlers;
   }
 

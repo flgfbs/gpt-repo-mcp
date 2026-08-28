@@ -288,6 +288,45 @@ describe("Codex App Server initial runner", () => {
     expect(channels[0]!.sent.filter(({ method }) => method === "thread/start")).toHaveLength(1);
     await runner.close();
   });
+
+  test("records a known failure when both connection attempts precede thread start", async () => {
+    const fixture = await runnerFixture();
+    const channels: FakeAppServerChannel[] = [];
+    const runner = new CodexAppServerInitialRunner(fixture.registry, fixture.bundle.tasks, {
+      connection_factory: connectionFactory(fixture, channels, "open-failed")
+    });
+    const supervisor = fixture.bundle.executionRuntime.createQueueSupervisor({
+      repo_id: fixture.repoId,
+      runner: "codex_app_server",
+      service_identity: serviceIdentity(),
+      launcher: runner,
+      mode: "external_worker"
+    });
+
+    expect(await supervisor.scanOnce()).toMatchObject({
+      outcome: "launched",
+      result: {
+        effect_state: "known_failed",
+        provider_contact: "confirmed",
+        replay_allowed: false,
+        outcome_code: "APP_SERVER_THREAD_START_NOT_SENT"
+      }
+    });
+    expect(await new DelegationDispatchStore(fixture.taskRoot).readResult(RUN_ID)).toMatchObject({
+      effect_state: "known_failed",
+      provider_contact: "confirmed",
+      replay_allowed: false,
+      outcome_code: "APP_SERVER_THREAD_START_NOT_SENT"
+    });
+    expect(await new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).toMatchObject({
+      status: "failed",
+      warnings: ["APP_SERVER_THREAD_START_NOT_SENT"]
+    });
+    expect(channels).toHaveLength(1);
+    expect(channels[0]!.openAttempts).toBe(2);
+    expect(channels[0]!.sent.filter(({ method }) => method === "thread/start")).toHaveLength(0);
+    await runner.close();
+  });
 });
 
 async function runnerFixture() {
@@ -349,7 +388,7 @@ async function runnerFixture() {
 function connectionFactory(
   fixture: Awaited<ReturnType<typeof runnerFixture>>,
   channels: FakeAppServerChannel[],
-  behavior: "normal" | "active" | "disconnect-thread-start" | "missing-network-access" = "normal"
+  behavior: "normal" | "active" | "disconnect-thread-start" | "missing-network-access" | "open-failed" = "normal"
 ) {
   return (): InitialRunnerConnection => {
     const channel = new FakeAppServerChannel(fixture.taskRoot, behavior);
@@ -375,14 +414,17 @@ type JsonMessage = Record<string, unknown> & { method?: string; id?: string | nu
 class FakeAppServerChannel implements CodexAppServerMessageChannel {
   readonly sent: JsonMessage[] = [];
   closed = false;
+  openAttempts = 0;
   private handlers?: { message(value: string): void; close(): void; error(): void };
 
   constructor(
     private readonly taskRoot: string,
-    private readonly behavior: "normal" | "active" | "disconnect-thread-start" | "missing-network-access"
+    private readonly behavior: "normal" | "active" | "disconnect-thread-start" | "missing-network-access" | "open-failed"
   ) {}
 
   async open(handlers: { message(value: string): void; close(): void; error(): void }): Promise<void> {
+    this.openAttempts += 1;
+    if (this.behavior === "open-failed") throw new Error("fixture connection failure");
     this.handlers = handlers;
   }
 

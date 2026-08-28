@@ -94,7 +94,22 @@ export class CodexAppServerControlRpc implements CodexAppServerRpc {
   }
 
   async request(method: CodexAppServerMethod, params: Record<string, unknown>): Promise<unknown> {
-    await this.ensureConnected();
+    if (method === "thread/start") {
+      try {
+        await this.ensureConnected();
+      } catch {
+        try {
+          // A failed connection or initialization proves that thread/start was
+          // not sent. One fresh connection is therefore safe; no request-sent
+          // or response-unknown state is ever replayed.
+          await this.ensureConnected();
+        } catch {
+          throw new CodexAppServerThreadStartError("request_not_sent");
+        }
+      }
+    } else {
+      await this.ensureConnected();
+    }
     try {
       return await this.sendRequest(method, params);
     } catch (error) {
