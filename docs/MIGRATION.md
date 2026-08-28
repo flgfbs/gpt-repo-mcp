@@ -1,8 +1,8 @@
 # Migration Guide
 
 This release changes the public identity, connection path, and tool count while
-preserving the canonical 47-tool local prefix. One read-only task-admission
-contract is appended after the existing 17 lifecycle tools.
+preserving the canonical 47-tool local prefix. One managed-agent continuation
+operation is added before the existing 18 lifecycle tools.
 
 ## Before Updating
 
@@ -10,7 +10,7 @@ contract is appended after the existing 17 lifecycle tools.
 2. Preserve the local configuration and any needed task/artifact state.
 3. Update to a trusted revision and run `npm ci` and `npm run build`.
 4. Run `npm run check:config` and `npm run doctor`.
-5. Refresh the ChatGPT app so it receives the exact 65-tool schema.
+5. Refresh the ChatGPT app so it receives the exact 66-tool schema.
 
 ## Command And Connection Changes
 
@@ -27,8 +27,9 @@ Activate the Secure MCP Tunnel through the OpenAI workspace.
 
 ## Exact Tool Addition
 
-The first 47 local names retain their canonical order. The following 18
-lifecycle names occupy positions 48–65:
+The first 47 local names retain their canonical order.
+`repo_continue_agent_run` occupies position 48. The following 18 lifecycle
+names occupy positions 49–66:
 
 1. `repo_task_open`
 2. `repo_task_status`
@@ -49,9 +50,21 @@ lifecycle names occupy positions 48–65:
 17. `repo_post_merge_readback`
 18. `repo_task_admission`
 
-The total is exactly 65. No old or alternate lifecycle names are accepted as
+The total is exactly 66. No old or alternate lifecycle names are accepted as
 aliases. `repo_task_admission` is read-only and adds no configuration,
 credential, task mutation, worker launch, or retry authority.
+
+`repo_continue_agent_run` now lazily uses the existing same-user Codex App
+Server control socket when it is present and safely permissioned. It reuses
+task `operation_id` state and private run session/attempt artifacts;
+there is no public thread registration, binding id, separate idempotency key,
+status subsystem, credential, provider selection, or service startup. Server
+startup itself makes no App Server contact. Existing runs without a private
+managed session remain readable and are not attached or continued automatically.
+An in-flight attempt is rebound only when it already contains an exact App Server
+turn id and `thread/read` confirms that id as the unique latest turn. Older or
+partial attempts without that evidence remain no-replay and require no format
+migration.
 
 ## Execution-Runtime Artifact Migration
 
@@ -108,7 +121,7 @@ local-only entries should be created with:
 npm run add -- /path/to/your/repo --mode ship --local-only
 ```
 
-The public tool count, names, order, and payload schemas remain exactly 65.
+The public tool count, names, order, and payload schemas remain exactly 66.
 Local-only policy changes admission behavior, not the MCP tool catalog.
 
 ## Workflow Change

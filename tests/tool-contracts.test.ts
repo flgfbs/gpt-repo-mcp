@@ -47,7 +47,7 @@ import { PatchsetApplyInputSchema, PatchsetApplyResultSchema, PatchsetPrepareInp
 import { ValidateInputSchema, ValidateResultSchema } from "../src/contracts/validation.contract.js";
 import { CurrentWorkSessionInputSchema, CurrentWorkSessionResultSchema, StartWorkSessionInputSchema, StartWorkSessionResultSchema, UpdateWorkSessionInputSchema, UpdateWorkSessionResultSchema } from "../src/contracts/work-session.contract.js";
 import { RepoReaderConfigSchema } from "../src/config/schema.js";
-import { idempotentWriteAnnotations, nonDestructiveMutationAnnotations, readOnlyAnnotations, safeMutationAnnotations, writeAnnotations } from "../src/tools/annotations.js";
+import { idempotentWriteAnnotations, nonDestructiveMutationAnnotations, openWorldMutationAnnotations, readOnlyAnnotations, safeMutationAnnotations, writeAnnotations } from "../src/tools/annotations.js";
 import { toolCatalog } from "../src/tools/catalog.js";
 import { CANONICAL_TOOL_ORDER, toolRegistry, toolsForPackage } from "../src/tools/registry.js";
 import * as handlerExports from "../src/tools/handlers.js";
@@ -131,6 +131,7 @@ describe("tool catalog contracts", () => {
       "repo_write_file",
       "repo_write_changes",
       "repo_write_handoff",
+      "repo_continue_agent_run",
       "repo_task_open",
       "repo_task_status",
       "repo_task_close",
@@ -160,7 +161,9 @@ describe("tool catalog contracts", () => {
         expect(tool.annotations.idempotentHint).toBe(true);
       } else if (isMutatingToolName(tool.name)) {
         expect(tool.annotations).toEqual(
-          tool.name === "repo_code_index"
+          tool.name === "repo_continue_agent_run"
+            ? openWorldMutationAnnotations
+            : tool.name === "repo_code_index"
             ? safeMutationAnnotations
             : tool.name === "repo_prepare_patchset"
               ? nonDestructiveMutationAnnotations
@@ -223,6 +226,7 @@ describe("tool catalog contracts", () => {
       "repo_write_file",
       "repo_write_changes",
       "repo_write_handoff",
+      "repo_continue_agent_run",
       "repo_task_open",
       "repo_task_close",
       "repo_task_cleanup",
@@ -379,7 +383,7 @@ describe("tool catalog contracts", () => {
   test("internal registry composes exact packages without changing the canonical surface", () => {
     expect(toolRegistry).toBe(toolCatalog);
     expect(toolRegistry.map((tool) => tool.name)).toEqual(CANONICAL_TOOL_ORDER);
-    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(65);
+    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(66);
     expect([...CANONICAL_TOOL_ORDER].sort()).toEqual(Object.keys(toolContracts).sort());
 
     expect(toolsForPackage("developer").map((tool) => tool.name)).toEqual([
@@ -408,7 +412,7 @@ describe("tool catalog contracts", () => {
       "repo_write_changes",
       "repo_write_handoff"
     ]);
-    expect(toolsForPackage("delegation")).toHaveLength(8);
+    expect(toolsForPackage("delegation")).toHaveLength(9);
     expect(toolsForPackage("patchsets")).toHaveLength(4);
     expect(toolsForPackage("advanced_operations")).toHaveLength(6);
     expect(toolsForPackage("diagnostics_and_discovery")).toHaveLength(4);
@@ -2768,6 +2772,7 @@ describe("tool catalog contracts", () => {
       "codeIndexHandler",
       "codexReviewHandler",
       "contextMapHandler",
+      "continueAgentRunHandler",
       "currentWorkSessionHandler",
       "decisionMemoryHandler",
       "failureDiagnoseHandler",

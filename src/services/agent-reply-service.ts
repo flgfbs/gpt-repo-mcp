@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { DelegationInteractionStore, interactionPaths } from "../delegation/interaction-store.js";
+import { DelegationInteractionStore, questionReplyPath } from "../delegation/interaction-store.js";
 import { DelegationRunStore, runPaths } from "../delegation/run-store.js";
 import { AgentReplyInputSchema, type AgentReplyInput, type AgentReplyResult } from "../contracts/agent-reply.contract.js";
 import { RepoReaderError } from "../runtime/errors.js";
@@ -64,7 +64,7 @@ export class AgentReplyService {
       repo_id: input.repo_id,
       run_id: input.run_id,
       turn_index: input.turn_index,
-      written_path: interactionPaths(input.run_id, input.turn_index).reply_path,
+      written_path: questionReplyPath(input.run_id, input.turn_index, question.sha256),
       agent_run: agentRun,
       next_tool_payloads: { repo_agent_runs: { repo_id: input.repo_id, run_id: input.run_id } },
       warnings: []

@@ -14,9 +14,11 @@ The current public names retain `codex` for compatibility:
 3. An external worker writes strict result evidence.
 4. `repo_agent_runs` exposes bounded lifecycle and structured questions.
 5. `repo_write_agent_reply` writes an exact current reply artifact.
-6. `repo_codex_review` verifies task, repository, scope, Git, and evidence.
-7. `repo_write_codex_review` records the state-bound qualitative verdict.
-8. Normal validation, ship review, local commit, and task lifecycle remain
+6. `repo_continue_agent_run` may start one next turn on the same private managed
+   App Server session before state-bound review attestation.
+7. `repo_codex_review` verifies task, repository, scope, Git, and evidence.
+8. `repo_write_codex_review` records the state-bound qualitative verdict.
+9. Normal validation, ship review, local commit, and task lifecycle remain
    authoritative.
 
 Artifacts live under local `.chatgpt/` state and are not intended for commit or
@@ -45,20 +47,40 @@ transport:
 | Dispatch | immutable task, Delegation v3, supervisor, runtime, and digest binding |
 | Launch | one immutable launch intent with ordinal one |
 | Supervisor | typed service identity, queue-consumer state, health, and provider-contact attestation |
+| Continuation | existing task/run/revision/operation binding with private session and attempt state |
 | Result | immutable bounded outcome with `replay_allowed: false` |
 | Recovery | launch intent without result and unknown effects stop without replay |
 
-`repo_task_admission` is the only new public surface. The queue consumer,
-dispatch store, and launcher interface are internal runtime components. They are
-not a second MCP server, scheduler, or control plane, and default server
-construction does not start them. Provider-free qualification injects a
-deterministic launcher and proves one launch per admitted dispatch without model
-contact.
+`repo_task_admission` is the public admission surface, and
+`repo_continue_agent_run` is the single public continuation mutation. The queue
+consumer, dispatch store, launcher interface, App Server adapter, private
+thread/turn identifiers, and notification sink are internal runtime components.
+They are not a second MCP server, scheduler, status plane, or control plane.
+Default server construction creates only a lazy client for the existing local
+owner control socket; it does not start a provider or contact the socket until a
+continuation is requested. Provider-free
+qualification injects deterministic fakes and proves one launch or turn start
+per admitted operation without model contact. The connection also
+provides the narrow notification-delivery barrier that prevents an immediate
+terminal sink write from racing the bridge's accepted running-state write.
 
 Provider adapter names, model ids, private thread ids, credentials, commands,
 retry controls, and raw logs stay outside public MCP inputs. A live adapter must
 be separately constructed under current authority and cannot widen repository
 scope or bypass validation and review.
+
+Continuation calls `thread/read`, conditionally `thread/resume`, and
+`turn/start`. It refuses active or mismatched threads, preserves Local sandbox
+and approval authority by sending no overrides, and does not require exact
+HEAD/tree agreement merely to continue. The existing task operation ledger is
+the replay boundary. A confirmed pre-start rejection may restore the prior
+settled attempt; an acknowledged or uncertain start remains in-flight and
+cannot be blindly replayed. `repo_agent_runs` stays the sole public lifecycle
+observer. The bridge never grants App Server approval: known command/file
+requests are canceled or aborted, and permission requests receive an empty
+grant. Only safe structured `item/tool/requestUserInput` questions are routed
+through the existing `repo_write_agent_reply` artifact; unsafe or unanswerable
+requests receive an empty answer map.
 
 ## Compatibility Rules
 

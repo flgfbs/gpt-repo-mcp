@@ -68,7 +68,8 @@ const INHERITED_TOOL_ORDER = [
   "repo_current_work_session",
   "repo_write_file",
   "repo_write_changes",
-  "repo_write_handoff"
+  "repo_write_handoff",
+  "repo_continue_agent_run"
 ] as const;
 
 const LIFECYCLE_TOOL_ORDER = [
@@ -156,12 +157,12 @@ const validInputs = {
 } as const satisfies Record<(typeof LIFECYCLE_TOOL_ORDER)[number], Record<string, unknown>>;
 
 describe("lifecycle tool contracts", () => {
-  test("preserves the inherited prefix and appends exactly 18 canonical names without aliases", () => {
-    expect(CANONICAL_TOOL_ORDER).toHaveLength(65);
-    expect(CANONICAL_TOOL_ORDER.slice(0, 47)).toEqual(INHERITED_TOOL_ORDER);
-    expect(CANONICAL_TOOL_ORDER.slice(47)).toEqual(LIFECYCLE_TOOL_ORDER);
-    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(65);
-    expect(Object.keys(toolContracts)).toHaveLength(65);
+  test("preserves the local prefix and appends exactly 18 canonical lifecycle names without aliases", () => {
+    expect(CANONICAL_TOOL_ORDER).toHaveLength(66);
+    expect(CANONICAL_TOOL_ORDER.slice(0, 48)).toEqual(INHERITED_TOOL_ORDER);
+    expect(CANONICAL_TOOL_ORDER.slice(48)).toEqual(LIFECYCLE_TOOL_ORDER);
+    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(66);
+    expect(Object.keys(toolContracts)).toHaveLength(66);
     expect([...CANONICAL_TOOL_ORDER].sort()).toEqual(Object.keys(toolContracts).sort());
     expect(toolRegistry.map(({ name }) => name)).toEqual(CANONICAL_TOOL_ORDER);
     expect(toolsForPackage("lifecycle").map(({ name }) => name)).toEqual(LIFECYCLE_TOOL_ORDER);

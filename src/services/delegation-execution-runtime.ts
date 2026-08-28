@@ -11,6 +11,8 @@ import { RepoReaderError } from "../runtime/errors.js";
 import type { TaskRuntimeService } from "../task-runtime/index.js";
 import type { RootRegistry } from "./root-registry.js";
 import { TaskAdmissionService } from "./task-admission-service.js";
+import { CodexAppServerAdapter } from "../delegation/codex-app-server-adapter.js";
+import { TaskAgentContinuationRuntime } from "./agent-continuation-service.js";
 
 export type CreateDelegationQueueSupervisorInput = {
   repo_id: string;
@@ -35,9 +37,25 @@ export class DelegationExecutionRuntime {
 
   constructor(
     private readonly registry: RootRegistry,
-    tasks: TaskRuntimeService
+    private readonly tasks: TaskRuntimeService
   ) {
     this.admission = new TaskAdmissionService(registry, tasks);
+  }
+
+  createAgentContinuationRuntime(input: {
+    app_server: CodexAppServerAdapter;
+    now?: () => Date;
+  }): TaskAgentContinuationRuntime {
+    // The owner-controlled connection must retain its notification and
+    // terminal-result sink and hold delivery behind the adapter barrier until
+    // accepted running state is durable. This seam starts one turn only;
+    // repo_agent_runs remains the sole public observer of owner-persisted state.
+    return new TaskAgentContinuationRuntime(
+      this.registry,
+      this.tasks,
+      input.app_server,
+      input.now
+    );
   }
 
   createQueueSupervisor(input: CreateDelegationQueueSupervisorInput): DelegationQueueSupervisor {

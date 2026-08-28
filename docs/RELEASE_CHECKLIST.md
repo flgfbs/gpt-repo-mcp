@@ -6,7 +6,7 @@ operation.
 
 ## Contract And Documentation
 
-- Confirm the public registry contains exactly 65 canonical names in order and
+- Confirm the public registry contains exactly 66 canonical names in order and
   no aliases.
 - Confirm strict schemas, descriptions, annotations, handlers, and runtime
   capabilities agree.

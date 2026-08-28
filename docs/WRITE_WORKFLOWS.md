@@ -99,6 +99,32 @@ HEAD/tree, task state, lifecycle artifacts, and cleanup eligibility. The public
 artifact window is capped at 200 references; `ARTIFACTS_TRUNCATED` means
 additional durable artifacts remain available by their opaque ids.
 
+### Continue An Existing Managed Child
+
+When the same owner account already exposes the Codex App Server control socket,
+`repo_continue_agent_run` lazily connects and can start one next turn on a
+terminal idle managed run. Read `repo_agent_runs`, then pass its exact
+`repo_id`, `run_id`, revision, a fresh existing-namespace `operation_id`, and
+the bounded instruction. Do not supply a thread, model, path, machine, sandbox,
+approval override, or HEAD/tree expectation. Structured awaiting-input questions
+still use `repo_write_agent_reply`; multiple sequential question rounds in one
+App Server turn remain hash-bound to distinct private replies.
+
+Keep the task open while the continuation is active. The internal sink owns
+`turn/completed`, attempt settlement, runtime accounting, fresh-result
+verification, and terminal status. The connection holds notification delivery
+until the bridge durably writes the accepted running revision; the sink then
+reads that revision before advancing terminal state. Human waiting time in
+`awaiting_input` is excluded from the active runtime budget. App Server command, file,
+and permission approvals are never granted by the bridge: command/file requests
+are canceled or aborted and permission requests receive the empty subset.
+Structured questions use `repo_write_agent_reply`; unsafe or unanswerable ones
+receive empty answers. If turn-start acknowledgement is uncertain, inspect the
+same run and do not replay. An exact persisted in-flight turn may be query-rebound
+through a fresh operation, but missing or ambiguous turn ids stay blocked. A run
+with a state-bound review attestation follows the existing corrective-child
+workflow instead of same-run continuation.
+
 ## 5. Implement, Validate, And Review
 
 Within `implement` or `ship` authority:

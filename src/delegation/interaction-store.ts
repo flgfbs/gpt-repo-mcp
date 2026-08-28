@@ -46,7 +46,10 @@ export class DelegationInteractionStore {
     return { question, sha256: sha256(raw) };
   }
 
-  async writeQuestion(input: Omit<AgentInteractionQuestion, "schema_version" | "created_at"> & { created_at?: string }): Promise<{ question: AgentInteractionQuestion; sha256: string }> {
+  async writeQuestion(
+    input: Omit<AgentInteractionQuestion, "schema_version" | "created_at"> & { created_at?: string },
+    options: { replace_question_sha256?: string } = {}
+  ): Promise<{ question: AgentInteractionQuestion; sha256: string }> {
     const question = AgentInteractionQuestionSchema.parse({
       schema_version: 1,
       ...input,
@@ -55,6 +58,14 @@ export class DelegationInteractionStore {
     await this.assertSafeInteractionDirectory(question.run_id);
     const path = join(this.root, interactionPaths(question.run_id, question.turn_index).question_path);
     const raw = `${JSON.stringify(question, null, 2)}\n`;
+    if (options.replace_question_sha256 !== undefined) {
+      const existing = await this.readQuestion(question.repo_id, question.run_id, question.turn_index);
+      if (!existing || existing.sha256 !== options.replace_question_sha256) {
+        throw interactionError("Current question changed before replacement.");
+      }
+      await atomicWriteJson(path, question);
+      return { question, sha256: sha256(raw) };
+    }
     try {
       await writeExclusiveJson(path, question);
     } catch (error) {
@@ -68,11 +79,22 @@ export class DelegationInteractionStore {
     return { question, sha256: sha256(raw) };
   }
 
-  async readReply(repoId: string, runId: string, turnIndex: number): Promise<AgentInteractionReply | undefined> {
-    const reply = await this.readArtifact(interactionPaths(runId, turnIndex).reply_path, AgentInteractionReplySchema);
-    if (!reply) return undefined;
-    assertInteractionBinding(reply, repoId, runId, turnIndex);
-    return reply;
+  async readReply(
+    repoId: string,
+    runId: string,
+    turnIndex: number,
+    questionSha256?: string
+  ): Promise<AgentInteractionReply | undefined> {
+    const paths = questionSha256 === undefined
+      ? [interactionPaths(runId, turnIndex).reply_path]
+      : [questionReplyPath(runId, turnIndex, questionSha256), interactionPaths(runId, turnIndex).reply_path];
+    for (const path of paths) {
+      const reply = await this.readArtifact(path, AgentInteractionReplySchema);
+      if (!reply) continue;
+      assertInteractionBinding(reply, repoId, runId, turnIndex);
+      if (questionSha256 === undefined || reply.question_sha256 === questionSha256) return reply;
+    }
+    return undefined;
   }
 
   async writeReply(input: Omit<AgentInteractionReply, "schema_version" | "created_at"> & { created_at?: string }): Promise<AgentInteractionReply> {
@@ -83,7 +105,10 @@ export class DelegationInteractionStore {
     });
     await this.assertSafeInteractionDirectory(reply.run_id);
     try {
-      await writeExclusiveJson(join(this.root, interactionPaths(reply.run_id, reply.turn_index).reply_path), reply);
+      await writeExclusiveJson(
+        join(this.root, questionReplyPath(reply.run_id, reply.turn_index, reply.question_sha256)),
+        reply
+      );
     } catch (error) {
       if (isAlreadyExistsError(error)) {
         throw new RepoReaderError("RUNNER_REPLY_ALREADY_EXISTS", "A reply already exists for this agent turn.");
@@ -147,6 +172,18 @@ export function interactionPaths(runId: string, turnIndex: number) {
   }
   const turn = String(turnIndex).padStart(4, "0");
   return { question_path: `${dir}/turn-${turn}.question.json`, reply_path: `${dir}/turn-${turn}.reply.json` };
+}
+
+export function questionReplyPath(runId: string, turnIndex: number, questionSha256: string): string {
+  if (!/^[a-f0-9]{64}$/.test(questionSha256)) {
+    throw interactionError("Invalid question reply binding.");
+  }
+  const dir = `${runDirectory(runId)}/interactions`;
+  if (!Number.isInteger(turnIndex) || turnIndex < 1 || turnIndex > 32) {
+    throw interactionError("Agent turn index is outside the supported range.");
+  }
+  const turn = String(turnIndex).padStart(4, "0");
+  return `${dir}/turn-${turn}-${questionSha256}.reply.json`;
 }
 
 export function sessionPath(runId: string): string {

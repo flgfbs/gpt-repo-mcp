@@ -252,7 +252,7 @@ export class AgentRunsService {
       if (!session || session.turn_index < 1) throw new Error("Missing current runner session.");
       const pending = await this.interactions.readQuestion(repoId, runId, session.turn_index);
       if (!pending) throw new Error("Missing current runner question.");
-      if (await this.interactions.readReply(repoId, runId, session.turn_index)) return undefined;
+      if (await this.interactions.readReply(repoId, runId, session.turn_index, pending.sha256)) return undefined;
       return {
         status: "awaiting_input",
         turn_index: session.turn_index,
@@ -294,6 +294,8 @@ export class AgentRunsService {
     const runtime = record.runner.mode === "queued"
       ? await this.runtimeReader.read(record, status, warnings)
       : undefined;
+    const currentResultReviewable = (status === undefined || status.result_found)
+      && !warnings.includes("AGENT_RUN_EFFECT_UNKNOWN_NO_REPLAY");
     return {
       summary: {
         run_id: record.run_id,
@@ -311,7 +313,7 @@ export class AgentRunsService {
         result_presence: {
           ...(manifestVersion === 3 ? {} : { legacy_result_md: resultMd }),
           result_json: resultJson,
-          reviewable: manifestVersion === 3 ? resultJson : resultMd || resultJson
+          reviewable: currentResultReviewable && (manifestVersion === 3 ? resultJson : resultMd || resultJson)
         },
         created_at: createdAt,
         updated_at: status?.updated_at ?? createdAt,

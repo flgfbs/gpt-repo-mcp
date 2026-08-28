@@ -1,4 +1,5 @@
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 export async function atomicWriteJson(path: string, value: unknown): Promise<void> {
@@ -6,11 +7,19 @@ export async function atomicWriteJson(path: string, value: unknown): Promise<voi
 }
 
 export async function atomicWriteFile(path: string, content: Buffer | string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
+  const parent = dirname(path);
+  await mkdir(parent, { recursive: true });
   const tempPath = `${path}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   try {
-    await writeFile(tempPath, content);
+    const handle = await open(tempPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o666);
+    try {
+      await handle.writeFile(content);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
     await rename(tempPath, path);
+    await fsyncDirectory(parent);
   } catch (error) {
     await rm(tempPath, { force: true }).catch(() => undefined);
     throw error;
@@ -37,4 +46,19 @@ function hasFsErrorCode(error: unknown, code: string): boolean {
       && "code" in error
       && (error as { code?: unknown }).code === code
   );
+}
+
+async function fsyncDirectory(path: string): Promise<void> {
+  const handle = await open(path, constants.O_RDONLY);
+  try {
+    await handle.sync();
+  } catch (error) {
+    if (
+      !hasFsErrorCode(error, "EINVAL")
+      && !hasFsErrorCode(error, "ENOTSUP")
+      && !hasFsErrorCode(error, "EISDIR")
+    ) throw error;
+  } finally {
+    await handle.close();
+  }
 }

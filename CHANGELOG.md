@@ -10,8 +10,18 @@ Notable public changes to Chat Pro Repository MCP are recorded here.
   local commits, close, and cleanup without any Git remote or GitHub authority.
 - Owner CLI `--local-only` registration with explicit conflict rejection for
   remote, GitHub, required-check, and merge-method options.
-- Eighteen task and optional GitHub lifecycle tools appended after the canonical
-  47-tool local prefix, producing an exact 65-tool surface with no aliases.
+- One operation-bound `repo_continue_agent_run` bridge for continuing the
+  private session of an existing managed Codex App Server child without public
+  thread, model, machine, path, binding, or separate idempotency identifiers.
+- Lazy same-user Unix control-socket attachment, terminal settlement, and
+  structured-question routing for that bridge without provider startup,
+  approval takeover, or startup contact.
+- Serialized turn-start barriers, sequential structured-question rounds,
+  paused human-wait runtime accounting, and bounded same-notification terminal
+  settlement retry.
+- Eighteen task and optional GitHub lifecycle tools follow the preserved
+  47-tool local prefix and the continuation tool, producing an exact 66-tool
+  surface with no aliases.
 - Read-only `repo_task_admission` with typed absent, exact matching active, and
   conflicting active-task outcomes.
 - Provider-neutral immutable dispatch, one-launch-intent, supervisor identity
@@ -52,5 +62,8 @@ Notable public changes to Chat Pro Repository MCP are recorded here.
 ### Security
 
 - External operations bind task, operation, HEAD, and tree state.
+- Agent continuation reuses task `operation_id` receipts, preserves local
+  sandbox and approval authority, and becomes no-replay as soon as turn-start
+  contact has an unknown outcome.
 - Merge requires one exact, unexpired approval created by the owner CLI and
   consumed once.

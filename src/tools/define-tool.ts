@@ -20,6 +20,7 @@ export function registerCatalogTool(server: McpServer, context: RuntimeContext, 
         taskBinding
         && tool.package !== "lifecycle"
         && tool.annotations.readOnlyHint === false
+        && tool.taskMutationBoundary === "inherited"
       ) {
         if (!context.taskMutations) {
           throw new Error("Task mutation runtime is not configured.");

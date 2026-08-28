@@ -249,6 +249,7 @@ export const AgentRunnerSessionSchema = z.object({
   run_id: AgentRunnerRunIdSchema,
   provider: AgentRunnerNameSchema,
   thread_id: z.string().min(1).max(1_024).refine((value) => !/[\0\r\n]/.test(value)),
+  model: z.string().min(1).max(512).refine((value) => !/[\0\r\n]/.test(value)).optional(),
   turn_index: z.number().int().min(0).max(32),
   max_runtime_ms: z.number().int().positive().optional(),
   active_runtime_ms: z.number().int().nonnegative().default(0),
@@ -265,15 +266,29 @@ export const AgentRunnerAttemptSchema = z.object({
   operation: z.enum(["start", "resume"]),
   turn_index: z.number().int().min(0).max(32),
   state: z.enum(["in_flight", "settled"]),
+  app_server_turn_id: z.string().min(1).max(1_024).refine((value) => !/[\0\r\n]/.test(value)).optional(),
+  result_sha256_before: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  active_runtime_ms_before: z.number().int().nonnegative().optional(),
+  awaiting_input_ms: z.number().int().nonnegative().optional(),
+  awaiting_input_started_at: BoundedIsoTimestampSchema.optional(),
   started_at: BoundedIsoTimestampSchema,
   updated_at: BoundedIsoTimestampSchema
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (value.state === "settled" && value.awaiting_input_started_at !== undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["awaiting_input_started_at"],
+      message: "A settled attempt cannot retain an open awaiting-input interval."
+    });
+  }
+});
 
 export const AgentInteractionQuestionSchema = z.object({
   schema_version: z.literal(1),
   repo_id: z.string().min(1).max(200),
   run_id: AgentRunnerRunIdSchema,
   turn_index: z.number().int().min(1).max(32),
+  request_sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   questions: z.array(AgentTurnQuestionSchema).min(1).max(3),
   created_at: BoundedIsoTimestampSchema
 }).strict();

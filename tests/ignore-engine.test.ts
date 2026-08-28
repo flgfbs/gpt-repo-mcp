@@ -35,6 +35,7 @@ describe("IgnoreEngine", () => {
     expect(engine.isSensitiveCandidate(`${run}/runner.lock.json.replace`)).toBe(true);
     expect(engine.isSensitiveCandidate(`${run}/runner.session.json.tmp-123-456-abcdef`)).toBe(true);
     expect(engine.isSensitiveCandidate(`${run}/interactions/turn-0001.reply.json`)).toBe(true);
+    expect(engine.isSensitiveCandidate(`${run}/interactions/turn-0001-${"a".repeat(64)}.reply.json`)).toBe(true);
     expect(engine.isSensitiveCandidate(`${run.toUpperCase()}/RUNNER.SESSION.JSON`)).toBe(true);
     expect(engine.isSensitiveCandidate(`${run}/InTeRaCtIoNs/TuRn-0001.RePlY.JsOn`)).toBe(true);
     expect(engine.isSensitiveCandidate(`${run.replaceAll("/", "\\")}\\RuNnEr.AtTeMpT.JsOn`)).toBe(true);
