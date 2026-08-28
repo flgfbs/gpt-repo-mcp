@@ -24,11 +24,39 @@ import { GitService } from "../services/git-service.js";
 const MAX_RESULT_BYTES = 4 * 1024 * 1024;
 const REPLY_POLL_MS = 100;
 
+const PrivateIdSchema = z.string().min(1).max(1_024).refine((value) => !/[\0\r\n]/.test(value));
+
+const BoundTurnApprovalParamsSchema = z.object({
+  threadId: PrivateIdSchema,
+  turnId: PrivateIdSchema,
+  itemId: PrivateIdSchema,
+  startedAtMs: z.number().int().finite()
+}).passthrough();
+
+const PermissionApprovalParamsSchema = BoundTurnApprovalParamsSchema.extend({
+  cwd: z.string().min(1).max(4_096).refine((value) => !value.includes("\0")),
+  permissions: z.record(z.string(), z.unknown())
+}).passthrough();
+
+const LegacyCommandApprovalParamsSchema = z.object({
+  callId: PrivateIdSchema,
+  conversationId: PrivateIdSchema,
+  command: z.array(z.string()),
+  cwd: z.string().min(1).max(4_096).refine((value) => !value.includes("\0")),
+  parsedCmd: z.array(z.unknown())
+}).passthrough();
+
+const LegacyFileApprovalParamsSchema = z.object({
+  callId: PrivateIdSchema,
+  conversationId: PrivateIdSchema,
+  fileChanges: z.record(z.string(), z.unknown())
+}).passthrough();
+
 const RequestUserInputParamsSchema = z.object({
   threadId: z.string().min(1).max(1_024),
   turnId: z.string().min(1).max(1_024),
   itemId: z.string().min(1).max(1_024),
-  isBlocking: z.boolean().default(true),
+  isBlocking: z.boolean(),
   questions: z.array(z.object({
     id: z.string().min(1).max(256),
     header: z.string().min(1).max(256),
@@ -116,21 +144,50 @@ export class CodexAppServerRunSink implements CodexAppServerEventSink {
   async handleServerRequest(
     request: CodexAppServerServerRequest
   ): Promise<CodexAppServerServerRequestDisposition> {
-    if (this.closed || request.method !== "item/tool/requestUserInput") return { handled: false };
+    if (
+      request.method === "item/commandExecution/requestApproval"
+      || request.method === "item/fileChange/requestApproval"
+    ) {
+      const parsed = BoundTurnApprovalParamsSchema.safeParse(request.params);
+      return parsed.success && this.boundTurn(parsed.data.threadId, parsed.data.turnId)
+        ? { handled: true, result: { decision: "cancel" } }
+        : invalidApprovalRequest();
+    }
+    if (request.method === "item/permissions/requestApproval") {
+      const parsed = PermissionApprovalParamsSchema.safeParse(request.params);
+      return parsed.success && this.boundTurn(parsed.data.threadId, parsed.data.turnId)
+        ? { handled: true, result: { permissions: {} } }
+        : invalidApprovalRequest();
+    }
+    if (request.method === "execCommandApproval") {
+      const parsed = LegacyCommandApprovalParamsSchema.safeParse(request.params);
+      return parsed.success && this.uniqueThreadBinding(parsed.data.conversationId)
+        ? { handled: true, result: { decision: "abort" } }
+        : invalidApprovalRequest();
+    }
+    if (request.method === "applyPatchApproval") {
+      const parsed = LegacyFileApprovalParamsSchema.safeParse(request.params);
+      return parsed.success && this.uniqueThreadBinding(parsed.data.conversationId)
+        ? { handled: true, result: { decision: "abort" } }
+        : invalidApprovalRequest();
+    }
+    if (request.method !== "item/tool/requestUserInput") return { handled: false };
+    const emptyAnswer = { handled: true, result: { answers: {} } } as const;
+    if (this.closed) return emptyAnswer;
     const parsed = RequestUserInputParamsSchema.safeParse(request.params);
-    if (!parsed.success || !parsed.data.isBlocking) return { handled: false };
+    if (!parsed.success || !parsed.data.isBlocking) return emptyAnswer;
     const binding = this.bindings.get(parsed.data.turnId);
     if (
       !binding
       || binding.thread_id !== parsed.data.threadId
       || parsed.data.questions.some((question) => question.isSecret)
     ) {
-      return { handled: false };
+      return emptyAnswer;
     }
     const key = requestKey(request.id);
-    if (this.pendingQuestions.has(key)) return { handled: false };
+    if (this.pendingQuestions.has(key)) return emptyAnswer;
     const mappings = mapQuestions(parsed.data.questions);
-    if (!mappings) return { handled: false };
+    if (!mappings) return emptyAnswer;
 
     const controller = new AbortController();
     this.pendingQuestions.set(key, {
@@ -151,14 +208,14 @@ export class CodexAppServerRunSink implements CodexAppServerEventSink {
       );
       if (controller.signal.aborted) {
         await this.markQuestionResolved(binding);
-        return { handled: false };
+        return emptyAnswer;
       }
       while (!controller.signal.aborted && !this.closed) {
         const response = await this.consumeReplyIfPresent(binding, mappings, questionSha256);
         if (response) return { handled: true, result: response };
         await this.sleep(REPLY_POLL_MS);
       }
-      return { handled: false };
+      return emptyAnswer;
     } finally {
       this.pendingQuestions.delete(key);
     }
@@ -328,7 +385,7 @@ export class CodexAppServerRunSink implements CodexAppServerEventSink {
         repo_id: binding.repo_id,
         run_id: binding.run_id,
         event_type: "input_received",
-        summary: "The structured request was resolved by an owner App Server client."
+        summary: "The structured request was resolved by Codex App Server."
       });
       await runs.writeStatus({
         ...status,
@@ -471,6 +528,19 @@ export class CodexAppServerRunSink implements CodexAppServerEventSink {
       if (pending.turn_id === turnId) pending.controller.abort();
     }
   }
+
+  private boundTurn(threadId: string, turnId: string): boolean {
+    const binding = this.bindings.get(turnId);
+    return binding !== undefined && binding.thread_id === threadId;
+  }
+
+  private uniqueThreadBinding(threadId: string): boolean {
+    let matches = 0;
+    for (const binding of this.bindings.values()) {
+      if (binding.thread_id === threadId) matches += 1;
+    }
+    return matches === 1;
+  }
 }
 
 function assertActiveBinding(
@@ -543,6 +613,13 @@ function terminalDisposition(
 
 function requestKey(id: string | number): string {
   return `${typeof id}:${String(id)}`;
+}
+
+function invalidApprovalRequest(): CodexAppServerServerRequestDisposition {
+  return {
+    handled: true,
+    error: { code: -32602, message: "Approval request is invalid or is not bound to this bridge turn." }
+  };
 }
 
 type AttemptPauseFields = Pick<AgentRunnerAttempt, "awaiting_input_ms" | "awaiting_input_started_at">;

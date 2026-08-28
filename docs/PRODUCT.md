@@ -71,8 +71,10 @@ On `repo_continue_agent_run`, the owner runtime lazily connects to its existing
 safely permissioned Codex App Server control socket to continue the private
 session of a managed child. The bridge uses the existing task operation ledger
 and run/session/attempt artifacts, never accepts provider or authority
-overrides, leaves approvals to Local, and does not add registration,
-credentials, service management, or a second status plane.
+overrides, never grants an approval, and does not add registration, credentials,
+service management, or a second status plane. A bridge-originating approval is
+resolved fail-closed so it cannot remain pending after the originating connection
+becomes the only eligible responder.
 
 ## Scope Limit
 

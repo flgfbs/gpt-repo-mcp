@@ -69,6 +69,15 @@ baseline. Startup does not contact, spawn, configure, or authenticate a provider
 The internal event sink settles the existing run status; there is no second
 status system.
 
+If a restart leaves an exact persisted App Server turn id in an in-flight
+attempt, the same continuation boundary performs a query-only `thread/read`
+with turns included. It rebinds the sink only when that id is unique and latest,
+settles an already-terminal turn through the existing status machinery, and
+never resumes or starts a replacement turn. Server requests on the bridge
+connection are always resolved: approvals receive protocol-valid least-authority
+negative results, unsafe questions receive empty answers, and other methods
+receive bounded JSON-RPC errors.
+
 ## Local Repository Plane
 
 The root registry is the sole repository admission boundary. Explicit roots
@@ -118,7 +127,9 @@ the existing status monotonically to a terminal revision. Turn-start barriers
 on the shared connection serialize, and a terminal notification receives at
 most one same-message local settlement retry. Once `turn/start` may
 have been accepted, the operation is unknown/no-replay rather than retried under
-a new id; missing status cannot make an old result reviewable.
+a new id. A later operation may only query-reconcile an exact persisted turn id;
+missing or ambiguous ids stay blocked, and missing status cannot make an old
+result reviewable.
 
 ## External Effect Plane
 

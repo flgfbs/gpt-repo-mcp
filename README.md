@@ -171,7 +171,8 @@ merge only.
   blindly replayed.
 - Managed continuation lazily uses only the existing same-user, owner-only
   Codex App Server control socket, keeps thread/turn ids private, sends no Local
-  authority overrides, and leaves App Server approval requests unanswered.
+  authority overrides, and never grants an App Server approval. Bridge-originating
+  approval requests are canceled or receive an empty permission grant.
 - Release, deployment, signing, package publication, and infrastructure change
   are out of scope.
 

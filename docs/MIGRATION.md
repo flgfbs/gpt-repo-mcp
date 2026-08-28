@@ -61,6 +61,10 @@ there is no public thread registration, binding id, separate idempotency key,
 status subsystem, credential, provider selection, or service startup. Server
 startup itself makes no App Server contact. Existing runs without a private
 managed session remain readable and are not attached or continued automatically.
+An in-flight attempt is rebound only when it already contains an exact App Server
+turn id and `thread/read` confirms that id as the unique latest turn. Older or
+partial attempts without that evidence remain no-replay and require no format
+migration.
 
 ## Execution-Runtime Artifact Migration
 

@@ -76,10 +76,11 @@ HEAD/tree agreement merely to continue. The existing task operation ledger is
 the replay boundary. A confirmed pre-start rejection may restore the prior
 settled attempt; an acknowledged or uncertain start remains in-flight and
 cannot be blindly replayed. `repo_agent_runs` stays the sole public lifecycle
-observer. Explicit App Server approval requests remain unanswered by this
-bridge so the Local owner surface retains that decision. Only structured
-`item/tool/requestUserInput` questions are routed through the existing
-`repo_write_agent_reply` artifact.
+observer. The bridge never grants App Server approval: known command/file
+requests are canceled or aborted, and permission requests receive an empty
+grant. Only safe structured `item/tool/requestUserInput` questions are routed
+through the existing `repo_write_agent_reply` artifact; unsafe or unanswerable
+requests receive an empty answer map.
 
 ## Compatibility Rules
 

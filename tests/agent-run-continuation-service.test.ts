@@ -12,6 +12,7 @@ import {
   CodexAppServerTurnStartError,
   type CodexAppServerMethod,
   type CodexAppServerRpc,
+  type CodexAppServerTurnStatus,
   type ManagedCodexAppServerTurnBinding
 } from "../src/delegation/codex-app-server-adapter.js";
 import { CodexAppServerRunSink } from "../src/delegation/codex-app-server-run-sink.js";
@@ -268,7 +269,160 @@ describe("managed Codex App Server continuation", () => {
     }
   });
 
-  test("routes a structured App Server question through repo_write_agent_reply without answering approvals", async () => {
+  test("returns only least-authority approval responses and settles an interrupted turn as canceled", async () => {
+    const fixture = await continuationFixture();
+    const sink = new CodexAppServerRunSink(fixture.registry, fixture.tasks, {
+      now: () => new Date("2026-08-26T12:06:00.000Z")
+    });
+    const rpc = new SinkBackedAppServerRpc(fixture.taskRoot, sink);
+    await continuationRuntime(fixture, rpc).continue(
+      continuationInput(fixture.repoId, "continue-operation-negative-approvals")
+    );
+
+    const sensitiveCommand = "sensitive-command-must-not-leak";
+    const responses = await Promise.all([
+      sink.handleServerRequest({
+        id: 30,
+        method: "item/commandExecution/requestApproval",
+        params: {
+          threadId: THREAD_CANARY,
+          turnId: TURN_CANARY,
+          itemId: "command-item",
+          startedAtMs: 1,
+          command: sensitiveCommand
+        }
+      }),
+      sink.handleServerRequest({
+        id: 31,
+        method: "item/fileChange/requestApproval",
+        params: {
+          threadId: THREAD_CANARY,
+          turnId: TURN_CANARY,
+          itemId: "file-item",
+          startedAtMs: 2,
+          reason: sensitiveCommand
+        }
+      }),
+      sink.handleServerRequest({
+        id: 32,
+        method: "item/permissions/requestApproval",
+        params: {
+          threadId: THREAD_CANARY,
+          turnId: TURN_CANARY,
+          itemId: "permission-item",
+          startedAtMs: 3,
+          cwd: fixture.taskRoot,
+          permissions: { network: { enabled: true } },
+          reason: sensitiveCommand
+        }
+      }),
+      sink.handleServerRequest({
+        id: 33,
+        method: "execCommandApproval",
+        params: {
+          conversationId: THREAD_CANARY,
+          callId: "legacy-command-item",
+          command: [sensitiveCommand],
+          cwd: fixture.taskRoot,
+          parsedCmd: []
+        }
+      }),
+      sink.handleServerRequest({
+        id: 34,
+        method: "applyPatchApproval",
+        params: {
+          conversationId: THREAD_CANARY,
+          callId: "legacy-file-item",
+          fileChanges: { "secret.txt": { type: "add", content: sensitiveCommand } }
+        }
+      })
+    ]);
+
+    expect(responses).toEqual([
+      { handled: true, result: { decision: "cancel" } },
+      { handled: true, result: { decision: "cancel" } },
+      { handled: true, result: { permissions: {} } },
+      { handled: true, result: { decision: "abort" } },
+      { handled: true, result: { decision: "abort" } }
+    ]);
+    expect(JSON.stringify(responses)).not.toContain(sensitiveCommand);
+    expect(JSON.stringify(responses)).not.toMatch(/accept|approve|grantRoot|scope/);
+
+    await sink.handleNotification({
+      method: "turn/completed",
+      params: { turn: { id: TURN_CANARY, status: "interrupted" } }
+    });
+    await expect(new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).resolves.toMatchObject({
+      status: "canceled",
+      revision: 9,
+      result_found: false,
+      warnings: expect.arrayContaining(["AGENT_RUN_TURN_INTERRUPTED"])
+    });
+    await expect(new DelegationAttemptStore(fixture.taskRoot).read(fixture.repoId, RUN_ID)).resolves.toMatchObject({
+      state: "settled",
+      app_server_turn_id: TURN_CANARY
+    });
+    await sink.close();
+  });
+
+  test("resolves unsafe or unanswerable structured questions without exposing their contents", async () => {
+    const fixture = await continuationFixture();
+    const sink = new CodexAppServerRunSink(fixture.registry, fixture.tasks);
+    const rpc = new SinkBackedAppServerRpc(fixture.taskRoot, sink);
+    await continuationRuntime(fixture, rpc).continue(
+      continuationInput(fixture.repoId, "continue-operation-empty-answers")
+    );
+    const secret = "secret-answer-must-not-leak";
+
+    const secretResponse = await sink.handleServerRequest({
+      id: 35,
+      method: "item/tool/requestUserInput",
+      params: {
+        threadId: THREAD_CANARY,
+        turnId: TURN_CANARY,
+        itemId: "secret-question",
+        isBlocking: true,
+        questions: [{
+          id: "credential",
+          header: "Secret",
+          question: secret,
+          isSecret: true,
+          options: null
+        }]
+      }
+    });
+    const malformedResponse = await sink.handleServerRequest({
+      id: 36,
+      method: "item/tool/requestUserInput",
+      params: { secret }
+    });
+    const unboundApproval = await sink.handleServerRequest({
+      id: 37,
+      method: "item/commandExecution/requestApproval",
+      params: {
+        threadId: "unbound-thread",
+        turnId: "unbound-turn",
+        itemId: "unbound-item",
+        startedAtMs: 4,
+        reason: secret
+      }
+    });
+
+    expect(secretResponse).toEqual({ handled: true, result: { answers: {} } });
+    expect(malformedResponse).toEqual({ handled: true, result: { answers: {} } });
+    expect(unboundApproval).toEqual({
+      handled: true,
+      error: { code: -32602, message: "Approval request is invalid or is not bound to this bridge turn." }
+    });
+    expect(JSON.stringify([secretResponse, malformedResponse, unboundApproval])).not.toContain(secret);
+    await expect(new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).resolves.toMatchObject({
+      status: "running",
+      revision: 8
+    });
+    await sink.close();
+  });
+
+  test("routes a structured App Server question through repo_write_agent_reply after canceling approvals", async () => {
     const fixture = await continuationFixture();
     const sink = new CodexAppServerRunSink(fixture.registry, fixture.tasks, {
       now: () => new Date("2026-08-26T12:06:00.000Z"),
@@ -286,10 +440,11 @@ describe("managed Codex App Server continuation", () => {
         threadId: THREAD_CANARY,
         turnId: TURN_CANARY,
         itemId: "approval-item",
+        startedAtMs: 1,
         command: "external-effect",
         cwd: fixture.taskRoot
       }
-    })).resolves.toEqual({ handled: false });
+    })).resolves.toEqual({ handled: true, result: { decision: "cancel" } });
 
     const pendingResponse = sink.handleServerRequest({
       id: 41,
@@ -339,7 +494,7 @@ describe("managed Codex App Server continuation", () => {
     await sink.close();
   });
 
-  test("returns to running when another owner App Server client resolves the structured question", async () => {
+  test("returns to running when App Server resolves the structured question", async () => {
     const fixture = await continuationFixture();
     const sink = new CodexAppServerRunSink(fixture.registry, fixture.tasks, {
       now: () => new Date("2026-08-26T12:06:00.000Z"),
@@ -373,7 +528,7 @@ describe("managed Codex App Server continuation", () => {
       });
     });
     await sink.handleNotification({ method: "serverRequest/resolved", params: { requestId: 42 } });
-    await expect(pendingResponse).resolves.toEqual({ handled: false });
+    await expect(pendingResponse).resolves.toEqual({ handled: true, result: { answers: {} } });
     await expect(new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).resolves.toMatchObject({
       status: "running",
       revision: 10
@@ -530,7 +685,7 @@ describe("managed Codex App Server continuation", () => {
       result: { answers: { scope_choice: { answers: ["Minimal"] } } }
     });
     await sink.close();
-    await expect(firstResponse).resolves.toEqual({ handled: false });
+    await expect(firstResponse).resolves.toEqual({ handled: true, result: { answers: {} } });
   });
 
   test("excludes structured-question wait time from active runtime accounting", async () => {
@@ -580,6 +735,102 @@ describe("managed Codex App Server continuation", () => {
     await expect(new DelegationAttemptStore(fixture.taskRoot).read(fixture.repoId, RUN_ID)).resolves.toMatchObject({
       state: "settled",
       awaiting_input_ms: 7_200_000
+    });
+    await sink.close();
+  });
+
+  test("settles an exact persisted terminal turn after restart without starting or resuming a turn", async () => {
+    const fixture = await continuationFixture();
+    await continuationRuntime(fixture, new RecordingAppServerRpc(fixture.taskRoot)).continue(
+      continuationInput(fixture.repoId, "continue-operation-before-terminal-reconciliation")
+    );
+    const sink = new CodexAppServerRunSink(fixture.registry, fixture.tasks, {
+      now: () => new Date("2026-08-26T12:06:00.000Z")
+    });
+    const rpc = new ReconciliationAppServerRpc(fixture.taskRoot, sink, "interrupted");
+
+    await expect(continuationRuntime(fixture, rpc).continue({
+      ...continuationInput(fixture.repoId, "continue-operation-terminal-reconciliation"),
+      expected_revision: 8
+    })).rejects.toMatchObject({ code: "RUNNER_LOCK_ACTIVE" });
+    expect(rpc.calls).toEqual([{
+      method: "thread/read",
+      params: { threadId: THREAD_CANARY, includeTurns: true }
+    }]);
+    await rpc.waitForSettlement();
+    await expect(new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).resolves.toMatchObject({
+      status: "canceled",
+      revision: 9
+    });
+    await expect(new DelegationAttemptStore(fixture.taskRoot).read(fixture.repoId, RUN_ID)).resolves.toMatchObject({
+      state: "settled",
+      app_server_turn_id: TURN_CANARY
+    });
+    await expect(fixture.tasks.states.readOperation(
+      fixture.taskId,
+      "continue-operation-terminal-reconciliation"
+    )).resolves.toMatchObject({ phase: "FAILED_PRECONTACT", effect_state: "NOT_STARTED" });
+    await sink.close();
+  });
+
+  test("rebinds an exact persisted active turn after restart and settles its later notification without replay", async () => {
+    const fixture = await continuationFixture();
+    await continuationRuntime(fixture, new RecordingAppServerRpc(fixture.taskRoot)).continue(
+      continuationInput(fixture.repoId, "continue-operation-before-active-reconciliation")
+    );
+    const sink = new CodexAppServerRunSink(fixture.registry, fixture.tasks, {
+      now: () => new Date("2026-08-26T12:06:00.000Z")
+    });
+    const rpc = new ReconciliationAppServerRpc(fixture.taskRoot, sink, "inProgress");
+
+    await expect(continuationRuntime(fixture, rpc).continue({
+      ...continuationInput(fixture.repoId, "continue-operation-active-reconciliation"),
+      expected_revision: 8
+    })).rejects.toMatchObject({ code: "RUNNER_LOCK_ACTIVE" });
+    expect(rpc.reconciled).toEqual([{
+      binding: expect.objectContaining({
+        repo_id: fixture.repoId,
+        run_id: RUN_ID,
+        thread_id: THREAD_CANARY,
+        app_server_turn_id: TURN_CANARY,
+        turn_index: 2
+      }),
+      status: "inProgress"
+    }]);
+    expect(rpc.calls.map(({ method }) => method)).toEqual(["thread/read"]);
+
+    await rpc.complete("interrupted");
+    await expect(new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).resolves.toMatchObject({
+      status: "canceled",
+      revision: 9
+    });
+    await sink.close();
+  });
+
+  test("rejects reconciliation when the persisted turn is not the unique latest turn", async () => {
+    const fixture = await continuationFixture();
+    await continuationRuntime(fixture, new RecordingAppServerRpc(fixture.taskRoot)).continue(
+      continuationInput(fixture.repoId, "continue-operation-before-ambiguous-reconciliation")
+    );
+    const sink = new CodexAppServerRunSink(fixture.registry, fixture.tasks);
+    const rpc = new ReconciliationAppServerRpc(fixture.taskRoot, sink, "inProgress", [
+      { id: TURN_CANARY, status: "inProgress" },
+      { id: "different-latest-turn", status: "inProgress" }
+    ]);
+
+    await expect(continuationRuntime(fixture, rpc).continue({
+      ...continuationInput(fixture.repoId, "continue-operation-ambiguous-reconciliation"),
+      expected_revision: 8
+    })).rejects.toMatchObject({ code: "RUNNER_INTERACTION_INVALID" });
+    expect(rpc.reconciled).toEqual([]);
+    expect(rpc.calls.map(({ method }) => method)).toEqual(["thread/read"]);
+    await expect(new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).resolves.toMatchObject({
+      status: "running",
+      revision: 8
+    });
+    await expect(new DelegationAttemptStore(fixture.taskRoot).read(fixture.repoId, RUN_ID)).resolves.toMatchObject({
+      state: "in_flight",
+      app_server_turn_id: TURN_CANARY
     });
     await sink.close();
   });
@@ -1024,6 +1275,8 @@ class RecordingAppServerRpc implements CodexAppServerRpc {
 
   bindAcceptedTurn(): void {}
 
+  reconcileAcceptedTurn(): void {}
+
   async withNotificationDeliveryBarrier<T>(action: () => Promise<T>): Promise<T> {
     if (this.notificationBarrierActive) throw new Error("Nested notification barrier.");
     this.notificationBarrierActive = true;
@@ -1085,6 +1338,16 @@ class SinkBackedAppServerRpc implements CodexAppServerRpc {
     this.sink.bindAcceptedTurn(binding);
   }
 
+  reconcileAcceptedTurn(binding: ManagedCodexAppServerTurnBinding, status: CodexAppServerTurnStatus): void {
+    this.bindAcceptedTurn(binding);
+    if (status !== "inProgress") {
+      this.afterAcceptedPromise = this.sink.handleNotification({
+        method: "turn/completed",
+        params: { turn: { id: binding.app_server_turn_id, status } }
+      });
+    }
+  }
+
   async withNotificationDeliveryBarrier<T>(action: () => Promise<T>): Promise<T> {
     const result = await action();
     expect(this.binding).toMatchObject({ app_server_turn_id: TURN_CANARY, thread_id: THREAD_CANARY });
@@ -1106,6 +1369,71 @@ class SinkBackedAppServerRpc implements CodexAppServerRpc {
 
   private thread(status: "notLoaded" | "idle") {
     return { id: THREAD_CANARY, modelProvider: "fixture-provider", cwd: this.root, status: { type: status } };
+  }
+}
+
+class ReconciliationAppServerRpc implements CodexAppServerRpc {
+  readonly calls: Array<{ method: CodexAppServerMethod; params: Record<string, unknown> }> = [];
+  readonly reconciled: Array<{
+    binding: ManagedCodexAppServerTurnBinding;
+    status: CodexAppServerTurnStatus;
+  }> = [];
+  private settlement?: Promise<void>;
+
+  constructor(
+    private readonly root: string,
+    private readonly sink: CodexAppServerRunSink,
+    private readonly status: CodexAppServerTurnStatus,
+    private readonly turns: Array<{ id: string; status: CodexAppServerTurnStatus }> = [{
+      id: TURN_CANARY,
+      status
+    }]
+  ) {}
+
+  bindAcceptedTurn(binding: ManagedCodexAppServerTurnBinding): void {
+    this.sink.bindAcceptedTurn(binding);
+  }
+
+  reconcileAcceptedTurn(binding: ManagedCodexAppServerTurnBinding, status: CodexAppServerTurnStatus): void {
+    this.reconciled.push({ binding: { ...binding }, status });
+    this.bindAcceptedTurn(binding);
+    if (status !== "inProgress") {
+      this.settlement = this.sink.handleNotification({
+        method: "turn/completed",
+        params: { turn: { id: binding.app_server_turn_id, status } }
+      });
+    }
+  }
+
+  async withNotificationDeliveryBarrier<T>(action: () => Promise<T>): Promise<T> {
+    return action();
+  }
+
+  async request(method: CodexAppServerMethod, params: Record<string, unknown>): Promise<unknown> {
+    this.calls.push({ method, params });
+    if (method !== "thread/read") throw new Error("Reconciliation must remain query-only.");
+    return {
+      thread: {
+        id: THREAD_CANARY,
+        modelProvider: "fixture-provider",
+        cwd: this.root,
+        status: this.status === "inProgress"
+          ? { type: "active", activeFlags: [] }
+          : { type: "idle" },
+        turns: this.turns
+      }
+    };
+  }
+
+  async complete(status: Exclude<CodexAppServerTurnStatus, "inProgress">): Promise<void> {
+    await this.sink.handleNotification({
+      method: "turn/completed",
+      params: { turn: { id: TURN_CANARY, status } }
+    });
+  }
+
+  async waitForSettlement(): Promise<void> {
+    await this.settlement;
   }
 }
 

@@ -116,11 +116,14 @@ verification, and terminal status. The connection holds notification delivery
 until the bridge durably writes the accepted running revision; the sink then
 reads that revision before advancing terminal state. Human waiting time in
 `awaiting_input` is excluded from the active runtime budget. App Server command, file,
-and permission approvals remain unanswered by the bridge and stay with Local;
-structured questions use `repo_write_agent_reply`. If turn-start acknowledgement is
-uncertain, inspect the same run and do not replay. A run with a state-bound
-review attestation follows the existing corrective-child workflow instead of
-same-run continuation.
+and permission approvals are never granted by the bridge: command/file requests
+are canceled or aborted and permission requests receive the empty subset.
+Structured questions use `repo_write_agent_reply`; unsafe or unanswerable ones
+receive empty answers. If turn-start acknowledgement is uncertain, inspect the
+same run and do not replay. An exact persisted in-flight turn may be query-rebound
+through a fresh operation, but missing or ambiguous turn ids stay blocked. A run
+with a state-bound review attestation follows the existing corrective-child
+workflow instead of same-run continuation.
 
 ## 5. Implement, Validate, And Review
 

@@ -54,7 +54,7 @@ describe("Codex App Server control RPC", () => {
     await rpc.close();
   });
 
-  test("does not answer approval-like server requests that the owner sink declines", async () => {
+  test("returns a protocol error when the owner sink has no safe method-specific response", async () => {
     const sink = new RecordingSink();
     const channel = new FakeMessageChannel();
     const rpc = new CodexAppServerControlRpc(sink, { channel_factory: () => channel });
@@ -65,7 +65,71 @@ describe("Codex App Server control RPC", () => {
       turnId: "private-turn"
     });
     await vi.waitFor(() => expect(sink.serverRequests).toHaveLength(1));
-    expect(channel.sent.some((message) => message.id === 41 && "result" in message)).toBe(false);
+    await vi.waitFor(() => expect(channel.sent).toContainEqual({
+      id: 41,
+      error: { code: -32601, message: "Server request method is not supported." }
+    }));
+    await rpc.close();
+  });
+
+  test("writes the sink's exact negative approval result to the originating request", async () => {
+    const channel = new FakeMessageChannel();
+    const rpc = new CodexAppServerControlRpc(new NegativeApprovalSink(), {
+      channel_factory: () => channel
+    });
+    await rpc.request("thread/read", { threadId: "private-thread", includeTurns: false });
+
+    channel.serverRequest(43, "item/commandExecution/requestApproval", {
+      threadId: "private-thread",
+      turnId: "private-turn",
+      itemId: "private-item",
+      startedAtMs: 1
+    });
+    await vi.waitFor(() => expect(channel.sent).toContainEqual({
+      id: 43,
+      result: { decision: "cancel" }
+    }));
+    await rpc.close();
+  });
+
+  test("holds synthetic reconciled completion until its exact turn binding is installed", async () => {
+    const sink = new RecordingSink();
+    const rpc = new CodexAppServerControlRpc(sink, {
+      channel_factory: () => new FakeMessageChannel()
+    });
+    const binding = {
+      repo_id: "task-repo",
+      run_id: "2026-08-26T120000Z-reconciled-control-rpc",
+      thread_id: "private-thread",
+      app_server_turn_id: "private-turn",
+      turn_index: 2
+    };
+
+    await rpc.withNotificationDeliveryBarrier(async () => {
+      rpc.reconcileAcceptedTurn(binding, "interrupted");
+      expect(sink.bindings).toEqual([binding]);
+      expect(sink.notifications).toEqual([]);
+    });
+    await vi.waitFor(() => expect(sink.notifications).toEqual([{
+      method: "turn/completed",
+      params: { turn: { id: "private-turn", status: "interrupted" } }
+    }]));
+    await rpc.close();
+  });
+
+  test("returns a bounded internal error when the owner sink cannot resolve a server request", async () => {
+    const channel = new FakeMessageChannel();
+    const rpc = new CodexAppServerControlRpc(new ThrowingRequestSink(), {
+      channel_factory: () => channel
+    });
+    await rpc.request("thread/read", { threadId: "private-thread", includeTurns: false });
+
+    channel.serverRequest(42, "item/tool/call", { secret: "must-not-echo" });
+    await vi.waitFor(() => expect(channel.sent).toContainEqual({
+      id: 42,
+      error: { code: -32603, message: "Server request could not be resolved safely." }
+    }));
+    expect(JSON.stringify(channel.sent.find((message) => message.id === 42))).not.toContain("must-not-echo");
     await rpc.close();
   });
 
@@ -214,6 +278,21 @@ class FlakyTerminalSink extends RecordingSink {
     this.deliveryAttempts += 1;
     if (this.deliveryAttempts === 1) throw new Error("transient local sink failure");
     await super.handleNotification(notification);
+  }
+}
+
+class ThrowingRequestSink extends RecordingSink {
+  override async handleServerRequest(): Promise<CodexAppServerServerRequestDisposition> {
+    throw new Error("private sink failure");
+  }
+}
+
+class NegativeApprovalSink extends RecordingSink {
+  override async handleServerRequest(
+    request: CodexAppServerServerRequest
+  ): Promise<CodexAppServerServerRequestDisposition> {
+    this.serverRequests.push(request);
+    return { handled: true, result: { decision: "cancel" } };
   }
 }
 

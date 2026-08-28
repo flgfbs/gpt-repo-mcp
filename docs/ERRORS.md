@@ -89,7 +89,10 @@ Managed-agent continuation is stricter after App Server contact. If
 `turn/start` times out, disconnects, or returns an invalid acknowledgement, the
 service records `UNKNOWN_AFTER_CONTACT` and an in-flight private attempt, then
 returns `EXTERNAL_EFFECT_UNKNOWN`. Inspect the same run with `repo_agent_runs`;
-do not repeat the instruction with either the same or a new `operation_id`.
+do not repeat the instruction with either the same or a new `operation_id`. If
+the attempt already contains the exact App Server turn id, a fresh operation can
+query and rebind that unique latest turn without replaying it. If the id is absent,
+not unique, or not latest, the run remains blocked.
 
 ## Merge Recovery
 

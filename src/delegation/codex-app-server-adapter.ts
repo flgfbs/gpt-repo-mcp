@@ -5,6 +5,8 @@ import { RepoReaderError } from "../runtime/errors.js";
 
 export type CodexAppServerMethod = "thread/read" | "thread/resume" | "turn/start";
 
+export type CodexAppServerTurnStatus = "inProgress" | "completed" | "interrupted" | "failed";
+
 export type ManagedCodexAppServerTurnBinding = {
   repo_id: string;
   run_id: string;
@@ -21,6 +23,7 @@ export interface CodexAppServerRpc {
    */
   withNotificationDeliveryBarrier<T>(action: () => Promise<T>): Promise<T>;
   bindAcceptedTurn(binding: ManagedCodexAppServerTurnBinding): void;
+  reconcileAcceptedTurn(binding: ManagedCodexAppServerTurnBinding, status: CodexAppServerTurnStatus): void;
 }
 
 export class CodexAppServerTurnStartError extends Error {
@@ -57,6 +60,13 @@ const ThreadSchema = z.object({
 }).passthrough();
 
 const ThreadReadResponseSchema = z.object({ thread: ThreadSchema }).passthrough();
+const ReconciliationTurnSchema = z.object({
+  id: z.string().min(1).max(1_024).refine((value) => !/[\0\r\n]/.test(value)),
+  status: z.enum(["inProgress", "completed", "interrupted", "failed"])
+}).passthrough();
+const ReconciliationThreadReadResponseSchema = z.object({
+  thread: ThreadSchema.extend({ turns: z.array(ReconciliationTurnSchema) })
+}).passthrough();
 const ThreadResumeResponseSchema = z.object({
   thread: ThreadSchema,
   model: z.string().min(1).max(512),
@@ -160,6 +170,46 @@ export class CodexAppServerAdapter {
 
   bindAcceptedTurn(binding: ManagedCodexAppServerTurnBinding): void {
     this.rpc.bindAcceptedTurn(binding);
+  }
+
+  async reconcileTurn(input: {
+    binding: ManagedCodexAppServerTurnBinding;
+    repo_root: string;
+  }): Promise<CodexAppServerTurnStatus> {
+    return this.withNotificationDeliveryBarrier(async () => {
+      let read;
+      try {
+        read = ReconciliationThreadReadResponseSchema.parse(await this.request("thread/read", {
+          threadId: input.binding.thread_id,
+          includeTurns: true
+        }));
+      } catch (error) {
+        if (error instanceof RepoReaderError) throw error;
+        throw providerFailure("Codex App Server could not read the exact in-flight turn for reconciliation.");
+      }
+      assertThreadIdentity(read.thread, input.binding.thread_id);
+      await assertRepositoryRoot(read.thread.cwd, input.repo_root);
+      const matches = read.thread.turns.filter(({ id }) => id === input.binding.app_server_turn_id);
+      const latest = read.thread.turns.at(-1);
+      if (matches.length !== 1 || latest?.id !== input.binding.app_server_turn_id) {
+        throw new RepoReaderError(
+          "RUNNER_INTERACTION_INVALID",
+          "Codex App Server did not return the persisted in-flight turn as the unique latest turn."
+        );
+      }
+      const status = matches[0]!.status;
+      if (
+        (status === "inProgress" && read.thread.status.type !== "active")
+        || (status !== "inProgress" && read.thread.status.type === "active")
+      ) {
+        throw new RepoReaderError(
+          "RUNNER_INTERACTION_INVALID",
+          "Codex App Server thread and turn status disagree during reconciliation."
+        );
+      }
+      this.rpc.reconcileAcceptedTurn(input.binding, status);
+      return status;
+    });
   }
 
   private async request(method: CodexAppServerMethod, params: Record<string, unknown>): Promise<unknown> {

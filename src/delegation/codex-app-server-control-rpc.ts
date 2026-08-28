@@ -32,7 +32,8 @@ export type CodexAppServerNotification = {
 
 export type CodexAppServerServerRequestDisposition =
   | { handled: false }
-  | { handled: true; result: unknown };
+  | { handled: true; result: unknown }
+  | { handled: true; error: { code: number; message: string } };
 
 export interface CodexAppServerEventSink {
   bindAcceptedTurn(binding: ManagedCodexAppServerTurnBinding): void;
@@ -105,6 +106,23 @@ export class CodexAppServerControlRpc implements CodexAppServerRpc {
 
   bindAcceptedTurn(binding: ManagedCodexAppServerTurnBinding): void {
     this.sink.bindAcceptedTurn(binding);
+  }
+
+  reconcileAcceptedTurn(
+    binding: ManagedCodexAppServerTurnBinding,
+    status: "inProgress" | "completed" | "interrupted" | "failed"
+  ): void {
+    this.sink.bindAcceptedTurn(binding);
+    if (status === "inProgress") return;
+    const completed = {
+      method: "turn/completed",
+      params: { turn: { id: binding.app_server_turn_id, status } }
+    } satisfies CodexAppServerNotification;
+    if (this.barrierActive) {
+      this.bufferedMessages.push(completed);
+      return;
+    }
+    void this.dispatchOwnerMessage(completed);
   }
 
   async withNotificationDeliveryBarrier<T>(action: () => Promise<T>): Promise<T> {
@@ -253,10 +271,7 @@ export class CodexAppServerControlRpc implements CodexAppServerRpc {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
         if ("id" in message) {
-          const disposition = await this.sink.handleServerRequest(message);
-          if (disposition.handled) {
-            await this.channel?.send(JSON.stringify({ id: message.id, result: disposition.result }));
-          }
+          await this.resolveServerRequest(message);
           return;
         }
         await this.sink.handleNotification(message);
@@ -269,6 +284,32 @@ export class CodexAppServerControlRpc implements CodexAppServerRpc {
         // Owner sink failures keep the private attempt in-flight. They never
         // authorize turn replay or a fallback response to approval requests.
       }
+    }
+  }
+
+  private async resolveServerRequest(request: CodexAppServerServerRequest): Promise<void> {
+    let response: { id: JsonRpcId; result: unknown } | {
+      id: JsonRpcId;
+      error: { code: number; message: string };
+    };
+    try {
+      const disposition = await this.sink.handleServerRequest(request);
+      response = !disposition.handled
+        ? { id: request.id, error: { code: -32601, message: "Server request method is not supported." } }
+        : "error" in disposition
+          ? { id: request.id, error: disposition.error }
+          : { id: request.id, result: disposition.result };
+    } catch {
+      response = {
+        id: request.id,
+        error: { code: -32603, message: "Server request could not be resolved safely." }
+      };
+    }
+    try {
+      await this.channel?.send(JSON.stringify(response));
+    } catch {
+      // A failed response write has unknown connection effect. Never replay it
+      // or convert it into an approval on another connection.
     }
   }
 

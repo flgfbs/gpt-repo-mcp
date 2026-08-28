@@ -127,6 +127,46 @@ export class TaskAgentContinuationRuntime implements AgentContinuationRuntime {
           diagnostics: { expected_revision: input.expected_revision, observed_revision: status.revision }
         });
       }
+      const loadedSession = await interactions.readSession(input.repo_id, input.run_id);
+      if (!loadedSession || loadedSession.provider !== "codex_app_server") {
+        throw new RepoReaderError(
+          "RUNNER_INTERACTION_INVALID",
+          "The selected run has no matching private Codex App Server session."
+        );
+      }
+      session = loadedSession;
+      const loadedAttempt = await attempts.read(input.repo_id, input.run_id);
+      if (loadedAttempt?.state === "in_flight") {
+        if (!loadedAttempt.app_server_turn_id) {
+          throw new RepoReaderError(
+            "RUNNER_LOCK_ACTIVE",
+            "The in-flight turn has no confirmed App Server turn id; replay and ambiguous reconciliation are forbidden."
+          );
+        }
+        if (
+          loadedAttempt.provider !== "codex_app_server"
+          || loadedAttempt.turn_index !== session.turn_index
+        ) {
+          throw new RepoReaderError(
+            "RUNNER_INTERACTION_INVALID",
+            "Private in-flight runner attempt state does not match the current session."
+          );
+        }
+        await this.appServer.reconcileTurn({
+          binding: {
+            repo_id: input.repo_id,
+            run_id: input.run_id,
+            thread_id: session.thread_id,
+            app_server_turn_id: loadedAttempt.app_server_turn_id,
+            turn_index: session.turn_index
+          },
+          repo_root: repoRoot
+        });
+        throw new RepoReaderError(
+          "RUNNER_LOCK_ACTIVE",
+          "The exact in-flight turn was reconciled without replay; inspect the same run for its current state."
+        );
+      }
       if (status.status === "awaiting_input") {
         throw new RepoReaderError(
           "RUNNER_POLICY_BLOCKED",
@@ -143,15 +183,6 @@ export class TaskAgentContinuationRuntime implements AgentContinuationRuntime {
           "The selected run already has a state-bound review; use the existing corrective-child lineage instead."
         );
       }
-
-      const loadedSession = await interactions.readSession(input.repo_id, input.run_id);
-      if (!loadedSession || loadedSession.provider !== "codex_app_server") {
-        throw new RepoReaderError(
-          "RUNNER_INTERACTION_INVALID",
-          "The selected run has no matching private Codex App Server session."
-        );
-      }
-      session = loadedSession;
       if (!session.model) {
         throw new RepoReaderError(
           "RUNNER_INTERACTION_INVALID",
@@ -168,10 +199,6 @@ export class TaskAgentContinuationRuntime implements AgentContinuationRuntime {
       );
       if (session.active_runtime_ms >= effectiveRuntimeLimit) {
         throw new RepoReaderError("RUNNER_POLICY_BLOCKED", "The managed run has exhausted its bounded active runtime.");
-      }
-      const loadedAttempt = await attempts.read(input.repo_id, input.run_id);
-      if (loadedAttempt?.state === "in_flight") {
-        throw new RepoReaderError("RUNNER_LOCK_ACTIVE", "The managed run already has an in-flight turn.");
       }
       if (
         !loadedAttempt

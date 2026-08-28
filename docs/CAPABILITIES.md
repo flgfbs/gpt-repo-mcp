@@ -85,12 +85,16 @@ so normal child edits do not create false drift.
 
 Only an idle, terminal, managed run without a state-bound review attestation is
 continuable. Use `repo_write_agent_reply` when the run is awaiting structured
-input. App Server approval requests are not answered by this bridge and remain
-under Local authority. After a formal review attestation, use the bounded corrective-child
-lineage. If `turn/start` disconnects or returns an invalid acknowledgement, the
-result is unknown/no-replay: inspect the same run and do not resend the
-instruction. Missing or invalid managed status also suppresses stale result
-review while in-flight private attempt evidence remains.
+input. The bridge never approves a command, file change, or permission expansion:
+known command/file requests are canceled, permission requests receive the empty
+subset, and other server requests fail closed. After a formal review attestation,
+use the bounded corrective-child lineage. If `turn/start` disconnects or returns
+an invalid acknowledgement, the result is unknown/no-replay: inspect the same run
+and do not resend the instruction. When the exact App Server turn id was already
+persisted, a fresh operation may read and rebind that unique latest turn without
+resuming or restarting it; absent or ambiguous ids remain blocked. Missing or
+invalid managed status also suppresses stale result review while in-flight private
+attempt evidence remains.
 
 ## Validation, Git, And Recovery
 

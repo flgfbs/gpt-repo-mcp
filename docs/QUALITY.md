@@ -39,10 +39,11 @@
 - An acknowledged or uncertain `turn/start` is no-replay. Deterministic tests
   cover active-turn rejection, confirmed no-start recovery and persistence
   failure, disconnect, immediate completion, fresh/stale result settlement,
-  sequential structured questions, human-wait runtime exclusion, approval
-  non-response, bounded terminal settlement retry, unsafe socket ancestors,
-  missing-status stale-result suppression, duplicate operation, strict input,
-  and private-artifact exclusion.
+  sequential structured questions, human-wait runtime exclusion, exact negative
+  approval responses, unsafe-question empty answers, restart reconciliation,
+  bounded terminal settlement retry, unsafe socket ancestors, missing-status
+  stale-result suppression, duplicate operation, strict input, and private-artifact
+  exclusion.
 - Merge preparation is read-only; only the owner CLI writes a one-time exact
   approval.
 
