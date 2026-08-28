@@ -307,14 +307,14 @@ describe("Codex App Server initial runner", () => {
       outcome: "launched",
       result: {
         effect_state: "known_failed",
-        provider_contact: "confirmed",
+        provider_contact: "none",
         replay_allowed: false,
         outcome_code: "APP_SERVER_THREAD_START_NOT_SENT"
       }
     });
     expect(await new DelegationDispatchStore(fixture.taskRoot).readResult(RUN_ID)).toMatchObject({
       effect_state: "known_failed",
-      provider_contact: "confirmed",
+      provider_contact: "none",
       replay_allowed: false,
       outcome_code: "APP_SERVER_THREAD_START_NOT_SENT"
     });

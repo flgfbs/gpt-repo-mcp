@@ -160,7 +160,7 @@ export class CodexAppServerInitialRunner implements BoundedWorkerLauncher {
             } catch (error) {
               if (error instanceof CodexAppServerThreadStartError && error.effect_state === "request_not_sent") {
                 await failStatus(runs, input.run, "APP_SERVER_THREAD_START_NOT_SENT", this.now);
-                return knownFailure("APP_SERVER_THREAD_START_NOT_SENT", true);
+                return knownFailure("APP_SERVER_THREAD_START_NOT_SENT", false);
               }
               if (error instanceof CodexAppServerThreadStartError && error.effect_state === "not_started") {
                 await failStatus(runs, input.run, "APP_SERVER_THREAD_START_REJECTED", this.now);

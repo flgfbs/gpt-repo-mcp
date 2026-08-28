@@ -36,6 +36,8 @@ export class CodexAppServerTurnStartError extends Error {
 }
 
 export class CodexAppServerThreadStartError extends Error {
+  readonly failure_stage: "connect_or_initialize" | "response_rejected" | "request_or_response_unknown";
+
   constructor(readonly effect_state: "request_not_sent" | "not_started" | "unknown") {
     super(effect_state === "request_not_sent"
       ? "The Codex App Server thread-start request was not sent."
@@ -43,6 +45,11 @@ export class CodexAppServerThreadStartError extends Error {
         ? "Codex App Server confirmed that the thread was not started."
         : "Codex App Server thread-start effect is unknown.");
     this.name = "CodexAppServerThreadStartError";
+    this.failure_stage = effect_state === "request_not_sent"
+      ? "connect_or_initialize"
+      : effect_state === "not_started"
+        ? "response_rejected"
+        : "request_or_response_unknown";
   }
 }
 

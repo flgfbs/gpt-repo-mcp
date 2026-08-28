@@ -257,6 +257,7 @@ describe("Codex App Server control RPC", () => {
       .resolves.toEqual({ thread: { id: "private-thread" } });
     expect(first.sent.filter(({ method }) => method === "thread/start")).toHaveLength(0);
     expect(first.sent.map(({ method }) => method)).toEqual(["initialize"]);
+    expect(first.closed).toBe(true);
     expect(second.sent.filter(({ method }) => method === "thread/start")).toHaveLength(1);
     expect(second.sent.map(({ method }) => method)).toEqual(["initialize", "initialized", "thread/start"]);
     await rpc.close();
@@ -264,10 +265,9 @@ describe("Codex App Server control RPC", () => {
 
   test("reports request-not-sent after two pre-send connection failures", async () => {
     const sink = new RecordingSink();
-    const channels = [
-      new FakeMessageChannel(undefined, true, true),
-      new FakeMessageChannel(undefined, true, true)
-    ];
+    const first = new FakeMessageChannel(undefined, true, true);
+    const second = new FakeMessageChannel(undefined, true, true);
+    const channels = [first, second];
     const rpc = new CodexAppServerControlRpc(sink, {
       channel_factory: () => channels.shift() ?? new FakeMessageChannel(undefined, true, true)
     });
@@ -275,9 +275,12 @@ describe("Codex App Server control RPC", () => {
     await expect(rpc.request("thread/start", { cwd: "/private/tmp/fixture" }))
       .rejects.toMatchObject({
         name: "CodexAppServerThreadStartError",
-        effect_state: "request_not_sent"
+        effect_state: "request_not_sent",
+        failure_stage: "connect_or_initialize"
       });
     expect(channels).toHaveLength(0);
+    expect(first.closed).toBe(true);
+    expect(second.closed).toBe(true);
     await rpc.close();
   });
 
@@ -356,6 +359,7 @@ type JsonMessage = Record<string, unknown> & { method?: string; id?: string | nu
 
 class FakeMessageChannel implements CodexAppServerMessageChannel {
   readonly sent: JsonMessage[] = [];
+  closed = false;
   private handlers?: { message(value: string): void; close(): void; error(): void };
 
   constructor(
@@ -383,7 +387,9 @@ class FakeMessageChannel implements CodexAppServerMessageChannel {
     this.onSend?.(message, this);
   }
 
-  async close(): Promise<void> {}
+  async close(): Promise<void> {
+    this.closed = true;
+  }
 
   respond(id: JsonMessage["id"], result: unknown): void {
     if (id === undefined) return;
