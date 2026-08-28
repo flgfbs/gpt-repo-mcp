@@ -285,85 +285,87 @@ export class CodexAppServerInitialRunner implements BoundedWorkerLauncher {
     const result: CodexAppServerReconciliationResult = { examined: 0, rebound: 0, settled: 0, failed_closed: 0 };
     for (const run of records) {
       if (run.repo_id !== repoId || run.runner.requested_runner !== "codex_app_server") continue;
-      const status = await runs.readStatus(run.run_id);
-      const key = runKey(repoId, run.run_id);
-      if (!status || TERMINAL_STATUSES.has(status.status)) {
+      await this.withRunLock(repoId, run.run_id, async () => {
+        const status = await runs.readStatus(run.run_id);
+        const key = runKey(repoId, run.run_id);
+        if (!status || TERMINAL_STATUSES.has(status.status)) {
+          const active = this.activeConnections.get(key);
+          if (active) {
+            this.activeConnections.delete(key);
+            await active.connection.close().catch(() => undefined);
+          }
+          return;
+        }
+        if (status.status !== "running" && status.status !== "awaiting_input") return;
+        result.examined += 1;
+        const [attempt, session] = await Promise.all([
+          attempts.read(repoId, run.run_id),
+          interactions.readSession(repoId, run.run_id)
+        ]);
+        const ownsInitialTurn = Boolean(
+          attempt
+          && attempt.operation === "start"
+          && attempt.turn_index === 1
+          && attempt.state === "in_flight"
+          && attempt.app_server_turn_id
+          && session
+          && session.provider === "codex_app_server"
+          && session.turn_index === 1
+        );
         const active = this.activeConnections.get(key);
         if (active) {
+          if (
+            ownsInitialTurn
+            && session
+            && attempt?.app_server_turn_id
+            && active.binding.thread_id === session.thread_id
+            && active.binding.app_server_turn_id === attempt.app_server_turn_id
+            && active.binding.turn_index === 1
+          ) {
+            return;
+          }
           this.activeConnections.delete(key);
           await active.connection.close().catch(() => undefined);
+          if (!ownsInitialTurn) return;
+          result.failed_closed += 1;
+          return;
         }
-        continue;
-      }
-      if (status.status !== "running" && status.status !== "awaiting_input") continue;
-      result.examined += 1;
-      const [attempt, session] = await Promise.all([
-        attempts.read(repoId, run.run_id),
-        interactions.readSession(repoId, run.run_id)
-      ]);
-      const ownsInitialTurn = Boolean(
-        attempt
-        && attempt.operation === "start"
-        && attempt.turn_index === 1
-        && attempt.state === "in_flight"
-        && attempt.app_server_turn_id
-        && session
-        && session.provider === "codex_app_server"
-        && session.turn_index === 1
-      );
-      const active = this.activeConnections.get(key);
-      if (active) {
-        if (
-          ownsInitialTurn
-          && session
-          && attempt?.app_server_turn_id
-          && active.binding.thread_id === session.thread_id
-          && active.binding.app_server_turn_id === attempt.app_server_turn_id
-          && active.binding.turn_index === 1
-        ) {
-          continue;
+        if (!ownsInitialTurn || !attempt?.app_server_turn_id || !session) return;
+        const connection = this.connectionFactory();
+        const binding: ManagedCodexAppServerTurnBinding = {
+          repo_id: repoId,
+          run_id: run.run_id,
+          thread_id: session.thread_id,
+          app_server_turn_id: attempt.app_server_turn_id,
+          turn_index: attempt.turn_index
+        };
+        try {
+          const turnStatus = await connection.adapter.reconcileTurn({ binding, repo_root: root });
+          if (turnStatus === "inProgress") {
+            await repairLaunchResult(root, run, "unknown", this.now);
+            this.activeConnections.set(key, { connection, binding });
+            result.rebound += 1;
+          } else {
+            await waitForTerminalStatus(runs, run.run_id);
+            const settledStatus = await runs.readStatus(run.run_id);
+            await repairLaunchResult(
+              root,
+              run,
+              settledStatus?.status === "completed"
+                ? "completed"
+                : settledStatus?.status === "blocked_policy" || settledStatus?.status === "blocked_verification"
+                  ? "blocked"
+                  : "failed",
+              this.now
+            );
+            await connection.close();
+            result.settled += 1;
+          }
+        } catch {
+          result.failed_closed += 1;
+          await connection.close().catch(() => undefined);
         }
-        this.activeConnections.delete(key);
-        await active.connection.close().catch(() => undefined);
-        if (!ownsInitialTurn) continue;
-        result.failed_closed += 1;
-        continue;
-      }
-      if (!ownsInitialTurn || !attempt?.app_server_turn_id || !session) continue;
-      const connection = this.connectionFactory();
-      const binding: ManagedCodexAppServerTurnBinding = {
-        repo_id: repoId,
-        run_id: run.run_id,
-        thread_id: session.thread_id,
-        app_server_turn_id: attempt.app_server_turn_id,
-        turn_index: attempt.turn_index
-      };
-      try {
-        const turnStatus = await connection.adapter.reconcileTurn({ binding, repo_root: root });
-        if (turnStatus === "inProgress") {
-          await repairLaunchResult(root, run, "unknown", this.now);
-          this.activeConnections.set(key, { connection, binding });
-          result.rebound += 1;
-        } else {
-          await waitForTerminalStatus(runs, run.run_id);
-          const settledStatus = await runs.readStatus(run.run_id);
-          await repairLaunchResult(
-            root,
-            run,
-            settledStatus?.status === "completed"
-              ? "completed"
-              : settledStatus?.status === "blocked_policy" || settledStatus?.status === "blocked_verification"
-                ? "blocked"
-                : "failed",
-            this.now
-          );
-          await connection.close();
-          result.settled += 1;
-        }
-      } catch {
-        result.failed_closed += 1;
-        await connection.close().catch(() => undefined);
-      }
+      });
     }
     return result;
   }

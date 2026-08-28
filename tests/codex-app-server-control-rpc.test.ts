@@ -12,12 +12,40 @@ import {
   type CodexAppServerServerRequestDisposition
 } from "../src/delegation/codex-app-server-control-rpc.js";
 import {
+  CodexAppServerAdapter,
   CodexAppServerThreadStartError,
-  CodexAppServerTurnStartError
+  CodexAppServerTurnStartError,
+  type CodexAppServerRpc
 } from "../src/delegation/codex-app-server-adapter.js";
 import type { ManagedCodexAppServerTurnBinding } from "../src/delegation/codex-app-server-adapter.js";
 
 describe("Codex App Server control RPC", () => {
+  test("classifies repository realpath failure as request-not-sent", async () => {
+    const fixture = await mkdtemp("/tmp/cas-pre-send-");
+    const request = vi.fn();
+    const rpc: CodexAppServerRpc = {
+      request,
+      async withNotificationDeliveryBarrier<T>(action: () => Promise<T>): Promise<T> {
+        return action();
+      },
+      bindAcceptedTurn: vi.fn(),
+      reconcileAcceptedTurn: vi.fn()
+    };
+    const adapter = new CodexAppServerAdapter(rpc);
+
+    try {
+      await expect(adapter.startThread({ repo_root: join(fixture, "missing-repository") }))
+        .rejects.toMatchObject({
+          name: "CodexAppServerThreadStartError",
+          effect_state: "request_not_sent",
+          failure_stage: "connect_or_initialize"
+        });
+      expect(request).not.toHaveBeenCalled();
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
   test("initializes once and holds owner notifications until an accepted turn is bound", async () => {
     const sink = new RecordingSink();
     const channel = new FakeMessageChannel((message, current) => {

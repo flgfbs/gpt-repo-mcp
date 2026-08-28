@@ -128,12 +128,17 @@ describe("Codex App Server initial runner", () => {
     const successor = new CodexAppServerInitialRunner(fixture.registry, fixture.bundle.tasks, {
       connection_factory: connectionFactory(fixture, successorChannels, "active")
     });
+    const withLock = vi.spyOn(fixture.bundle.tasks.locks, "withLock");
     expect(await successor.reconcileRepository(fixture.repoId)).toEqual({
       examined: 1,
       rebound: 1,
       settled: 0,
       failed_closed: 0
     });
+    expect(withLock.mock.calls.map(([lockId]) => lockId)).toEqual([
+      "task:task-initial-runner-fixture",
+      `agent-run:task-initial-runner-fixture:${RUN_ID}`
+    ]);
     expect(successorChannels).toHaveLength(1);
     expect(successorChannels[0]!.sent.filter(({ method }) => method === "thread/read")).toHaveLength(1);
     expect(successorChannels[0]!.sent.filter(({ method }) => method === "thread/start")).toHaveLength(0);
@@ -150,6 +155,7 @@ describe("Codex App Server initial runner", () => {
     await vi.waitFor(async () => expect(await readFile(join(fixture.taskRoot, `.chatgpt/codex-runs/${RUN_ID}/runner.events.jsonl`), "utf8"))
       .toContain('"event_type":"completed"'));
     await successor.close();
+    withLock.mockRestore();
   });
 
   test("does not adopt or retain a continuation turn owned by the HTTP bridge", async () => {

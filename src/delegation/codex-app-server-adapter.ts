@@ -130,10 +130,16 @@ export class CodexAppServerAdapter {
   }
 
   async startThread(input: { repo_root: string }): Promise<PreparedCodexThread> {
+    let cwd: string;
+    try {
+      cwd = await realpath(resolve(input.repo_root));
+    } catch {
+      throw new CodexAppServerThreadStartError("request_not_sent");
+    }
     let response: unknown;
     try {
       response = await this.request("thread/start", {
-        cwd: await realpath(resolve(input.repo_root)),
+        cwd,
         approvalPolicy: "never",
         permissions: ":workspace",
         serviceName: "chat_pro_repository_mcp_owner_runner"

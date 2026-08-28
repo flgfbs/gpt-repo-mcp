@@ -12,6 +12,7 @@ import { RootRegistry } from "./services/root-registry.js";
 import type { DelegationQueueScanResult } from "./delegation/queue-supervisor.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
+const OWNER_RUNNER_LOCK_ID = "owner-agent-runner";
 
 export type OwnerAgentRunnerCycleResult = {
   task_repositories: number;
@@ -29,11 +30,13 @@ export type OwnerAgentRunnerOptions = {
 export class OwnerAgentRunnerRuntime {
   private readonly initialRunner: CodexAppServerInitialRunner;
   private readonly instanceId: string;
+  private closePromise: Promise<void> | undefined;
 
   constructor(
     private readonly registry: RootRegistry,
     private readonly lifecycle: LifecycleRuntimeBundle,
-    options: OwnerAgentRunnerOptions = {}
+    options: OwnerAgentRunnerOptions = {},
+    private readonly releaseOwnerRunnerLock: () => Promise<void> = async () => undefined
   ) {
     this.initialRunner = options.initial_runner
       ?? new CodexAppServerInitialRunner(registry, lifecycle.tasks);
@@ -79,7 +82,14 @@ export class OwnerAgentRunnerRuntime {
   }
 
   async close(): Promise<void> {
-    await this.initialRunner.close();
+    this.closePromise ??= (async () => {
+      try {
+        await this.initialRunner.close();
+      } finally {
+        await this.releaseOwnerRunnerLock();
+      }
+    })();
+    await this.closePromise;
   }
 }
 
@@ -93,7 +103,13 @@ export async function createOwnerAgentRunnerRuntime(
   }
   const registry = await RootRegistry.fromFile(configPath);
   const lifecycle = await createLifecycleRuntimeBundle(registry);
-  return new OwnerAgentRunnerRuntime(registry, lifecycle, options);
+  const releaseOwnerRunnerLock = await lifecycle.tasks.locks.acquire(OWNER_RUNNER_LOCK_ID);
+  try {
+    return new OwnerAgentRunnerRuntime(registry, lifecycle, options, releaseOwnerRunnerLock);
+  } catch (error) {
+    await releaseOwnerRunnerLock();
+    throw error;
+  }
 }
 
 export async function runOwnerAgentRunner(input: {
