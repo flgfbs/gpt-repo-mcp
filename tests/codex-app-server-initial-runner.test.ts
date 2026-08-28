@@ -194,11 +194,42 @@ describe("Codex App Server initial runner", () => {
     await runner.close();
   });
 
-  test("requires an explicit network-disabled thread-start response", async () => {
+  test("accepts the official omitted network-access default as disabled", async () => {
     const fixture = await runnerFixture();
     const channels: FakeAppServerChannel[] = [];
     const runner = new CodexAppServerInitialRunner(fixture.registry, fixture.bundle.tasks, {
       connection_factory: connectionFactory(fixture, channels, "missing-network-access")
+    });
+    const supervisor = fixture.bundle.executionRuntime.createQueueSupervisor({
+      repo_id: fixture.repoId,
+      runner: "codex_app_server",
+      service_identity: serviceIdentity(),
+      launcher: runner,
+      mode: "external_worker"
+    });
+
+    expect(await supervisor.scanOnce()).toMatchObject({
+      outcome: "launched",
+      result: {
+        effect_state: "known_complete",
+        provider_contact: "confirmed",
+        outcome_code: "APP_SERVER_INITIAL_TURN_ACCEPTED"
+      }
+    });
+    expect(channels[0]!.sent.filter(({ method }) => method === "thread/start")).toHaveLength(1);
+    expect(channels[0]!.sent.filter(({ method }) => method === "turn/start")).toHaveLength(1);
+    await runner.close();
+  });
+
+  test.each([
+    ["network-enabled", "network-enabled"],
+    ["non-workspace sandbox", "read-only-sandbox"],
+    ["non-never approval policy", "on-request-approval"]
+  ] as const)("rejects an unsafe %s thread-start response", async (_label, behavior) => {
+    const fixture = await runnerFixture();
+    const channels: FakeAppServerChannel[] = [];
+    const runner = new CodexAppServerInitialRunner(fixture.registry, fixture.bundle.tasks, {
+      connection_factory: connectionFactory(fixture, channels, behavior)
     });
     const supervisor = fixture.bundle.executionRuntime.createQueueSupervisor({
       repo_id: fixture.repoId,
@@ -388,7 +419,7 @@ async function runnerFixture() {
 function connectionFactory(
   fixture: Awaited<ReturnType<typeof runnerFixture>>,
   channels: FakeAppServerChannel[],
-  behavior: "normal" | "active" | "disconnect-thread-start" | "missing-network-access" | "open-failed" = "normal"
+  behavior: FakeAppServerBehavior = "normal"
 ) {
   return (): InitialRunnerConnection => {
     const channel = new FakeAppServerChannel(fixture.taskRoot, behavior);
@@ -411,6 +442,16 @@ function serviceIdentity() {
 
 type JsonMessage = Record<string, unknown> & { method?: string; id?: string | number; params?: Record<string, unknown> };
 
+type FakeAppServerBehavior =
+  | "normal"
+  | "active"
+  | "disconnect-thread-start"
+  | "missing-network-access"
+  | "network-enabled"
+  | "read-only-sandbox"
+  | "on-request-approval"
+  | "open-failed";
+
 class FakeAppServerChannel implements CodexAppServerMessageChannel {
   readonly sent: JsonMessage[] = [];
   closed = false;
@@ -419,7 +460,7 @@ class FakeAppServerChannel implements CodexAppServerMessageChannel {
 
   constructor(
     private readonly taskRoot: string,
-    private readonly behavior: "normal" | "active" | "disconnect-thread-start" | "missing-network-access" | "open-failed"
+    private readonly behavior: FakeAppServerBehavior
   ) {}
 
   async open(handlers: { message(value: string): void; close(): void; error(): void }): Promise<void> {
@@ -443,6 +484,18 @@ class FakeAppServerChannel implements CodexAppServerMessageChannel {
       const response = threadStartResponse(this.taskRoot);
       if (this.behavior === "missing-network-access") {
         this.respond(message.id, { ...response, sandbox: { type: "workspaceWrite" } });
+        return;
+      }
+      if (this.behavior === "network-enabled") {
+        this.respond(message.id, { ...response, sandbox: { type: "workspaceWrite", networkAccess: true } });
+        return;
+      }
+      if (this.behavior === "read-only-sandbox") {
+        this.respond(message.id, { ...response, sandbox: { type: "readOnly", networkAccess: false } });
+        return;
+      }
+      if (this.behavior === "on-request-approval") {
+        this.respond(message.id, { ...response, approvalPolicy: "on-request" });
         return;
       }
       this.respond(message.id, response);

@@ -99,7 +99,7 @@ const ThreadStartResponseSchema = z.object({
   approvalPolicy: z.literal("never"),
   sandbox: z.object({
     type: z.literal("workspaceWrite"),
-    networkAccess: z.literal(false)
+    networkAccess: z.literal(false).optional().default(false)
   }).passthrough()
 }).passthrough();
 const TurnStartResponseSchema = z.object({
