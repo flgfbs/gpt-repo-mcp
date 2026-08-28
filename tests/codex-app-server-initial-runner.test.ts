@@ -63,10 +63,12 @@ describe("Codex App Server initial runner", () => {
       params: {
         cwd: fixture.taskRoot,
         approvalPolicy: "never",
-        sandbox: "workspace-write",
+        permissions: ":workspace",
         serviceName: "chat_pro_repository_mcp_owner_runner"
       }
     })]);
+    expect(channels[0]!.sent.find(({ method }) => method === "thread/start")?.params)
+      .not.toHaveProperty("sandbox");
     expect(channels[0]!.sent.filter(({ method }) => method === "turn/start")).toHaveLength(1);
     expect(JSON.stringify(channels[0]!.sent)).not.toContain("fixture-model");
 
@@ -224,7 +226,9 @@ describe("Codex App Server initial runner", () => {
   test.each([
     ["network-enabled", "network-enabled"],
     ["non-workspace sandbox", "read-only-sandbox"],
-    ["non-never approval policy", "on-request-approval"]
+    ["non-never approval policy", "on-request-approval"],
+    ["missing active permission profile", "missing-active-profile"],
+    ["different active permission profile", "wrong-active-profile"]
   ] as const)("rejects an unsafe %s thread-start response", async (_label, behavior) => {
     const fixture = await runnerFixture();
     const channels: FakeAppServerChannel[] = [];
@@ -450,6 +454,8 @@ type FakeAppServerBehavior =
   | "network-enabled"
   | "read-only-sandbox"
   | "on-request-approval"
+  | "missing-active-profile"
+  | "wrong-active-profile"
   | "open-failed";
 
 class FakeAppServerChannel implements CodexAppServerMessageChannel {
@@ -498,6 +504,14 @@ class FakeAppServerChannel implements CodexAppServerMessageChannel {
         this.respond(message.id, { ...response, approvalPolicy: "on-request" });
         return;
       }
+      if (this.behavior === "missing-active-profile") {
+        this.respond(message.id, { ...response, activePermissionProfile: undefined });
+        return;
+      }
+      if (this.behavior === "wrong-active-profile") {
+        this.respond(message.id, { ...response, activePermissionProfile: { id: ":read-only" } });
+        return;
+      }
       this.respond(message.id, response);
       return;
     }
@@ -543,6 +557,7 @@ function threadStartResponse(taskRoot: string) {
     model: "fixture-model",
     modelProvider: "openai",
     cwd: taskRoot,
+    activePermissionProfile: { id: ":workspace", extends: null },
     approvalPolicy: "never",
     sandbox: { type: "workspaceWrite", networkAccess: false }
   };

@@ -96,6 +96,9 @@ const ThreadStartResponseSchema = z.object({
   model: z.string().min(1).max(512).refine((value) => !/[\0\r\n]/.test(value)),
   modelProvider: z.string().min(1).max(256).refine((value) => !/[\0\r\n]/.test(value)),
   cwd: z.string().min(1).max(4_096).refine((value) => !value.includes("\0")),
+  activePermissionProfile: z.object({
+    id: z.literal(":workspace")
+  }).passthrough(),
   approvalPolicy: z.literal("never"),
   sandbox: z.object({
     type: z.literal("workspaceWrite"),
@@ -112,9 +115,9 @@ const TurnStartResponseSchema = z.object({
 /**
  * Narrow protocol adapter for an owner-controlled Codex App Server connection.
  * It never selects an executable, endpoint, model, provider, or machine. A new
- * owner-local thread is constrained to the exact repository root, workspace
- * write sandbox, and never-approve policy. Continuation turn start deliberately
- * sends no overrides and preserves the previously bound thread policy.
+ * owner-local thread is constrained to the exact repository root, built-in
+ * workspace permission profile, and never-approve policy. Continuation turn
+ * start deliberately sends no overrides and preserves the bound thread policy.
  */
 export class CodexAppServerAdapter {
   private readonly requestTimeoutMs: number;
@@ -132,7 +135,7 @@ export class CodexAppServerAdapter {
       response = await this.request("thread/start", {
         cwd: await realpath(resolve(input.repo_root)),
         approvalPolicy: "never",
-        sandbox: "workspace-write",
+        permissions: ":workspace",
         serviceName: "chat_pro_repository_mcp_owner_runner"
       });
     } catch (error) {
