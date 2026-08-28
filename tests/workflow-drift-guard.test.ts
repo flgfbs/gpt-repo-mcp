@@ -97,7 +97,8 @@ describe("canonical workflow drift guards", () => {
     expect(writeWorkflows).not.toContain("typed owner confirmation");
 
     const contributing = await readFile("CONTRIBUTING.md", "utf8");
-    expect(contributing).toContain("exact 65-name canonical order");
+    expect(contributing).toContain("exact 66-name canonical order");
+    expect(contributing).not.toContain("exact 65-name canonical order");
     expect(contributing).not.toContain("exact 63-name canonical order");
 
     const toolSurface = await readFile("docs/TOOL_SURFACE.md", "utf8");
