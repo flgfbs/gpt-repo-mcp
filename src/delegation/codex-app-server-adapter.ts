@@ -23,7 +23,10 @@ export interface CodexAppServerRpc {
    */
   withNotificationDeliveryBarrier<T>(action: () => Promise<T>): Promise<T>;
   bindAcceptedTurn(binding: ManagedCodexAppServerTurnBinding): void;
-  reconcileAcceptedTurn(binding: ManagedCodexAppServerTurnBinding, status: CodexAppServerTurnStatus): void;
+  reconcileAcceptedTurn(
+    binding: ManagedCodexAppServerTurnBinding,
+    status: CodexAppServerTurnStatus
+  ): void | Promise<void>;
 }
 
 export class CodexAppServerTurnStartError extends Error {
@@ -254,7 +257,7 @@ export class CodexAppServerAdapter {
   async reconcileTurn(input: {
     binding: ManagedCodexAppServerTurnBinding;
     repo_root: string;
-  }): Promise<CodexAppServerTurnStatus> {
+  }): Promise<{ status: CodexAppServerTurnStatus; settlement: Promise<void> }> {
     return this.withNotificationDeliveryBarrier(async () => {
       let read;
       try {
@@ -286,8 +289,8 @@ export class CodexAppServerAdapter {
           "Codex App Server thread and turn status disagree during reconciliation."
         );
       }
-      this.rpc.reconcileAcceptedTurn(input.binding, status);
-      return status;
+      const settlement = Promise.resolve(this.rpc.reconcileAcceptedTurn(input.binding, status));
+      return { status, settlement };
     });
   }
 

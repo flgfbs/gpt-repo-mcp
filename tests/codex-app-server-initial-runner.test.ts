@@ -10,9 +10,9 @@ import {
   type CodexAppServerMessageChannel
 } from "../src/delegation/codex-app-server-control-rpc.js";
 import { CodexAppServerRunSink } from "../src/delegation/codex-app-server-run-sink.js";
-import { DelegationAttemptStore } from "../src/delegation/attempt-store.js";
-import { DelegationDispatchStore } from "../src/delegation/dispatch-store.js";
-import { DelegationInteractionStore } from "../src/delegation/interaction-store.js";
+import { attemptPath, DelegationAttemptStore } from "../src/delegation/attempt-store.js";
+import { DelegationDispatchStore, dispatchPaths } from "../src/delegation/dispatch-store.js";
+import { DelegationInteractionStore, sessionPath } from "../src/delegation/interaction-store.js";
 import { DelegationRunStore } from "../src/delegation/run-store.js";
 import {
   CodexAppServerInitialRunner,
@@ -156,6 +156,178 @@ describe("Codex App Server initial runner", () => {
       .toContain('"event_type":"completed"'));
     await successor.close();
     withLock.mockRestore();
+  });
+
+  test("terminally blocks a crashed initial turn whose private turn id was never persisted", async () => {
+    const fixture = await runnerFixture();
+    const firstChannels: FakeAppServerChannel[] = [];
+    const firstRunner = new CodexAppServerInitialRunner(fixture.registry, fixture.bundle.tasks, {
+      connection_factory: connectionFactory(fixture, firstChannels)
+    });
+    const supervisor = fixture.bundle.executionRuntime.createQueueSupervisor({
+      repo_id: fixture.repoId,
+      runner: "codex_app_server",
+      service_identity: serviceIdentity(),
+      launcher: firstRunner,
+      mode: "external_worker"
+    });
+    expect(await supervisor.scanOnce()).toMatchObject({ outcome: "launched" });
+    await firstRunner.close();
+    await rm(join(fixture.taskRoot, dispatchPaths(RUN_ID).result), { force: true });
+    const attempts = new DelegationAttemptStore(fixture.taskRoot);
+    const persistedAttempt = await attempts.read(fixture.repoId, RUN_ID);
+    await attempts.write({
+      repo_id: fixture.repoId,
+      run_id: RUN_ID,
+      provider: "codex_app_server",
+      operation: "start",
+      turn_index: 1,
+      state: "in_flight",
+      active_runtime_ms_before: 0,
+      started_at: persistedAttempt!.started_at
+    });
+
+    const successorChannels: FakeAppServerChannel[] = [];
+    const successor = new CodexAppServerInitialRunner(fixture.registry, fixture.bundle.tasks, {
+      connection_factory: connectionFactory(fixture, successorChannels)
+    });
+    expect(await successor.reconcileRepository(fixture.repoId)).toEqual({
+      examined: 1,
+      rebound: 0,
+      settled: 0,
+      failed_closed: 1
+    });
+    expect(await new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).toMatchObject({
+      status: "blocked_policy",
+      warnings: expect.arrayContaining(["APP_SERVER_RESTART_BINDING_UNKNOWN", "UNKNOWN_EFFECT_NO_REPLAY"])
+    });
+    expect(await new DelegationDispatchStore(fixture.taskRoot).readResult(RUN_ID)).toMatchObject({
+      effect_state: "unknown",
+      provider_contact: "unknown",
+      terminal_state: "unknown",
+      replay_allowed: false,
+      outcome_code: "APP_SERVER_RESTART_BINDING_UNKNOWN"
+    });
+    expect(successorChannels).toHaveLength(0);
+    expect(await successor.reconcileRepository(fixture.repoId)).toEqual({
+      examined: 0,
+      rebound: 0,
+      settled: 0,
+      failed_closed: 0
+    });
+    await successor.close();
+  });
+
+  test("terminally blocks a crashed claimed run without replaying App Server contact", async () => {
+    const fixture = await runnerFixture();
+    const firstChannels: FakeAppServerChannel[] = [];
+    const firstRunner = new CodexAppServerInitialRunner(fixture.registry, fixture.bundle.tasks, {
+      connection_factory: connectionFactory(fixture, firstChannels)
+    });
+    const supervisor = fixture.bundle.executionRuntime.createQueueSupervisor({
+      repo_id: fixture.repoId,
+      runner: "codex_app_server",
+      service_identity: serviceIdentity(),
+      launcher: firstRunner,
+      mode: "external_worker"
+    });
+    expect(await supervisor.scanOnce()).toMatchObject({ outcome: "launched" });
+    await firstRunner.close();
+    const runs = new DelegationRunStore(fixture.taskRoot);
+    const status = await runs.readStatus(RUN_ID);
+    await Promise.all([
+      rm(join(fixture.taskRoot, dispatchPaths(RUN_ID).result), { force: true }),
+      rm(join(fixture.taskRoot, attemptPath(RUN_ID)), { force: true }),
+      rm(join(fixture.taskRoot, sessionPath(RUN_ID)), { force: true })
+    ]);
+    await runs.writeStatus({
+      ...status!,
+      status: "claimed",
+      revision: 0,
+      completed_at: null
+    });
+
+    const successorChannels: FakeAppServerChannel[] = [];
+    const successor = new CodexAppServerInitialRunner(fixture.registry, fixture.bundle.tasks, {
+      connection_factory: connectionFactory(fixture, successorChannels)
+    });
+    expect(await successor.reconcileRepository(fixture.repoId)).toEqual({
+      examined: 1,
+      rebound: 0,
+      settled: 0,
+      failed_closed: 1
+    });
+    expect(await runs.readStatus(RUN_ID)).toMatchObject({
+      status: "blocked_policy",
+      warnings: expect.arrayContaining(["APP_SERVER_RESTART_BINDING_UNKNOWN", "UNKNOWN_EFFECT_NO_REPLAY"])
+    });
+    expect(await new DelegationDispatchStore(fixture.taskRoot).readResult(RUN_ID)).toMatchObject({
+      effect_state: "unknown",
+      provider_contact: "unknown",
+      terminal_state: "unknown",
+      outcome_code: "APP_SERVER_RESTART_BINDING_UNKNOWN"
+    });
+    expect(successorChannels).toHaveLength(0);
+    await successor.close();
+  });
+
+  test("settles a completed turn after restart outside the run lock and repairs missing launch evidence", async () => {
+    const fixture = await runnerFixture();
+    const firstChannels: FakeAppServerChannel[] = [];
+    const firstRunner = new CodexAppServerInitialRunner(fixture.registry, fixture.bundle.tasks, {
+      connection_factory: connectionFactory(fixture, firstChannels)
+    });
+    const supervisor = fixture.bundle.executionRuntime.createQueueSupervisor({
+      repo_id: fixture.repoId,
+      runner: "codex_app_server",
+      service_identity: serviceIdentity(),
+      launcher: firstRunner,
+      mode: "external_worker"
+    });
+    expect(await supervisor.scanOnce()).toMatchObject({ outcome: "launched" });
+    await firstRunner.close();
+    await writeV3Result(fixture.taskRoot, RUN_ID);
+    await rm(join(fixture.taskRoot, dispatchPaths(RUN_ID).result), { force: true });
+
+    const successorChannels: FakeAppServerChannel[] = [];
+    const successor = new CodexAppServerInitialRunner(fixture.registry, fixture.bundle.tasks, {
+      connection_factory: connectionFactory(fixture, successorChannels, "settled")
+    });
+    expect(await successor.reconcileRepository(fixture.repoId)).toEqual({
+      examined: 1,
+      rebound: 0,
+      settled: 1,
+      failed_closed: 0
+    });
+    expect(await new DelegationRunStore(fixture.taskRoot).readStatus(RUN_ID)).toMatchObject({
+      status: "completed",
+      result_found: true
+    });
+    expect(await new DelegationDispatchStore(fixture.taskRoot).readResult(RUN_ID)).toMatchObject({
+      effect_state: "known_complete",
+      provider_contact: "confirmed",
+      terminal_state: "completed",
+      outcome_code: "APP_SERVER_INITIAL_TURN_RECONCILED"
+    });
+    expect(successorChannels).toHaveLength(1);
+    expect(successorChannels[0]!.closed).toBe(true);
+    expect(successorChannels[0]!.sent.filter(({ method }) => method === "thread/read")).toHaveLength(1);
+    expect(successorChannels[0]!.sent.filter(({ method }) => method === "thread/start" || method === "turn/start"))
+      .toHaveLength(0);
+
+    await rm(join(fixture.taskRoot, dispatchPaths(RUN_ID).result), { force: true });
+    expect(await successor.reconcileRepository(fixture.repoId)).toEqual({
+      examined: 0,
+      rebound: 0,
+      settled: 0,
+      failed_closed: 0
+    });
+    expect(await new DelegationDispatchStore(fixture.taskRoot).readResult(RUN_ID)).toMatchObject({
+      terminal_state: "completed",
+      outcome_code: "APP_SERVER_INITIAL_TURN_RECONCILED"
+    });
+    expect(successorChannels).toHaveLength(1);
+    await successor.close();
   });
 
   test("does not adopt or retain a continuation turn owned by the HTTP bridge", async () => {
@@ -462,6 +634,7 @@ type FakeAppServerBehavior =
   | "on-request-approval"
   | "missing-active-profile"
   | "wrong-active-profile"
+  | "settled"
   | "open-failed";
 
 class FakeAppServerChannel implements CodexAppServerMessageChannel {
@@ -526,13 +699,14 @@ class FakeAppServerChannel implements CodexAppServerMessageChannel {
       return;
     }
     if (message.method === "thread/read") {
+      const settled = this.behavior === "settled";
       this.respond(message.id, {
         thread: {
           id: "private-initial-thread",
           modelProvider: "openai",
           cwd: this.taskRoot,
-          status: { type: "active" },
-          turns: [{ id: "private-initial-turn", status: "inProgress" }]
+          status: { type: settled ? "idle" : "active" },
+          turns: [{ id: "private-initial-turn", status: settled ? "completed" : "inProgress" }]
         }
       });
     }
