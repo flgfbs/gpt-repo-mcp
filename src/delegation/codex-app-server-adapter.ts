@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import { RepoReaderError } from "../runtime/errors.js";
 
-export type CodexAppServerMethod = "thread/read" | "thread/resume" | "turn/start";
+export type CodexAppServerMethod = "thread/read" | "thread/resume" | "thread/start" | "turn/start";
 
 export type CodexAppServerTurnStatus = "inProgress" | "completed" | "interrupted" | "failed";
 
@@ -32,6 +32,24 @@ export class CodexAppServerTurnStartError extends Error {
       ? "Codex App Server confirmed that the turn was not started."
       : "Codex App Server turn-start effect is unknown.");
     this.name = "CodexAppServerTurnStartError";
+  }
+}
+
+export class CodexAppServerThreadStartError extends Error {
+  readonly failure_stage: "connect_or_initialize" | "response_rejected" | "request_or_response_unknown";
+
+  constructor(readonly effect_state: "request_not_sent" | "not_started" | "unknown") {
+    super(effect_state === "request_not_sent"
+      ? "The Codex App Server thread-start request was not sent."
+      : effect_state === "not_started"
+        ? "Codex App Server confirmed that the thread was not started."
+        : "Codex App Server thread-start effect is unknown.");
+    this.name = "CodexAppServerThreadStartError";
+    this.failure_stage = effect_state === "request_not_sent"
+      ? "connect_or_initialize"
+      : effect_state === "not_started"
+        ? "response_rejected"
+        : "request_or_response_unknown";
   }
 }
 
@@ -73,6 +91,20 @@ const ThreadResumeResponseSchema = z.object({
   modelProvider: z.string().min(1).max(256),
   cwd: z.string().min(1).max(4_096)
 }).passthrough();
+const ThreadStartResponseSchema = z.object({
+  thread: ThreadSchema,
+  model: z.string().min(1).max(512).refine((value) => !/[\0\r\n]/.test(value)),
+  modelProvider: z.string().min(1).max(256).refine((value) => !/[\0\r\n]/.test(value)),
+  cwd: z.string().min(1).max(4_096).refine((value) => !value.includes("\0")),
+  activePermissionProfile: z.object({
+    id: z.literal(":workspace")
+  }).passthrough(),
+  approvalPolicy: z.literal("never"),
+  sandbox: z.object({
+    type: z.literal("workspaceWrite"),
+    networkAccess: z.literal(false).optional().default(false)
+  }).passthrough()
+}).passthrough();
 const TurnStartResponseSchema = z.object({
   turn: z.object({
     id: z.string().min(1).max(1_024).refine((value) => !/[\0\r\n]/.test(value)),
@@ -82,8 +114,10 @@ const TurnStartResponseSchema = z.object({
 
 /**
  * Narrow protocol adapter for an owner-controlled Codex App Server connection.
- * It never selects an executable, endpoint, thread, repository, model, sandbox,
- * approval policy, or machine. Turn start deliberately sends no overrides.
+ * It never selects an executable, endpoint, model, provider, or machine. A new
+ * owner-local thread is constrained to the exact repository root, built-in
+ * workspace permission profile, and never-approve policy. Continuation turn
+ * start deliberately sends no overrides and preserves the bound thread policy.
  */
 export class CodexAppServerAdapter {
   private readonly requestTimeoutMs: number;
@@ -93,6 +127,51 @@ export class CodexAppServerAdapter {
     options: CodexAppServerAdapterOptions = {}
   ) {
     this.requestTimeoutMs = boundedTimeout(options.request_timeout_ms ?? 30_000);
+  }
+
+  async startThread(input: { repo_root: string }): Promise<PreparedCodexThread> {
+    let cwd: string;
+    try {
+      cwd = await realpath(resolve(input.repo_root));
+    } catch {
+      throw new CodexAppServerThreadStartError("request_not_sent");
+    }
+    let response: unknown;
+    try {
+      response = await this.request("thread/start", {
+        cwd,
+        approvalPolicy: "never",
+        permissions: ":workspace",
+        serviceName: "chat_pro_repository_mcp_owner_runner"
+      });
+    } catch (error) {
+      if (error instanceof CodexAppServerThreadStartError) throw error;
+      throw new CodexAppServerThreadStartError("unknown");
+    }
+    let started: z.infer<typeof ThreadStartResponseSchema>;
+    try {
+      started = ThreadStartResponseSchema.parse(response);
+    } catch {
+      throw new CodexAppServerThreadStartError("unknown");
+    }
+    await Promise.all([
+      assertRepositoryRoot(started.thread.cwd, input.repo_root),
+      assertRepositoryRoot(started.cwd, input.repo_root)
+    ]);
+    if (started.thread.status.type !== "idle") {
+      throw new CodexAppServerThreadStartError("unknown");
+    }
+    if (started.thread.modelProvider !== started.modelProvider) {
+      throw new RepoReaderError(
+        "RUNNER_POLICY_BLOCKED",
+        "Codex App Server returned inconsistent model-provider bindings for the new thread."
+      );
+    }
+    return {
+      thread_id: started.thread.id,
+      model: started.model,
+      model_provider: started.modelProvider
+    };
   }
 
   async prepare(input: { thread_id: string; model: string; repo_root: string }): Promise<PreparedCodexThread> {

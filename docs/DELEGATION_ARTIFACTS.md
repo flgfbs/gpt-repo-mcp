@@ -11,7 +11,9 @@ The current public names retain `codex` for compatibility:
 
 1. `repo_prepare_codex_task` previews a bound task.
 2. `repo_write_codex_task` writes the task artifacts.
-3. An external worker writes strict result evidence.
+3. A separately operated worker writes strict result evidence; when explicitly
+   activated, the owner-local App Server runner can consume an exact admitted
+   queued `codex_app_server` run.
 4. `repo_agent_runs` exposes bounded lifecycle and structured questions.
 5. `repo_write_agent_reply` writes an exact current reply artifact.
 6. `repo_continue_agent_run` may start one next turn on the same private managed
@@ -52,13 +54,16 @@ transport:
 | Recovery | launch intent without result and unknown effects stop without replay |
 
 `repo_task_admission` is the public admission surface, and
-`repo_continue_agent_run` is the single public continuation mutation. The queue
+`repo_continue_agent_run` is the single public continuation mutation. The separate owner-local queue
 consumer, dispatch store, launcher interface, App Server adapter, private
 thread/turn identifiers, and notification sink are internal runtime components.
 They are not a second MCP server, scheduler, status plane, or control plane.
-Default server construction creates only a lazy client for the existing local
-owner control socket; it does not start a provider or contact the socket until a
-continuation is requested. Provider-free
+Default HTTP server construction creates only a lazy client for the existing local
+owner control socket; it does not start a provider or queue consumer. When
+separately activated, `owner-agent-runner` scans exact open task registrations,
+creates one never-approve workspace-write/network-disabled thread per admitted
+initial run, and persists the returned private binding before notification
+delivery. Provider-free
 qualification injects deterministic fakes and proves one launch or turn start
 per admitted operation without model contact. The connection also
 provides the narrow notification-delivery barrier that prevents an immediate
@@ -66,7 +71,7 @@ terminal sink write from racing the bridge's accepted running-state write.
 
 Provider adapter names, model ids, private thread ids, credentials, commands,
 retry controls, and raw logs stay outside public MCP inputs. A live adapter must
-be separately constructed under current authority and cannot widen repository
+be separately activated under current authority and cannot widen repository
 scope or bypass validation and review.
 
 Continuation calls `thread/read`, conditionally `thread/resume`, and

@@ -30,7 +30,7 @@
     "list-project-roots": "node dist/cli/chat-pro-repo.js project-root list",
     "check:config": "node dist/cli/chat-pro-repo.js config validate",
     "doctor": "npm run build && node dist/cli/chat-pro-repo.js doctor",
-    "build": "tsup src/server.ts --format esm --dts --clean --external typescript && tsup src/cli/chat-pro-repo.ts --format esm --out-dir dist/cli --external typescript",
+    "build": "tsup src/server.ts --format esm --dts --clean --external typescript && tsup src/cli/chat-pro-repo.ts --format esm --out-dir dist/cli --external typescript && tsup src/owner-agent-runner.ts --format esm --out-dir dist --external typescript",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

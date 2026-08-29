@@ -67,6 +67,20 @@ local implementation, validation, review, stage, commit, close, and cleanup.
 `kind: "github"` adds the external lifecycle. Legacy entries without `kind`
 parse as `kind: "github"`, preserving existing configuration behavior.
 
+## Start A Queued Managed Local Child
+
+The separately managed `dist/owner-agent-runner.js` entrypoint consumes only
+queued Delegation v3 runs that explicitly request `codex_app_server` and pass
+the existing exact task-admission and immutable one-launch checks. It is not an
+HTTP or MCP service and accepts no repository, model, private thread,
+permission, credential, or retry input from ChatGPT.
+
+One initial thread is created at the canonical task worktree with
+workspace-write, network-disabled, never-approve policy. The actual returned
+model/provider and one accepted turn id are persisted in the existing private
+run/session/attempt artifacts. An uncertain start is unknown/no-replay; restart
+recovery only queries an already persisted unique latest turn id.
+
 ## Continue A Managed Local Child
 
 `repo_continue_agent_run` starts one next turn on the same private Codex App
@@ -174,9 +188,10 @@ The current delegation format interoperates with external workers through
 repository-owned artifacts. Its provider-neutral execution substrate can bind
 one admitted dispatch to one supervisor-owned launch intent, publish typed
 service health, and stop permanently on an unknown effect. The normal MCP server
-does not auto-start the queue consumer, choose a provider, or attach an App
-Server connection, and no public input accepts credentials, model identifiers,
-commands, private thread ids, or retry authority.
+does not auto-start the queue consumer, choose a provider, or attach an initial
+App Server connection. A separately activated owner-local runner owns that
+boundary, and no public input accepts credentials, model identifiers, commands,
+private thread ids, or retry authority.
 
 ## What Chat Pro Repository MCP Does Not Do
 

@@ -11,10 +11,41 @@ import {
   type CodexAppServerServerRequest,
   type CodexAppServerServerRequestDisposition
 } from "../src/delegation/codex-app-server-control-rpc.js";
-import { CodexAppServerTurnStartError } from "../src/delegation/codex-app-server-adapter.js";
+import {
+  CodexAppServerAdapter,
+  CodexAppServerThreadStartError,
+  CodexAppServerTurnStartError,
+  type CodexAppServerRpc
+} from "../src/delegation/codex-app-server-adapter.js";
 import type { ManagedCodexAppServerTurnBinding } from "../src/delegation/codex-app-server-adapter.js";
 
 describe("Codex App Server control RPC", () => {
+  test("classifies repository realpath failure as request-not-sent", async () => {
+    const fixture = await mkdtemp("/tmp/cas-pre-send-");
+    const request = vi.fn();
+    const rpc: CodexAppServerRpc = {
+      request,
+      async withNotificationDeliveryBarrier<T>(action: () => Promise<T>): Promise<T> {
+        return action();
+      },
+      bindAcceptedTurn: vi.fn(),
+      reconcileAcceptedTurn: vi.fn()
+    };
+    const adapter = new CodexAppServerAdapter(rpc);
+
+    try {
+      await expect(adapter.startThread({ repo_root: join(fixture, "missing-repository") }))
+        .rejects.toMatchObject({
+          name: "CodexAppServerThreadStartError",
+          effect_state: "request_not_sent",
+          failure_stage: "connect_or_initialize"
+        });
+      expect(request).not.toHaveBeenCalled();
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+    }
+  });
+
   test("initializes once and holds owner notifications until an accepted turn is bound", async () => {
     const sink = new RecordingSink();
     const channel = new FakeMessageChannel((message, current) => {
@@ -225,6 +256,62 @@ describe("Codex App Server control RPC", () => {
     await rpc.close();
   });
 
+  test("classifies a JSON-RPC thread-start rejection as confirmed not-started", async () => {
+    const sink = new RecordingSink();
+    const channel = new FakeMessageChannel((message, current) => {
+      if (message.method === "thread/start") current.fail(message.id);
+    });
+    const rpc = new CodexAppServerControlRpc(sink, { channel_factory: () => channel });
+    await expect(rpc.request("thread/start", { cwd: "/private/tmp/fixture" }))
+      .rejects.toBeInstanceOf(CodexAppServerThreadStartError);
+    await rpc.close();
+  });
+
+  test("reconnects once before thread start when the first initialization does not complete", async () => {
+    const sink = new RecordingSink();
+    const first = new FakeMessageChannel(undefined, false);
+    const second = new FakeMessageChannel((message, current) => {
+      if (message.method === "thread/start") {
+        current.respond(message.id, { thread: { id: "private-thread" } });
+      }
+    });
+    const channels = [first, second];
+    const rpc = new CodexAppServerControlRpc(sink, {
+      channel_factory: () => channels.shift() ?? second,
+      initialize_timeout_ms: 100
+    });
+
+    await expect(rpc.request("thread/start", { cwd: "/private/tmp/fixture" }))
+      .resolves.toEqual({ thread: { id: "private-thread" } });
+    expect(first.sent.filter(({ method }) => method === "thread/start")).toHaveLength(0);
+    expect(first.sent.map(({ method }) => method)).toEqual(["initialize"]);
+    expect(first.closed).toBe(true);
+    expect(second.sent.filter(({ method }) => method === "thread/start")).toHaveLength(1);
+    expect(second.sent.map(({ method }) => method)).toEqual(["initialize", "initialized", "thread/start"]);
+    await rpc.close();
+  });
+
+  test("reports request-not-sent after two pre-send connection failures", async () => {
+    const sink = new RecordingSink();
+    const first = new FakeMessageChannel(undefined, true, true);
+    const second = new FakeMessageChannel(undefined, true, true);
+    const channels = [first, second];
+    const rpc = new CodexAppServerControlRpc(sink, {
+      channel_factory: () => channels.shift() ?? new FakeMessageChannel(undefined, true, true)
+    });
+
+    await expect(rpc.request("thread/start", { cwd: "/private/tmp/fixture" }))
+      .rejects.toMatchObject({
+        name: "CodexAppServerThreadStartError",
+        effect_state: "request_not_sent",
+        failure_stage: "connect_or_initialize"
+      });
+    expect(channels).toHaveLength(0);
+    expect(first.closed).toBe(true);
+    expect(second.closed).toBe(true);
+    await rpc.close();
+  });
+
   test("bounds initialization when the owner control connection never acknowledges", async () => {
     const sink = new RecordingSink();
     const channel = new FakeMessageChannel(undefined, false);
@@ -300,14 +387,17 @@ type JsonMessage = Record<string, unknown> & { method?: string; id?: string | nu
 
 class FakeMessageChannel implements CodexAppServerMessageChannel {
   readonly sent: JsonMessage[] = [];
+  closed = false;
   private handlers?: { message(value: string): void; close(): void; error(): void };
 
   constructor(
     private readonly onSend?: (message: JsonMessage, channel: FakeMessageChannel) => void,
-    private readonly respondToInitialize = true
+    private readonly respondToInitialize = true,
+    private readonly failOpen = false
   ) {}
 
   async open(handlers: { message(value: string): void; close(): void; error(): void }): Promise<void> {
+    if (this.failOpen) throw new Error("fixture connection failure");
     this.handlers = handlers;
   }
 
@@ -325,7 +415,9 @@ class FakeMessageChannel implements CodexAppServerMessageChannel {
     this.onSend?.(message, this);
   }
 
-  async close(): Promise<void> {}
+  async close(): Promise<void> {
+    this.closed = true;
+  }
 
   respond(id: JsonMessage["id"], result: unknown): void {
     if (id === undefined) return;

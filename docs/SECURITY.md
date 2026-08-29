@@ -48,7 +48,7 @@ not receive, read, or return the credential material.
 | Arbitrary local execution | No shell or arbitrary process/Git command schema exists; validation uses allowlisted profiles. |
 | Stale mutation | Expected bytes, HEAD, tree, staged paths, thread version, CI snapshot, and gate digest are checked where applicable. |
 | Replay after crash | `operation_id` plus durable operation/contact records distinguish replay from a new effect. |
-| App Server thread or authority substitution | Continuation resolves only the private run session, verifies same-user owner-only local socket permissions plus repository/provider identity, sends no sandbox/model/approval overrides, and can only cancel/abort approvals or grant the empty permission subset. |
+| App Server thread or authority substitution | Initial execution is a separate owner-local process that accepts only an exact admitted task/run, creates one canonical-root workspace-write, network-disabled, never-approve thread, and persists the returned model/provider. Continuation resolves only that private session, verifies the same-user owner-only socket plus repository/provider identity, sends no overrides, and can only cancel/abort approvals or grant the empty permission subset. |
 | Force push or wrong branch | Push receives only the server-owned task branch and cannot enable force. |
 | Arbitrary GitHub access | The strict adapter derives repository, branch, PR, run, and thread targets from task state. |
 | Unapproved merge | Only a fresh owner-CLI approval for the exact content-bound gate is consumable. |
@@ -103,9 +103,16 @@ creates one unsigned local commit, verifies the complete committed regular-file
 tree and exact archive bytes, and fails closed on replay or partial-effect
 ambiguity.
 
-Managed continuation has no public thread-registration or provider-selection
-surface. The default server creates a lazy client only; startup does not contact
-the Codex App Server. On one admitted continuation it accepts only the private
+Managed execution has no public thread-registration or provider-selection
+surface. The default HTTP server creates a lazy continuation client only;
+startup does not contact the Codex App Server. The separately activated owner
+runner accepts only immutable exact dispatches for queued `codex_app_server`
+runs. It creates one thread at the canonical task root with workspace-write,
+network-disabled, never-approve policy, checks the returned root, provider,
+model, and sandbox, then persists one accepted turn. It exposes no listener or
+control API and never reads credentials.
+
+On one admitted continuation the HTTP runtime accepts only the private
 session already bound to the same task/run, validates the Unix control socket
 and its parent as same-user and owner-only without symlinks, rejects writable or
 symlinked ancestors, revalidates the socket inode after connection, and sends no model,

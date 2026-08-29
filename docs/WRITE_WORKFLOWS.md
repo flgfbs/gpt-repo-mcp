@@ -99,6 +99,21 @@ HEAD/tree, task state, lifecycle artifacts, and cleanup eligibility. The public
 artifact window is capped at 200 references; `ARTIFACTS_TRUNCATED` means
 additional durable artifacts remain available by their opaque ids.
 
+### Start A Queued Managed Child
+
+Run the separately managed `dist/owner-agent-runner.js` process only on the
+owner machine after validating the same repository configuration. It consumes
+queued Delegation v3 entries that explicitly request `codex_app_server`, after
+the existing exact task-admission and one-shot dispatch checks. The process
+creates no MCP endpoint and accepts no repository, model, thread, permission, or
+retry input from ChatGPT.
+
+The initial thread is bound to the canonical task worktree with workspace-write,
+network-disabled, never-approve policy. One accepted turn is durably bound to
+the existing run/session/attempt artifacts before notifications are delivered.
+An uncertain start is recorded as unknown/no-replay. On process restart, only an
+exact persisted unique-latest turn id may be query-rebound.
+
 ### Continue An Existing Managed Child
 
 When the same owner account already exposes the Codex App Server control socket,

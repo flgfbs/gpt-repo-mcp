@@ -78,6 +78,23 @@ connection are always resolved: approvals receive protocol-valid least-authority
 negative results, unsafe questions receive empty answers, and other methods
 receive bounded JSON-RPC errors.
 
+Initial execution is owned by the separate `owner-agent-runner` process, not by
+the HTTP MCP server. It rehydrates open task registrations, scans only exact
+admitted `codex_app_server` queue entries, and reuses the existing immutable
+dispatch and launch-intent boundary. One accepted launch calls `thread/start`
+with the canonical task root, `approvalPolicy: never`, and the workspace-write
+sandbox, verifies the returned root/provider/model and network-disabled sandbox,
+then durably binds one `turn/start`. The returned model/provider are observed and
+persisted; no model slug, repository identity, user path, or thread id is built
+into product source.
+
+The process exposes no HTTP, MCP, registration, or remote-control endpoint. It
+retains the originating App Server connection only for fail-closed server
+requests and terminal delivery. After restart it queries `thread/read` only when
+an exact in-flight turn id is already durable; it never calls `thread/start`,
+`thread/resume`, or `turn/start` as recovery. Missing or ambiguous effect evidence
+remains no-replay.
+
 ## Local Repository Plane
 
 The root registry is the sole repository admission boundary. Explicit roots
@@ -203,12 +220,13 @@ artifacts. The provider-neutral execution substrate adds three bounded layers:
    then accepts one bounded launch outcome. A persisted launch intent without a
    result, or any unknown effect, is terminal no-replay evidence.
 
-The normal server construction does not automatically start that queue consumer,
-select a provider, or spawn an App Server. It creates a lazy local continuation
-client but makes no App Server contact during startup. The launcher and
-continuation connection remain injectable boundaries, so provider-free tests can qualify
+The normal HTTP server construction does not start that queue consumer, select a
+provider, or spawn an App Server. A separately activated owner-local runner is
+the only production queue consumer; it uses the already managed App Server socket
+and makes no credential, daemon, remote-control, or repository-policy changes.
+The launcher and continuation connection remain injectable boundaries, so provider-free tests can qualify
 admission, dispatch, continuation, exactly-once, health, privacy, and no-replay
 semantics without contacting a model. Provider adapters, credentials, model
 selection, and live execution authority remain outside public MCP inputs and
-default server startup. A worker result is evidence; repository validation and
+HTTP server startup. A worker result is evidence; repository validation and
 review remain authoritative.
