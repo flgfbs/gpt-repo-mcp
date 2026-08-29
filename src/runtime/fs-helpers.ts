@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { mkdir, open, rename, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, open, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 
 export async function atomicWriteJson(path: string, value: unknown): Promise<void> {
@@ -27,8 +27,26 @@ export async function atomicWriteFile(path: string, content: Buffer | string): P
 }
 
 export async function writeExclusiveJson(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+  const parent = dirname(path);
+  await mkdir(parent, { recursive: true });
+  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  try {
+    const handle = await open(tempPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o666);
+    try {
+      await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    // Publishing with link preserves create-only semantics while ensuring a
+    // concurrent reader can observe only the complete, synchronized bytes.
+    await link(tempPath, path);
+    await rm(tempPath, { force: true });
+    await fsyncDirectory(parent);
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 export function isNotFoundError(error: unknown): boolean {
