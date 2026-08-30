@@ -132,6 +132,41 @@ npm run add -- /path/to/your/repo --mode ship --local-only
 The public tool count, names, order, and payload schemas remain exactly 66.
 Local-only policy changes admission behavior, not the MCP tool catalog.
 
+## Local Task-Only Operations Policy
+
+A local lifecycle may add an optional `task_operations` object when the owner
+needs isolated task worktrees to validate and create reviewed local commits
+without enabling the same operations on the base repository:
+
+```json
+{
+  "lifecycle": {
+    "kind": "local",
+    "authority": "ship",
+    "task_operations": {
+      "enabled": true,
+      "validation_enabled": true,
+      "git_stage_enabled": true,
+      "git_commit_enabled": true,
+      "codex_run_finalize_enabled": false,
+      "cleanup_enabled": false,
+      "max_paths_per_operation": 50
+    }
+  }
+}
+```
+
+The field is rejected under `kind: "github"`. A `ship` task receives the
+explicit task policy, an `implement` task has stage, commit, finalizer, and
+cleanup capabilities clamped off, and an `inspect` task has every operation
+capability disabled. The base repository operations object is not changed.
+Entries that omit `task_operations` retain the previous inheritance behavior.
+
+For rollback to a revision whose strict schema predates this field, stop the
+managed services, remove `lifecycle.task_operations` from local entries, validate
+the configuration, and then start the older revision. Do not weaken strict
+schema validation or copy the task policy into base `operations`.
+
 ## Workflow Change
 
 Push and pull-request work now requires a server-bound task with `ship`

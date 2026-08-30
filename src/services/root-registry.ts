@@ -150,9 +150,13 @@ function effectiveWrites(base: RuntimeRepoConfig, authority: TaskRepoBinding["au
 }
 
 function effectiveOperations(base: RuntimeRepoConfig, authority: TaskRepoBinding["authority"]): RuntimeRepoConfig["operations"] {
+  const taskOperations = base.lifecycle?.kind === "local"
+    ? base.lifecycle.task_operations
+    : undefined;
+  const configured = taskOperations ?? base.operations;
   if (authority === "inspect") {
     return {
-      ...base.operations,
+      ...configured,
       enabled: false,
       git_stage_enabled: false,
       git_commit_enabled: false,
@@ -163,13 +167,14 @@ function effectiveOperations(base: RuntimeRepoConfig, authority: TaskRepoBinding
   }
   if (authority === "implement") {
     return {
-      ...base.operations,
+      ...configured,
       git_stage_enabled: false,
       git_commit_enabled: false,
-      codex_run_finalize_enabled: false
+      codex_run_finalize_enabled: false,
+      ...(taskOperations ? { cleanup_enabled: false } : {})
     };
   }
-  return base.operations;
+  return configured;
 }
 
 function sameTaskBinding(left: TaskRepoBinding, right: TaskRepoBinding): boolean {

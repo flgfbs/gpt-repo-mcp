@@ -51,6 +51,75 @@ describe("lifecycle repository config validation", () => {
     ]));
   });
 
+  test("accepts bounded task-only operations under a local lifecycle", async () => {
+    const fixture = await lifecycleFixture();
+    const document = localDocumentFor(fixture);
+    Object.assign(document.repos[0]!.lifecycle, {
+      task_operations: {
+        enabled: true,
+        validation_enabled: true,
+        git_stage_enabled: true,
+        git_commit_enabled: true,
+        codex_run_finalize_enabled: false,
+        cleanup_enabled: false,
+        max_paths_per_operation: 25
+      }
+    });
+
+    const result = await validateConfigDocument(document);
+
+    expect(result.issues).toEqual([]);
+    expect(result.config?.repos[0]?.lifecycle).toMatchObject({
+      kind: "local",
+      task_operations: {
+        enabled: true,
+        validation_enabled: true,
+        git_stage_enabled: true,
+        git_commit_enabled: true,
+        codex_run_finalize_enabled: false,
+        cleanup_enabled: false,
+        max_paths_per_operation: 25
+      }
+    });
+  });
+
+  test("rejects finalizer or cleanup authority in local task-only operations", async () => {
+    const fixture = await lifecycleFixture();
+    const document = localDocumentFor(fixture);
+    Object.assign(document.repos[0]!.lifecycle, {
+      task_operations: {
+        enabled: true,
+        codex_run_finalize_enabled: true,
+        cleanup_enabled: true
+      }
+    });
+
+    const result = await validateConfigDocument(document);
+    const messages = result.issues.map(({ message }) => message);
+
+    expect(messages).toEqual(expect.arrayContaining([
+      expect.stringContaining("cannot enable codex_run_finalize_enabled"),
+      expect.stringContaining("cannot enable cleanup_enabled")
+    ]));
+  });
+
+  test("rejects task-only operations under a GitHub lifecycle", async () => {
+    const fixture = await lifecycleFixture();
+    const document = documentFor(fixture);
+    Object.assign(document.repos[0]!.lifecycle, {
+      task_operations: { enabled: true }
+    });
+
+    const result = await validateConfigDocument(document);
+
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: "SCHEMA_INVALID",
+        message: expect.stringContaining("GitHub lifecycle policy cannot configure task_operations")
+      })
+    ]));
+  });
+
   test("rejects a remote identity mismatch", async () => {
     const fixture = await lifecycleFixture();
     const document = documentFor(fixture);
