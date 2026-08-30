@@ -136,15 +136,17 @@ describe("Codex App Server control RPC", () => {
       turn_index: 2
     };
 
+    let delivered!: Promise<void>;
     await rpc.withNotificationDeliveryBarrier(async () => {
-      rpc.reconcileAcceptedTurn(binding, "interrupted");
+      delivered = rpc.reconcileAcceptedTurn(binding, "interrupted");
       expect(sink.bindings).toEqual([binding]);
       expect(sink.notifications).toEqual([]);
     });
-    await vi.waitFor(() => expect(sink.notifications).toEqual([{
+    await delivered;
+    expect(sink.notifications).toEqual([{
       method: "turn/completed",
       params: { turn: { id: "private-turn", status: "interrupted" } }
-    }]));
+    }]);
     await rpc.close();
   });
 

@@ -19,6 +19,10 @@ const TERMINAL_SINK_RETRY_MS = 25;
 
 type JsonRpcId = string | number;
 type JsonRecord = Record<string, unknown>;
+type BufferedOwnerMessage = {
+  message: CodexAppServerNotification | CodexAppServerServerRequest;
+  delivered?: () => void;
+};
 
 export type CodexAppServerServerRequest = {
   id: JsonRpcId;
@@ -75,7 +79,7 @@ export class CodexAppServerControlRpc implements CodexAppServerRpc {
   private barrierOwner?: symbol;
   private readonly barrierContext = new AsyncLocalStorage<symbol>();
   private readonly initializeTimeoutMs: number;
-  private bufferedMessages: Array<CodexAppServerNotification | CodexAppServerServerRequest> = [];
+  private bufferedMessages: BufferedOwnerMessage[] = [];
   private readonly pending = new Map<string, {
     method: string;
     resolve(value: unknown): void;
@@ -130,18 +134,19 @@ export class CodexAppServerControlRpc implements CodexAppServerRpc {
   reconcileAcceptedTurn(
     binding: ManagedCodexAppServerTurnBinding,
     status: "inProgress" | "completed" | "interrupted" | "failed"
-  ): void {
+  ): Promise<void> {
     this.sink.bindAcceptedTurn(binding);
-    if (status === "inProgress") return;
+    if (status === "inProgress") return Promise.resolve();
     const completed = {
       method: "turn/completed",
       params: { turn: { id: binding.app_server_turn_id, status } }
     } satisfies CodexAppServerNotification;
     if (this.barrierActive) {
-      this.bufferedMessages.push(completed);
-      return;
+      return new Promise<void>((resolvePromise) => {
+        this.bufferedMessages.push({ message: completed, delivered: resolvePromise });
+      });
     }
-    void this.dispatchOwnerMessage(completed);
+    return this.dispatchOwnerMessage(completed);
   }
 
   async withNotificationDeliveryBarrier<T>(action: () => Promise<T>): Promise<T> {
@@ -164,11 +169,13 @@ export class CodexAppServerControlRpc implements CodexAppServerRpc {
       if (this.barrierOwner === owner) this.barrierOwner = undefined;
       this.barrierActive = false;
       const buffered = this.bufferedMessages.splice(0);
-      for (const message of buffered) {
+      for (const { message, delivered } of buffered) {
         // The continuation operation still owns the task/run locks while this
         // barrier unwinds. Owner delivery must begin only after durable binding,
         // but must not wait on those same locks before the operation can return.
-        void this.dispatchOwnerMessage(message);
+        const delivery = this.dispatchOwnerMessage(message);
+        if (delivered) void delivery.then(delivered, delivered);
+        else void delivery;
       }
       releaseBarrier();
     }
@@ -277,7 +284,7 @@ export class CodexAppServerControlRpc implements CodexAppServerRpc {
       ? { id: value.id, method: value.method, params } satisfies CodexAppServerServerRequest
       : { method: value.method, params } satisfies CodexAppServerNotification;
     if (this.barrierActive) {
-      this.bufferedMessages.push(message);
+      this.bufferedMessages.push({ message });
       return;
     }
     void this.dispatchOwnerMessage(message);

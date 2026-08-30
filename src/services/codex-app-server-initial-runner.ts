@@ -13,6 +13,7 @@ import {
 import { CodexAppServerRunSink } from "../delegation/codex-app-server-run-sink.js";
 import { DelegationDispatchStore } from "../delegation/dispatch-store.js";
 import { DelegationInteractionStore } from "../delegation/interaction-store.js";
+import type { AgentRunnerStatus } from "../delegation/artifact-contracts.js";
 import type { WorkerLaunchOutcome } from "../delegation/execution-runtime-contracts.js";
 import type { BoundedWorkerLauncher } from "../delegation/queue-supervisor.js";
 import { DelegationRunStore, type DelegationRunRecord } from "../delegation/run-store.js";
@@ -285,15 +286,35 @@ export class CodexAppServerInitialRunner implements BoundedWorkerLauncher {
     const result: CodexAppServerReconciliationResult = { examined: 0, rebound: 0, settled: 0, failed_closed: 0 };
     for (const run of records) {
       if (run.repo_id !== repoId || run.runner.requested_runner !== "codex_app_server") continue;
-      await this.withRunLock(repoId, run.run_id, async () => {
+      const pendingTerminal = await this.withRunLock(repoId, run.run_id, async () => {
         const status = await runs.readStatus(run.run_id);
         const key = runKey(repoId, run.run_id);
-        if (!status || TERMINAL_STATUSES.has(status.status)) {
+        if (!status) {
           const active = this.activeConnections.get(key);
           if (active) {
             this.activeConnections.delete(key);
             await active.connection.close().catch(() => undefined);
           }
+          return;
+        }
+        if (TERMINAL_STATUSES.has(status.status)) {
+          const active = this.activeConnections.get(key);
+          if (active) {
+            this.activeConnections.delete(key);
+            await active.connection.close().catch(() => undefined);
+          }
+          await repairTerminalLaunchResult(root, run, status, attempts, interactions, this.now);
+          return;
+        }
+        if (status.status === "claimed") {
+          result.examined += 1;
+          const active = this.activeConnections.get(key);
+          if (active) {
+            this.activeConnections.delete(key);
+            await active.connection.close().catch(() => undefined);
+          }
+          await blockUnknownRestart(root, runs, run, "APP_SERVER_RESTART_BINDING_UNKNOWN", this.now);
+          result.failed_closed += 1;
           return;
         }
         if (status.status !== "running" && status.status !== "awaiting_input") return;
@@ -313,10 +334,22 @@ export class CodexAppServerInitialRunner implements BoundedWorkerLauncher {
           && session.turn_index === 1
         );
         const active = this.activeConnections.get(key);
+        if (!ownsInitialTurn) {
+          if (active) {
+            this.activeConnections.delete(key);
+            await active.connection.close().catch(() => undefined);
+          }
+          const missingOrInitialAttempt = !attempt
+            || (attempt.operation === "start" && attempt.turn_index === 1);
+          if (missingOrInitialAttempt) {
+            await blockUnknownRestart(root, runs, run, "APP_SERVER_RESTART_BINDING_UNKNOWN", this.now);
+            result.failed_closed += 1;
+          }
+          return;
+        }
         if (active) {
           if (
-            ownsInitialTurn
-            && session
+            session
             && attempt?.app_server_turn_id
             && active.binding.thread_id === session.thread_id
             && active.binding.app_server_turn_id === attempt.app_server_turn_id
@@ -326,11 +359,10 @@ export class CodexAppServerInitialRunner implements BoundedWorkerLauncher {
           }
           this.activeConnections.delete(key);
           await active.connection.close().catch(() => undefined);
-          if (!ownsInitialTurn) return;
           result.failed_closed += 1;
           return;
         }
-        if (!ownsInitialTurn || !attempt?.app_server_turn_id || !session) return;
+        if (!attempt?.app_server_turn_id || !session) return;
         const connection = this.connectionFactory();
         const binding: ManagedCodexAppServerTurnBinding = {
           repo_id: repoId,
@@ -340,32 +372,40 @@ export class CodexAppServerInitialRunner implements BoundedWorkerLauncher {
           turn_index: attempt.turn_index
         };
         try {
-          const turnStatus = await connection.adapter.reconcileTurn({ binding, repo_root: root });
-          if (turnStatus === "inProgress") {
-            await repairLaunchResult(root, run, "unknown", this.now);
+          const reconciliation = await connection.adapter.reconcileTurn({ binding, repo_root: root });
+          if (reconciliation.status === "inProgress") {
+            await repairLaunchResult(root, run, reconciledOutcome("unknown"), this.now);
             this.activeConnections.set(key, { connection, binding });
             result.rebound += 1;
           } else {
-            await waitForTerminalStatus(runs, run.run_id);
-            const settledStatus = await runs.readStatus(run.run_id);
-            await repairLaunchResult(
-              root,
-              run,
-              settledStatus?.status === "completed"
-                ? "completed"
-                : settledStatus?.status === "blocked_policy" || settledStatus?.status === "blocked_verification"
-                  ? "blocked"
-                  : "failed",
-              this.now
-            );
-            await connection.close();
-            result.settled += 1;
+            return { connection, settlement: reconciliation.settlement };
           }
         } catch {
           result.failed_closed += 1;
           await connection.close().catch(() => undefined);
         }
       });
+      if (!pendingTerminal) continue;
+      try {
+        await pendingTerminal.settlement;
+        await this.withRunLock(repoId, run.run_id, async () => {
+          const settledStatus = await runs.readStatus(run.run_id);
+          if (!settledStatus || !TERMINAL_STATUSES.has(settledStatus.status)) {
+            throw new Error("Reconciled terminal notification did not settle the local run.");
+          }
+          await repairLaunchResult(
+            root,
+            run,
+            reconciledOutcome(terminalState(settledStatus.status)),
+            this.now
+          );
+        });
+        result.settled += 1;
+      } catch {
+        result.failed_closed += 1;
+      } finally {
+        await pendingTerminal.connection.close().catch(() => undefined);
+      }
     }
     return result;
   }
@@ -526,7 +566,7 @@ function unknownOutcome(outcomeCode: string): WorkerLaunchOutcome {
 async function repairLaunchResult(
   root: string,
   run: DelegationRunRecord,
-  terminalState: "completed" | "blocked" | "failed" | "unknown",
+  outcome: WorkerLaunchOutcome,
   now: () => Date
 ): Promise<void> {
   const dispatches = new DelegationDispatchStore(root, now);
@@ -539,22 +579,63 @@ async function repairLaunchResult(
   await dispatches.writeLaunchResult({
     dispatch,
     started_at: intent.requested_at,
-    outcome: {
-      effect_state: "known_complete",
-      provider_contact: "confirmed",
-      terminal_state: terminalState,
-      outcome_code: "APP_SERVER_INITIAL_TURN_RECONCILED"
-    }
+    outcome
   });
 }
 
-async function waitForTerminalStatus(runs: DelegationRunStore, runId: string): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    const status = await runs.readStatus(runId);
-    if (status && TERMINAL_STATUSES.has(status.status)) return;
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+async function blockUnknownRestart(
+  root: string,
+  runs: DelegationRunStore,
+  run: DelegationRunRecord,
+  warning: string,
+  now: () => Date
+): Promise<void> {
+  await blockUnknownStatus(runs, run, warning, now);
+  await repairLaunchResult(root, run, unknownOutcome(warning), now);
+}
+
+async function repairTerminalLaunchResult(
+  root: string,
+  run: DelegationRunRecord,
+  status: AgentRunnerStatus,
+  attempts: DelegationAttemptStore,
+  interactions: DelegationInteractionStore,
+  now: () => Date
+): Promise<void> {
+  if (status.warnings.includes("UNKNOWN_EFFECT_NO_REPLAY")) {
+    const outcomeCode = status.warnings.find((warning) => warning.startsWith("APP_SERVER_"))
+      ?? "APP_SERVER_RESTART_BINDING_UNKNOWN";
+    await repairLaunchResult(root, run, unknownOutcome(outcomeCode), now);
+    return;
   }
-  throw new Error("Reconciled terminal notification did not settle the local run in time.");
+  const [attempt, session] = await Promise.all([
+    attempts.read(run.repo_id, run.run_id),
+    interactions.readSession(run.repo_id, run.run_id)
+  ]);
+  if (
+    !attempt?.app_server_turn_id
+    || attempt.operation !== "start"
+    || attempt.turn_index !== 1
+    || !session
+    || session.provider !== "codex_app_server"
+    || session.turn_index !== 1
+  ) return;
+  await repairLaunchResult(root, run, reconciledOutcome(terminalState(status.status)), now);
+}
+
+function reconciledOutcome(terminalState: WorkerLaunchOutcome["terminal_state"]): WorkerLaunchOutcome {
+  return {
+    effect_state: "known_complete",
+    provider_contact: "confirmed",
+    terminal_state: terminalState,
+    outcome_code: "APP_SERVER_INITIAL_TURN_RECONCILED"
+  };
+}
+
+function terminalState(status: AgentRunnerStatus["status"]): "completed" | "blocked" | "failed" {
+  if (status === "completed") return "completed";
+  if (status === "blocked_policy" || status === "blocked_verification") return "blocked";
+  return "failed";
 }
 
 function runKey(repoId: string, runId: string): string {
