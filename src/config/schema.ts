@@ -97,9 +97,22 @@ export const OperationsPolicyConfigSchema = z.preprocess(
   OperationsPolicyConfigObjectSchema
 );
 
+const TaskOperationsPolicyConfigSchema = OperationsPolicyConfigObjectSchema.superRefine((value, context) => {
+  for (const field of ["codex_run_finalize_enabled", "cleanup_enabled"] as const) {
+    if (value[field]) {
+      context.addIssue({
+        code: "custom",
+        path: [field],
+        message: `lifecycle.task_operations cannot enable ${field}.`
+      });
+    }
+  }
+});
+
 export const LifecyclePolicyConfigSchema = z.object({
   kind: z.enum(["local", "github"]).default("github"),
   authority: RepositoryAuthoritySchema,
+  task_operations: TaskOperationsPolicyConfigSchema.optional(),
   remote_name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional(),
   expected_remote_identity: z.string().min(1).max(1_024).optional(),
   allowed_base_branches: z.array(
@@ -143,6 +156,13 @@ export const LifecyclePolicyConfigSchema = z.object({
     }
     return;
   }
+  if (value.task_operations !== undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["task_operations"],
+      message: "GitHub lifecycle policy cannot configure task_operations."
+    });
+  }
   for (const field of ["expected_remote_identity", "github_repository", "merge_method"] as const) {
     if (value[field] === undefined) {
       context.addIssue({
@@ -159,7 +179,8 @@ export const LifecyclePolicyConfigSchema = z.object({
     worktree_root: value.worktree_root,
     require_clean_base: value.require_clean_base,
     max_concurrent_tasks: value.max_concurrent_tasks,
-    cleanup: value.cleanup
+    cleanup: value.cleanup,
+    ...(value.task_operations ? { task_operations: value.task_operations } : {})
   };
   if (value.kind === "local") {
     return { kind: "local" as const, ...local };

@@ -8,6 +8,7 @@ import { createLifecycleRuntimeBundle } from "../src/services/lifecycle-factory.
 import { RootRegistry } from "../src/services/root-registry.js";
 import { DelegationSupervisorStore } from "../src/delegation/supervisor-store.js";
 import { writeQueuedV3Run } from "./fixtures/delegation-v3-run-fixture.js";
+import type { OperationsPolicyConfigDocument } from "../src/config/schema.js";
 
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
@@ -184,6 +185,80 @@ describe("repository lifecycle runtime", () => {
     expect(cleaned).toMatchObject({ state: "cleaned", workspace_removed: true });
   }, 15_000);
 
+  test("applies local task-only operations without broadening the base and clamps lower authority", async () => {
+    const baseOperations: OperationsPolicyConfigDocument = {
+      enabled: false,
+      git_stage_enabled: false,
+      git_commit_enabled: false,
+      codex_run_finalize_enabled: true,
+      validation_enabled: false,
+      cleanup_enabled: false,
+      max_paths_per_operation: 50
+    };
+    const taskOperations: OperationsPolicyConfigDocument = {
+      enabled: true,
+      git_stage_enabled: true,
+      git_commit_enabled: true,
+      codex_run_finalize_enabled: false,
+      validation_enabled: true,
+      cleanup_enabled: false,
+      max_paths_per_operation: 7
+    };
+    const fixture = await fixtureRegistry({
+      kind: "local",
+      maxConcurrentTasks: 3,
+      baseOperations,
+      taskOperations
+    });
+    const bundle = await createLifecycleRuntimeBundle(fixture.registry);
+    const baseBefore = structuredClone(fixture.registry.getBase("owner").operations);
+    const open = async (authority: "inspect" | "implement" | "ship", suffix: string) => bundle.lifecycle.taskOpen({
+      operation_id: `operation-open-task-ops-${suffix}`,
+      repo_id: "owner",
+      task_id: `task-ops-${suffix}`,
+      base_branch: "main",
+      base_commit_sha: fixture.commit,
+      base_tree_sha: fixture.tree,
+      authority,
+      goal: `Exercise task-only operations for ${authority}.`,
+      branch_slug: `task-ops-${suffix}`
+    });
+
+    const ship = await open("ship", "ship");
+    expect(fixture.registry.get(ship.task.repo_id).operations).toMatchObject({
+      enabled: true,
+      validation_enabled: true,
+      git_stage_enabled: true,
+      git_commit_enabled: true,
+      codex_run_finalize_enabled: false,
+      cleanup_enabled: false,
+      max_paths_per_operation: 7
+    });
+
+    const implement = await open("implement", "implement");
+    expect(fixture.registry.get(implement.task.repo_id).operations).toMatchObject({
+      enabled: true,
+      validation_enabled: true,
+      git_stage_enabled: false,
+      git_commit_enabled: false,
+      codex_run_finalize_enabled: false,
+      cleanup_enabled: false,
+      max_paths_per_operation: 7
+    });
+
+    const inspect = await open("inspect", "inspect");
+    expect(fixture.registry.get(inspect.task.repo_id).operations).toMatchObject({
+      enabled: false,
+      validation_enabled: false,
+      git_stage_enabled: false,
+      git_commit_enabled: false,
+      codex_run_finalize_enabled: false,
+      cleanup_enabled: false,
+      max_paths_per_operation: 7
+    });
+    expect(fixture.registry.getBase("owner").operations).toEqual(baseBefore);
+  }, 15_000);
+
   test("enforces repository authority, allowed base branch, clean base, and task capacity", async () => {
     const fixture = await fixtureRegistry({ authority: "write", maxConcurrentTasks: 1 });
     const bundle = await createLifecycleRuntimeBundle(fixture.registry);
@@ -332,6 +407,8 @@ async function fixtureRegistry(options: {
   authority?: "read" | "write" | "ship";
   kind?: "github" | "local";
   maxConcurrentTasks?: number;
+  baseOperations?: OperationsPolicyConfigDocument;
+  taskOperations?: OperationsPolicyConfigDocument;
 } = {}) {
   const parent = await realpath(await mkdtemp(join(tmpdir(), "repository-lifecycle-")));
   roots.push(parent);
@@ -354,7 +431,8 @@ async function fixtureRegistry(options: {
         allowed_base_branches: ["main"],
         worktree_root: worktreeRoot,
         require_clean_base: true,
-        max_concurrent_tasks: options.maxConcurrentTasks ?? 8
+        max_concurrent_tasks: options.maxConcurrentTasks ?? 8,
+        ...(options.taskOperations ? { task_operations: options.taskOperations } : {})
       }
     : {
         kind: "github" as const,
@@ -375,7 +453,7 @@ async function fixtureRegistry(options: {
       display_name: "Owner fixture",
       root: ownerRoot,
       writes: { enabled: true, allowed_globs: ["**"] },
-      operations: {
+      operations: options.baseOperations ?? {
         enabled: true,
         git_stage_enabled: true,
         git_commit_enabled: true,

@@ -94,6 +94,14 @@ review, stage, commit, close, and cleanup. It rejects remote status, push,
 pull-request, review-thread, CI, merge-gate, merge, and post-merge tools with
 `LIFECYCLE_POLICY_DENIED`.
 
+When the base repository must remain operations-disabled, an owner may configure
+a separate `lifecycle.task_operations` policy on a local lifecycle. The policy
+is used only by derived task repositories: `ship` receives the explicit task
+policy, `implement` is clamped to validation at most, and `inspect` receives no
+operation capability. Omitting the field preserves existing inheritance. The
+field is invalid under a GitHub lifecycle, and task-only finalizer or cleanup
+enablement is rejected.
+
 Use `repo_task_status` to resume. It returns the bound base, current exact
 HEAD/tree, task state, lifecycle artifacts, and cleanup eligibility. The public
 artifact window is capped at 200 references; `ARTIFACTS_TRUNCATED` means
