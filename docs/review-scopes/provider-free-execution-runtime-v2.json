@@ -1,0 +1,261 @@
+{
+  "entries": [
+    {
+      "object_sha256": "a13589d880932979e59e7d667ee685594c95323644a76a7e6f0f4183711533ac",
+      "path": "CHANGELOG.md",
+      "role": "architecture"
+    },
+    {
+      "object_sha256": "287ef3e2d9a8ebca65c60760c84bddf5302ac23ed5c29e158b7f6e587ffd37fc",
+      "path": "README.md",
+      "role": "architecture"
+    },
+    {
+      "object_sha256": "0e0741ebdef6190bd0f228fcc4c5c60867d1c49071ff0f137edcfe729fbb6160",
+      "path": "docs/ARCHITECTURE.md",
+      "role": "architecture"
+    },
+    {
+      "object_sha256": "705c2f4854f27de934d167137fdc16686914e8b9e30e5c75ad6501c65522b0bf",
+      "path": "docs/CAPABILITIES.md",
+      "role": "architecture"
+    },
+    {
+      "object_sha256": "e726c99b45f48f7532ff0cc4a5725e484ffcaf522af830ace5a0851b10bb99bf",
+      "path": "docs/CHATGPT_CONNECT.md",
+      "role": "architecture"
+    },
+    {
+      "object_sha256": "c8012b24df1cbfd99b188fcef2365e39673d419e32bee7d518ec9783bd71b42f",
+      "path": "docs/DELEGATION_ARTIFACTS.md",
+      "role": "architecture"
+    },
+    {
+      "object_sha256": "af40efefdca0f6d4b0e52eaa7344033f35aafe7f6d86a2c2a3f10b15a4939258",
+      "path": "docs/MIGRATION.md",
+      "role": "architecture"
+    },
+    {
+      "object_sha256": "86b612d4d755a12e548a5531ffde8a53268819d00f9af41aa3b2566319a29d25",
+      "path": "docs/PRODUCT.md",
+      "role": "architecture"
+    },
+    {
+      "object_sha256": "4f4344ce886f6d94556ee5935285b7817c710e4d348c21bf423506f440f678fd",
+      "path": "docs/QUALITY.md",
+      "role": "architecture"
+    },
+    {
+      "object_sha256": "38bb020cf63adc1888379ea43e9598fc58c7b972fbbd2f6c270a89b459df2692",
+      "path": "docs/RELEASE_CHECKLIST.md",
+      "role": "architecture"
+    },
+    {
+      "object_sha256": "5c884eb726d078f07fe193ecee805b24f9b31c2ef58f50d037cbd378080a579a",
+      "path": "docs/TOOL_SURFACE.md",
+      "role": "architecture"
+    },
+    {
+      "object_sha256": "f82f9a5615dea32ae56652a192134066675f24c9acbac65c2bf379d47945d3fb",
+      "path": "package.json",
+      "role": "scope_control"
+    },
+    {
+      "object_sha256": "0a17cf2542857229b5edd30be2c05467be17f0118342e3f64031f640e7fed24b",
+      "path": "scripts/runtime-review-scope-selftest.mjs",
+      "role": "scope_control"
+    },
+    {
+      "object_sha256": "7cd16b9ca46f0bc5a4f46aa9842bc95d0b367b52677e30e0c6b5adde22060412",
+      "path": "scripts/runtime-review-scope.mjs",
+      "role": "scope_control"
+    },
+    {
+      "object_sha256": "5280022b8233e31486b903a571fbf00545ec4b6498ad7590a53d02a7dc8a039e",
+      "path": "scripts/smoke-dist-server.mjs",
+      "role": "validation"
+    },
+    {
+      "object_sha256": "00c1cae1292f581350e8ab422f79fd1fdad2156f406afcd57855e6ccf0adff0e",
+      "path": "src/contracts/agent-runs.contract.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "fc0cb37f805c9baba6b98ce26ddad4f5334fd9a538dd91edda56c3eeffbda907",
+      "path": "src/contracts/task-admission.contract.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "7d7b78dd79cfb1d18a80bf2aaf3cace3234e1aca32902095978e26135af1e31c",
+      "path": "src/delegation/artifact-contracts.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "0dd6c090773450067a6d4b35fe7ff4d79c762f6fd68f991894cdc6f2ec480617",
+      "path": "src/delegation/dispatch-store.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "95882938405ffc9f6071504c8cc098d3e8fd9fdfbfaa517e53068f9f56a83c21",
+      "path": "src/delegation/execution-runtime-contracts.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "4fe61fa56d0d68d534b6e5b824f77f264a21bddd174b0c21fbf995a04887a00e",
+      "path": "src/delegation/queue-supervisor.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "85ced9b705d4133fdc86390e85ab405f321f3b1fdc58964a518f2a201724414f",
+      "path": "src/delegation/safe-artifact.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "1844182619eb1f42e0cf3e1603bff863394c3f97d6cf37cd8b8f1c79a3c942c2",
+      "path": "src/delegation/supervisor-store.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "df0d518ef220645300458f5949fd3933dac36d5dc161080e3035c641973cc7cf",
+      "path": "src/services/agent-runs-service.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "a1b741667cde5d33db2497eefb86f675054372b884e1f8a3c1298c4a64e81843",
+      "path": "src/services/delegation-execution-runtime.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "5afa344d2ebfc3683fe413f3888c7fff8e02363c131b3cba8501f7624ee61f3a",
+      "path": "src/services/lifecycle-factory.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "283d077fbf2be8a25d63e376b6c139ff21c1a0766c9b2e431170057e3ee2cc1b",
+      "path": "src/services/lifecycle-runtime.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "89b52142dfa969ab153c47b7861f5936ac75b260a3b944c93e88f03e106aff5f",
+      "path": "src/services/repository-lifecycle-runtime.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "fce187689f8470011a72503bff1b9f1b688fb5bd0b309277941d1617e2bfa4c1",
+      "path": "src/services/task-admission-service.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "97c38e4587228fe6b78a991b7b305cfc6a671a1867c06268fb4c281cb44d21bc",
+      "path": "src/tools/contracts.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "0766b35fe5191be9dd7ecfc8ade5d7f498aae1d2cb646222a0f1fbe6e0657ddd",
+      "path": "src/tools/descriptions.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "eff88b82b8927c17611f05c11968531c5d720e5d03083cbd00b40e1ae9a28e1d",
+      "path": "src/tools/handlers/lifecycle.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "fbb67bef2199d68044fdffa9976b210e65273dbe82f9669d1c4ddaedad4d9b15",
+      "path": "src/tools/oss-tool-profile.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "b60d0cb2ed9b7c06995f84962886c6950da8f94c05c615197cb1e20204b4ed9b",
+      "path": "src/tools/packages/lifecycle.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "6a00b65c9f2e7b9f61d1d56dd6a240385a879200adff9c71bd0e7a0732104194",
+      "path": "src/tools/registry.ts",
+      "role": "runtime_source"
+    },
+    {
+      "object_sha256": "c1335387255382e385083c4740d8b11b593faddc1b17ae3cb962c3837e5dc402",
+      "path": "tests/agent-runs-service.test.ts",
+      "role": "runtime_test"
+    },
+    {
+      "object_sha256": "1a668af48c632e76ff26bdb5badfc7b64d3070bacb5d4736b9f38cce03e4904c",
+      "path": "tests/delegation-queue-supervisor.test.ts",
+      "role": "runtime_test"
+    },
+    {
+      "object_sha256": "1528d588411b2601ba46271e634b4d82550f1c8b6644df63741f424dbbd74248",
+      "path": "tests/fixtures/delegation-v3-run-fixture.ts",
+      "role": "runtime_test"
+    },
+    {
+      "object_sha256": "1ce051310792acdbd5a73b2e2c8a307de5ae41882a97ecc08db8eee0d01927b2",
+      "path": "tests/lifecycle-tool-contracts.test.ts",
+      "role": "runtime_test"
+    },
+    {
+      "object_sha256": "51b966eb1af004912d172ebdec5b19decaa44c7a6b4b5f6bd1dc9c44d6c5fb47",
+      "path": "tests/package-scripts.test.ts",
+      "role": "runtime_test"
+    },
+    {
+      "object_sha256": "3ebe8a2ec0e08a7a158013bb170c9ed56ed953efb2c034ba6c69b0ffa77f5897",
+      "path": "tests/repository-lifecycle-runtime.test.ts",
+      "role": "runtime_test"
+    },
+    {
+      "object_sha256": "59d0ac6d887758828e0f53d64093baa89836265c2e175672e60bd2dc78cbc263",
+      "path": "tests/runtime-review-scope.test.mjs",
+      "role": "scope_control"
+    },
+    {
+      "object_sha256": "d3b17c41c82b119562c7bd3b499e4944d3dcc34bfd404e46f817c521ca31a4b9",
+      "path": "tests/task-admission-service.test.ts",
+      "role": "runtime_test"
+    },
+    {
+      "object_sha256": "0694938c195d2394359e4b7554b7f197cafa822e755f4bc039a6eddf23cf0998",
+      "path": "tests/tool-contracts.test.ts",
+      "role": "runtime_test"
+    },
+    {
+      "object_sha256": "df3dd65cea17578ea51b3e77458427f83b6bbfb904aeda6303157e3251854527",
+      "path": "tests/workflow-drift-guard.test.ts",
+      "role": "runtime_test"
+    }
+  ],
+  "epoch_kind": "NEW_INDEPENDENT_SCOPE_EPOCH",
+  "exclusions": [
+    "provider contact and independent-review execution",
+    "runtime behavior changes",
+    "live worker or supervisor activation",
+    "historical packet reconstruction",
+    "AIDCP source changes"
+  ],
+  "materialization_base": {
+    "head_sha": "c4b1b6e731d0a1794e22ffa2739050f63480e1a9",
+    "tree_sha": "e83817ad64d43541f9f8eb5a1ec084dc15bab914"
+  },
+  "review_contract": {
+    "automatic_fallback": false,
+    "epoch_relation": "fresh_initial",
+    "packet_scope_schema": "review-scope-manifest.v1",
+    "provider_contact_authority": "SEPARATE_EXACT_GATE",
+    "runtime_behavior_change": false
+  },
+  "schema": "provider-free-execution-runtime-review-scope-definition.v1",
+  "scope_id": "provider-free-execution-runtime-v2",
+  "superseded_target": {
+    "disposition": "PERMANENTLY_BLOCKED_MISSING_CANONICAL_SCOPE_BINDING",
+    "head_sha": "08197744a4b2e11fa50d0c56ecf892b92b9dd1ce",
+    "historical_packet_sha256": "25f7714f0cffe77657e8ff4ae074e8fd2de0a68a6f612c2abd079fe8cebf4490",
+    "historical_receipt_sha256": "7079b28a677322720215a2398818c138fe6dba240a31cbaaefcd244559797226",
+    "historical_scope_sha256": "430766b8dc1db3051bebd927bf0694f57946292f8bb40892183b4db15435d673",
+    "implementation_base_sha": "8206aa23bb132c51f75fabf2028a8bc1642ba75d",
+    "relation_to_new_scope": "NOT_ASSERTED",
+    "tree_sha": "f5b17a5d47f4337af423a4005154a636224f0eac"
+  },
+  "definition_sha256": "f09aad6dde204f065c239a6a8f39221650698cbf92469eb3978efc7dd1a98eca"
+}

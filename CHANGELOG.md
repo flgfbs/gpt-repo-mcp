@@ -27,6 +27,10 @@ Notable public changes to Chat Pro Repository MCP are recorded here.
 - Provider-neutral immutable dispatch, one-launch-intent, supervisor identity
   and health, exactly-once, and unknown-effect no-replay contracts with
   provider-free integrated qualification.
+- A tracked, content-addressed provider-free runtime review scope with a
+  deterministic verifier and final-target manifest emitter. The former
+  same-head legacy target remains permanently blocked rather than reconstructing
+  its missing packet or scope evidence.
 - A separate owner-local `owner-agent-runner` build entrypoint that consumes
   only exact admitted `codex_app_server` runs, creates one workspace-write,
   network-disabled, never-approve thread and turn, and query-rebinds an exact

@@ -83,6 +83,7 @@ Run focused tests for changed contracts or services, then:
 npm run typecheck
 npm test
 npm run lint
+npm run check:runtime-review-scope
 npm run check:public
 npm run verify:dist
 git diff --check

@@ -54,6 +54,8 @@ describe("package and public documentation", () => {
     expect(pkg.scripts?.["connect:secure"]).toBeUndefined();
     expect(pkg.scripts?.["security:export"]).toBe("node scripts/export-security-candidate.mjs");
     expect(pkg.scripts?.["security:scan"]).toBe("node scripts/oss-security-scan.mjs");
+    expect(pkg.scripts?.codegen).toBe("node scripts/runtime-review-scope.mjs --write-definition && node scripts/runtime-review-scope.mjs --check && node scripts/runtime-review-scope-selftest.mjs");
+    expect(pkg.scripts?.["check:runtime-review-scope"]).toBe("node scripts/runtime-review-scope.mjs --check");
     expect(pkg.scripts?.add).toBe("node dist/cli/chat-pro-repo.js repo add");
     expect(pkg.scripts?.["add-project-root"]).toBe("node dist/cli/chat-pro-repo.js project-root add");
     expect(pkg.scripts?.remove).toBe("node dist/cli/chat-pro-repo.js repo remove");

@@ -38,6 +38,29 @@ Several related runs may share a dirty worktree only through the explicit
 integration-review contract. The server binds the reviewed run set, current
 HEAD, path union, content fingerprint, validation, verdicts, and commit payload.
 
+## Canonical Runtime Review Scope
+
+The provider-free execution runtime uses the tracked scope definition at
+`docs/review-scopes/provider-free-execution-runtime-v2.json`. The definition
+binds the exact reviewed source, tests, architecture evidence, and deterministic
+scope tooling by path and SHA-256. It deliberately omits its own final Git
+identity; after the target commit exists, the provider-free emitter adds that
+exact HEAD and tree and includes the definition file itself in canonical
+`review-scope-manifest.v1` bytes.
+
+The former target `08197744a4b2e11fa50d0c56ecf892b92b9dd1ce` is permanently
+blocked because its historical typed receipt omitted scope and its canonical
+packet bytes are no longer retained. Those bytes are never regenerated or
+represented as historical evidence. The materialized v2 target starts a
+`NEW_INDEPENDENT_SCOPE_EPOCH`; it is not a causal successor of the unrelated
+historical attempt, and no disjointness relation is asserted without durable
+evidence.
+
+Run `npm run codegen` only when intentionally updating the tracked scope, then
+run `npm run check:runtime-review-scope` to fail closed on missing, reordered,
+duplicated, unsafe, or byte-drifted entries. Independent-review provider contact
+remains a separate exact-target gate.
+
 ## Provider-Neutral Execution Runtime
 
 The execution substrate expresses repository semantics rather than vendor
