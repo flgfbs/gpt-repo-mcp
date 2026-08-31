@@ -61,7 +61,7 @@
       "role": "scope_control"
     },
     {
-      "object_sha256": "b8175ecaeb91eb8791e711f7700d5e8a6696127666dc758ab7969f24276a0966",
+      "object_sha256": "a73278f61d8a08bd9c2215bf6c4a57c15bf016521863fd3099816960610ea783",
       "path": "scripts/runtime-review-scope-selftest.mjs",
       "role": "scope_control"
     },
@@ -257,5 +257,5 @@
     "relation_to_new_scope": "NOT_ASSERTED",
     "tree_sha": "f5b17a5d47f4337af423a4005154a636224f0eac"
   },
-  "definition_sha256": "40db0d589783bdac41f296650d88defd376a90e9464c54955b6cc03cdb29d563"
+  "definition_sha256": "e8b173a07ea82a920377ca35831a31855c03d02e31a1be5cfa40c3ba1d5507c8"
 }
