@@ -16,6 +16,10 @@ const FIXTURE_ENTRIES = [
   { path: "tests/runtime.test.ts", role: "runtime_test" }
 ];
 
+function clonePlain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 async function createFixture() {
   const root = await mkdtemp(join(tmpdir(), "runtime-review-scope-selftest-"));
   await mkdir(join(root, "src"), { recursive: true });
@@ -85,7 +89,7 @@ async function fileDriftCase() {
 async function tamperCase() {
   const { definition, root } = await createFixture();
   try {
-    const rehashedPolicyTamper = structuredClone(definition);
+    const rehashedPolicyTamper = clonePlain(definition);
     rehashedPolicyTamper.superseded_target.historical_packet_sha256 = "f".repeat(64);
     const core = { ...rehashedPolicyTamper };
     delete core.definition_sha256;
@@ -96,7 +100,7 @@ async function tamperCase() {
       "SCOPE_DEFINITION_POLICY_MISMATCH"
     );
 
-    const duplicate = structuredClone(definition);
+    const duplicate = clonePlain(definition);
     duplicate.entries[1].path = duplicate.entries[0].path;
     await writeDefinition(root, duplicate);
     await expectCode(
@@ -104,7 +108,7 @@ async function tamperCase() {
       "SCOPE_ENTRY_DUPLICATE"
     );
 
-    const noncanonical = structuredClone(definition);
+    const noncanonical = clonePlain(definition);
     noncanonical.entries.reverse();
     await writeDefinition(root, noncanonical);
     await expectCode(

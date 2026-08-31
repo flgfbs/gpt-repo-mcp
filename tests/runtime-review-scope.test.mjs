@@ -17,6 +17,10 @@ const FIXTURE_ENTRIES = [
   { path: "tests/runtime.test.ts", role: "runtime_test" }
 ];
 
+function clonePlain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 async function createFixture() {
   const root = await mkdtemp(join(tmpdir(), "runtime-review-scope-"));
   await mkdir(join(root, "src"), { recursive: true });
@@ -105,7 +109,7 @@ describe("provider-free runtime review scope", () => {
   test("rejects tampered, duplicate, and noncanonical definitions", async () => {
     const { definition, root } = await createFixture();
     try {
-      const tampered = structuredClone(definition);
+      const tampered = clonePlain(definition);
       tampered.entries[0].object_sha256 = "0".repeat(64);
       await writeDefinition(root, tampered);
       await expectScopeError(
@@ -113,7 +117,7 @@ describe("provider-free runtime review scope", () => {
         "SCOPE_DEFINITION_DIGEST_MISMATCH"
       );
 
-      const duplicate = structuredClone(definition);
+      const duplicate = clonePlain(definition);
       duplicate.entries[1].path = duplicate.entries[0].path;
       await writeDefinition(root, duplicate);
       await expectScopeError(
@@ -121,7 +125,7 @@ describe("provider-free runtime review scope", () => {
         "SCOPE_ENTRY_DUPLICATE"
       );
 
-      const unsorted = structuredClone(definition);
+      const unsorted = clonePlain(definition);
       unsorted.entries.reverse();
       await writeDefinition(root, unsorted);
       await expectScopeError(
@@ -136,7 +140,7 @@ describe("provider-free runtime review scope", () => {
   test("rejects policy metadata tampering even after its digest is recomputed", async () => {
     const { definition, root } = await createFixture();
     try {
-      const tampered = structuredClone(definition);
+      const tampered = clonePlain(definition);
       tampered.superseded_target.historical_packet_sha256 = "f".repeat(64);
       const core = { ...tampered };
       delete core.definition_sha256;

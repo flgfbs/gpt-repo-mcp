@@ -61,7 +61,7 @@
       "role": "scope_control"
     },
     {
-      "object_sha256": "0a17cf2542857229b5edd30be2c05467be17f0118342e3f64031f640e7fed24b",
+      "object_sha256": "b8175ecaeb91eb8791e711f7700d5e8a6696127666dc758ab7969f24276a0966",
       "path": "scripts/runtime-review-scope-selftest.mjs",
       "role": "scope_control"
     },
@@ -206,7 +206,7 @@
       "role": "runtime_test"
     },
     {
-      "object_sha256": "59d0ac6d887758828e0f53d64093baa89836265c2e175672e60bd2dc78cbc263",
+      "object_sha256": "a44f2535a41f6132d73323ab6bffd5370aae35081f89d720f4b81365c59a4a59",
       "path": "tests/runtime-review-scope.test.mjs",
       "role": "scope_control"
     },
@@ -257,5 +257,5 @@
     "relation_to_new_scope": "NOT_ASSERTED",
     "tree_sha": "f5b17a5d47f4337af423a4005154a636224f0eac"
   },
-  "definition_sha256": "f09aad6dde204f065c239a6a8f39221650698cbf92469eb3978efc7dd1a98eca"
+  "definition_sha256": "40db0d589783bdac41f296650d88defd376a90e9464c54955b6cc03cdb29d563"
 }
