@@ -60,7 +60,7 @@ function taskState(head: string): TaskState {
   };
 }
 
-function admissionService(task: TaskState): TaskAdmissionService {
+function admissionService(task: TaskState, unrelatedTasks: TaskState[] = []): TaskAdmissionService {
   const registry = {
     getBase(repoId: string) {
       if (repoId !== BASE_REPO_ID) throw new Error("unexpected base repo");
@@ -80,7 +80,7 @@ function admissionService(task: TaskState): TaskAdmissionService {
   } as unknown as RootRegistry;
   const runtime = {
     async listTasks() {
-      return [task];
+      return [task, ...unrelatedTasks];
     },
     async status(taskId: string) {
       if (taskId !== task.task_id) throw new Error("unexpected task");
@@ -216,6 +216,50 @@ describe("DelegationQueueSupervisor", () => {
         supervisor: dispatch!.supervisor,
         max_runtime_ms: dispatch!.max_runtime_ms
       })).rejects.toMatchObject({ code: "TASK_OPERATION_CONFLICT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("launches an exact queued task while an unrelated task shares its base repository", async () => {
+    const { root, task } = await fixture();
+    try {
+      const unrelated = {
+        ...task,
+        task_id: "unrelated-task",
+        repo_id: "unrelated-fixture",
+        branch_slug: "unrelated-task",
+        server_branch: `chat-pro/tasks/unrelated-task-${"a".repeat(12)}`,
+        worktree_path: "/tmp/chat-pro-unrelated-task",
+        worktree_head: "8".repeat(40),
+        worktree_tree: "9".repeat(40),
+        state_sha256: "a".repeat(64)
+      };
+      const admission = admissionService(task, [unrelated]);
+      let launches = 0;
+      const result = await supervisor({
+        root,
+        admission,
+        launch: async () => {
+          launches += 1;
+          return {
+            effect_state: "no_external_effect",
+            provider_contact: "none",
+            terminal_state: "completed",
+            outcome_code: "UNRELATED_TASK_COEXISTENCE_PASS"
+          };
+        }
+      }).scanOnce();
+
+      expect(result).toMatchObject({ outcome: "launched", run_id: RUN_ID });
+      expect(launches).toBe(1);
+      expect(await new DelegationDispatchStore(root).readDispatch(RUN_ID)).toMatchObject({
+        task_binding: {
+          task_id: TASK_ID,
+          task_repo_id: "fixture",
+          base_repo_id: BASE_REPO_ID
+        }
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

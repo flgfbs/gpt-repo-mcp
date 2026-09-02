@@ -59,8 +59,10 @@ Task status, terminal close outcomes (`completed`, `blocked`, `abandoned`, or
 server-owned task resources and preserves a durable receipt.
 
 `repo_task_admission` is read-only. Given an expected exact task binding, it
-returns one of three typed states: no active task, one matching active task, or
-conflicting active task state. It never opens, claims, closes, or retries a task.
+returns one of three typed states: no active requested task, an exact matching
+active task, or conflicting requested-task state. Other active tasks on the same
+base repository are reported by the count but do not block an exact match. It
+never opens, claims, closes, or retries a task.
 
 The lifecycle policy has two forms. `kind: "local"` admits task open/status,
 local implementation, validation, review, stage, commit, close, and cleanup.
