@@ -12,6 +12,7 @@ import type { TaskArtifactMetadata, TaskArtifactStore } from "../task-runtime/ar
 import type { ExactTaskMutationState, TaskRuntimeService } from "../task-runtime/task-service.js";
 import { FableReviewClaimStore } from "./fable-review-claim-store.js";
 import type { FableLauncherInvocation, FableLauncherPort } from "./fable-launcher-port.js";
+import { canonicalFableLauncherRequestBytes } from "./fable-launcher-port.js";
 import {
   normalizeFableInvocation,
   precontactFableOutcome,
@@ -157,7 +158,7 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
         request: preparation.request,
         packet: preparation.packet_bytes
       });
-      const expectedRequestSha256 = sha256Hex(canonicalJson(preparation.request));
+      const expectedRequestSha256 = hashedRequest(preparation.request);
       if (
         prepared.bundle_id !== preparation.bundle_id
         || prepared.packet_sha256 !== preparation.packet.sha256
@@ -440,6 +441,10 @@ function duplicateOperation(operationId: string, phase: string): RepoReaderError
 
 function isOperationConflict(error: unknown): boolean {
   return error instanceof RepoReaderError && error.code === "TASK_OPERATION_CONFLICT";
+}
+
+function hashedRequest(request: Record<string, unknown>): string {
+  return sha256Hex(canonicalFableLauncherRequestBytes(request));
 }
 
 function safeErrorCode(error: unknown): string {

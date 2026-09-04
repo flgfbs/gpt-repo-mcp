@@ -4,6 +4,7 @@ import {
   RepoRunFableReviewInputSchema,
   RepoRunFableReviewResultSchema
 } from "../src/contracts/fable-review.contract.js";
+import { canonicalFableLauncherRequestBytes } from "../src/services/fable-launcher-port.js";
 
 const HEAD = "1".repeat(40);
 const TREE = "2".repeat(40);
@@ -51,6 +52,13 @@ const evidence = {
   continuation_authorized: false,
   recorded_at: "2026-09-04T00:00:00.000Z"
 } as const;
+
+test("launcher request bytes are compact ASCII with exactly one trailing LF", () => {
+  expect(canonicalFableLauncherRequestBytes({ b: 2, a: 1 }).toString("ascii"))
+    .toBe("{\"a\":1,\"b\":2}\n");
+  expect(() => canonicalFableLauncherRequestBytes({ value: "非ASCII" }))
+    .toThrow("STOP_MANAGED_REQUEST_NONASCII");
+});
 
 describe("managed Fable review public contract", () => {
   test("requires exact active-task, base, HEAD, tree, operation, and scope bindings", () => {

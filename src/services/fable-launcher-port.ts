@@ -1,3 +1,5 @@
+import { canonicalJson } from "../task-runtime/canonical-json.js";
+
 export type FableLauncherPreflight = {
   launcher_sha256: string;
   router_sha256: string;
@@ -33,6 +35,14 @@ export type FableLauncherInvocation = {
   payload?: unknown;
   receipt_readback?: FableReceiptReadback;
 };
+
+export function canonicalFableLauncherRequestBytes(value: Record<string, unknown>): Buffer {
+  const encoded = `${canonicalJson(value)}\n`;
+  if (!/^[\x00-\x7F]*$/.test(encoded)) {
+    throw new Error("STOP_MANAGED_REQUEST_NONASCII");
+  }
+  return Buffer.from(encoded, "ascii");
+}
 
 export interface FableLauncherPort {
   preflight(): Promise<FableLauncherPreflight>;

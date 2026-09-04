@@ -11,6 +11,7 @@ import type {
   FableLauncherPort,
   FableLauncherPreflight,
   FableReceiptReadback,
+  canonicalFableLauncherRequestBytes,
   PreparedFableInvocation
 } from "./fable-launcher-port.js";
 
@@ -102,7 +103,7 @@ export class InstalledTypedFableLauncher implements FableLauncherPort {
       throw error;
     }
     await assertPrivateDirectory(bundlePath);
-    const requestBytes = Buffer.from(canonicalJson(input.request), "utf8");
+    const requestBytes = canonicalFableLauncherRequestBytes(input.request);
     const requestSha256 = sha256Hex(requestBytes);
     const packetSha256 = sha256Hex(input.packet);
     const packetPath = join(bundlePath, "packet.txt");

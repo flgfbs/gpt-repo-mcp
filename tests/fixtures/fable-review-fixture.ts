@@ -13,7 +13,8 @@ import type {
 } from "../../src/services/fable-launcher-port.js";
 import { ManagedFableReviewService } from "../../src/services/managed-fable-review-service.js";
 import { RootRegistry } from "../../src/services/root-registry.js";
-import { canonicalJson, sha256Hex } from "../../src/task-runtime/canonical-json.js";
+import { sha256Hex } from "../../src/task-runtime/canonical-json.js";
+import { canonicalFableLauncherRequestBytes } from "../../src/services/fable-launcher-port.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -162,7 +163,7 @@ export class FakeFableLauncher implements FableLauncherPort {
   }): Promise<PreparedFableInvocation> {
     return {
       bundle_id: input.bundle_id,
-      request_sha256: sha256Hex(canonicalJson(input.request)),
+      request_sha256: sha256Hex(canonicalFableLauncherRequestBytes(input.request)),
       packet_sha256: sha256Hex(input.packet),
       opaque_state: { request: input.request, packet: input.packet.toString("utf8") }
     };
