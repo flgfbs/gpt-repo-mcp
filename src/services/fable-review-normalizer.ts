@@ -33,6 +33,7 @@ export function normalizeFableInvocation(
       const retention = asRecord(payload.response_retention);
       const attestation = asRecord(payload.attestation);
       const exactTarget = asRecord(record.exact_target_bindings);
+      const receipt = invocation.receipt_readback;
       if (
         payload.result !== reviewResult.review_status
         || payload.model_class !== "FABLE"
@@ -42,8 +43,9 @@ export function normalizeFableInvocation(
         || payload.refusal_fallback !== "DISABLED"
         || payload.explicit_concurrency_limit !== 1
         || record.provider_contact_state !== "YES"
-        || payload.invocation_id !== invocation.receipt_readback?.attempt_id
-        || record.attempt_id !== invocation.receipt_readback?.attempt_id
+        || receipt?.ok !== true
+        || payload.invocation_id !== receipt.attempt_id
+        || record.attempt_id !== receipt.attempt_id
         || record.valid_semantic_review_state !== "YES"
         || record.effect_disposition !== "VALID_REVIEW_RESULT"
         || record.requested_model_class_attestation !== "FABLE"
@@ -70,9 +72,8 @@ export function normalizeFableInvocation(
         || !/^[a-f0-9]{64}$/.test(binding.sha256)
         || typeof binding.utf8_bytes !== "number"
         || !Number.isSafeInteger(binding.utf8_bytes)
-        || invocation.receipt_readback?.ok !== true
-        || invocation.receipt_readback.response_sha256 !== binding.sha256
-        || invocation.receipt_readback.response_utf8_bytes !== binding.utf8_bytes
+        || receipt.response_sha256 !== binding.sha256
+        || receipt.response_utf8_bytes !== binding.utf8_bytes
       ) {
         throw new Error("attestation mismatch");
       }
@@ -82,10 +83,10 @@ export function normalizeFableInvocation(
         effect_disposition: "VALID_REVIEW_RESULT",
         outcome_code: reviewResult.review_status,
         receipt: {
-          attempt_id: invocation.receipt_readback.attempt_id,
-          receipt_sha256: invocation.receipt_readback.receipt_sha256,
-          response_sha256: invocation.receipt_readback.response_sha256,
-          response_utf8_bytes: invocation.receipt_readback.response_utf8_bytes,
+          attempt_id: receipt.attempt_id,
+          receipt_sha256: receipt.receipt_sha256,
+          response_sha256: receipt.response_sha256,
+          response_utf8_bytes: receipt.response_utf8_bytes,
           retained_read_back: true
         },
         review_result: reviewResult
