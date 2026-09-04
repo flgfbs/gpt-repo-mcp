@@ -38,8 +38,10 @@ export type FableLauncherInvocation = {
 
 export function canonicalFableLauncherRequestBytes(value: Record<string, unknown>): Buffer {
   const encoded = `${canonicalJson(value)}\n`;
-  if (!/^[\x00-\x7F]*$/.test(encoded)) {
-    throw new Error("STOP_MANAGED_REQUEST_NONASCII");
+  for (const character of encoded) {
+    if (character.charCodeAt(0) > 0x7f) {
+      throw new Error("STOP_MANAGED_REQUEST_NONASCII");
+    }
   }
   return Buffer.from(encoded, "ascii");
 }
