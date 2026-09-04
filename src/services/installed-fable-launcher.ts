@@ -6,12 +6,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { canonicalJson, sha256Hex } from "../task-runtime/canonical-json.js";
 import { runProcessWithTail } from "./process-exec.js";
+import { canonicalFableLauncherRequestBytes } from "./fable-launcher-port.js";
 import type {
   FableLauncherInvocation,
   FableLauncherPort,
   FableLauncherPreflight,
   FableReceiptReadback,
-  canonicalFableLauncherRequestBytes,
   PreparedFableInvocation
 } from "./fable-launcher-port.js";
 
