@@ -26,13 +26,13 @@ const LAUNCH_TIMEOUT_MS = 20 * 60_000;
 
 const PINNED_LAUNCHER = {
   name: "typed_fable_launcher.py",
-  byte_length: 72_388,
-  sha256: "eb8a0479c30d79f85ea972930f502166148469402530e0bf503f26ee3be98b27"
+  byte_length: 75_105,
+  sha256: "edb6f9839cb273df909cbedcdb8fea4e4aad1098fbcd30f6ea8e9e62b83912a8"
 } as const;
 const PINNED_ROUTER = {
   name: "claude_review_router.py",
-  byte_length: 364_089,
-  sha256: "9abdca46a825adf3deea4d161d5c0b191da84ace429e713e728ba2d4eb808b68"
+  byte_length: 373_811,
+  sha256: "d7a999aebffb8246a1d36f107a7d73fb0764c60478e6533963659a0fcdcf12a9"
 } as const;
 
 type PreparedState = {
