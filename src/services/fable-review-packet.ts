@@ -99,6 +99,17 @@ export async function buildFableReviewPreparation(input: {
 }): Promise<FableReviewPreparation> {
   const patch = await exactDiff(input.root, input.target.base_commit_sha, input.target.head_sha, input.scope);
   if (patch.length === 0) throw new Error("STOP_MANAGED_EMPTY_REVIEW_DIFF");
+  if (input.prior) {
+    const correctionPatch = await exactDiff(
+      input.root,
+      input.prior.evidence.target.head_sha,
+      input.target.head_sha,
+      input.scope
+    );
+    if (correctionPatch.length === 0) {
+      throw new Error("STOP_MANAGED_FOCUSED_SCOPE_UNCHANGED");
+    }
+  }
   if (input.scanner.hasSecretValue(patch)) throw new Error("STOP_MANAGED_REVIEW_DATA_BLOCKED");
   const lineageId = input.prior?.evidence.lineage?.lineage_id
     ?? initialLineageId(input.request, input.target);

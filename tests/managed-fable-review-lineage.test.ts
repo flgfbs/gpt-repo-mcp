@@ -94,6 +94,45 @@ describe("managed Fable focused-rereview lineage", () => {
     expect(launcher.invocationCount).toBe(2);
   });
 
+  test("rejects a focused successor when only an unrelated path changed", async () => {
+    const fixture = await trackedFixture();
+    const firstHead = await commitTaskChange(
+      fixture.taskRoot,
+      "reviewed.ts",
+      "export const value = 1;\n"
+    );
+    const launcher = new FakeFableLauncher(["REVISE"]);
+    const service = fixture.service(launcher);
+    const initial = await service.run(initialInput(
+      fixture,
+      firstHead,
+      "operation-fable-unrelated-initial"
+    ));
+    const unrelatedHead = await commitTaskChange(
+      fixture.taskRoot,
+      "unrelated.ts",
+      "export const unrelated = true;\n"
+    );
+    const rejected = await service.run({
+      operation_id: "operation-fable-unrelated-focused",
+      repo_id: fixture.taskRepoId,
+      task_id: fixture.taskId,
+      expected_base_commit_sha: fixture.baseCommit,
+      expected_base_tree_sha: fixture.baseTree,
+      expected_head_sha: unrelatedHead.head,
+      expected_tree_sha: unrelatedHead.tree,
+      review_kind: "focused_rereview",
+      scope: { kind: "focused_paths", paths: ["reviewed.ts"] },
+      prior_review_artifact_id: initial.artifact!.artifact_id
+    });
+    expect(rejected).toMatchObject({
+      review_state: "failed_precontact",
+      provider_contact: "NO",
+      outcome_code: "STOP_MANAGED_FOCUSED_SCOPE_UNCHANGED"
+    });
+    expect(launcher.invocationCount).toBe(1);
+  });
+
   test("rejects an unchanged target or a retained PASS as a focused predecessor before contact", async () => {
     const fixture = await trackedFixture();
     const firstHead = await commitTaskChange(
