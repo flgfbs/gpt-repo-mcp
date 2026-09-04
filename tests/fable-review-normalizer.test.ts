@@ -227,7 +227,7 @@ describe("managed Fable review output normalization", () => {
   });
 
   test("requires the focused rereview attestation on a successor epoch", () => {
-    const focused = {
+    const focused: FableReviewPreparation = {
       ...preparation,
       scope: { kind: "focused_paths", paths: ["src/fix.ts"], sha256: SCOPE },
       lineage: { ...preparation.lineage, kind: "focused_rereview" as const }
