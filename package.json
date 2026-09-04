@@ -35,6 +35,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "smoke": "npm run check:public && npm run build && node scripts/smoke-dist-server.mjs",
+    "codegen": "node scripts/runtime-review-scope.mjs --write-definition && node scripts/runtime-review-scope.mjs --check && node scripts/runtime-review-scope-selftest.mjs",
+    "check:runtime-review-scope": "node scripts/runtime-review-scope.mjs --check",
     "check:public": "node scripts/check-public.mjs",
     "security:export": "node scripts/export-security-candidate.mjs",
     "security:scan": "node scripts/oss-security-scan.mjs",
