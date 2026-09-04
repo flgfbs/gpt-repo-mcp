@@ -1,8 +1,8 @@
 # Migration Guide
 
 This release changes the public identity, connection path, and tool count while
-preserving the canonical 47-tool local prefix. One managed-agent continuation
-operation is added before the existing 18 lifecycle tools.
+preserving the canonical 47-tool local prefix. Managed-agent continuation
+remains position 48; the lifecycle package now contains 19 tools.
 
 ## Before Updating
 
@@ -10,7 +10,7 @@ operation is added before the existing 18 lifecycle tools.
 2. Preserve the local configuration and any needed task/artifact state.
 3. Update to a trusted revision and run `npm ci` and `npm run build`.
 4. Run `npm run check:config` and `npm run doctor`.
-5. Refresh the ChatGPT app so it receives the exact 66-tool schema.
+5. Refresh the ChatGPT app so it receives the exact 67-tool schema.
 
 ## Command And Connection Changes
 
@@ -28,29 +28,30 @@ Activate the Secure MCP Tunnel through the OpenAI workspace.
 ## Exact Tool Addition
 
 The first 47 local names retain their canonical order.
-`repo_continue_agent_run` occupies position 48. The following 18 lifecycle
-names occupy positions 49–66:
+`repo_continue_agent_run` occupies position 48. The following 19 lifecycle
+names occupy positions 49–67:
 
 1. `repo_task_open`
 2. `repo_task_status`
 3. `repo_task_close`
 4. `repo_task_cleanup`
 5. `repo_artifact_read`
-6. `repo_remote_status`
-7. `repo_write_push`
-8. `repo_pr_create_or_update`
-9. `repo_pr_status`
-10. `repo_pr_review_threads`
-11. `repo_write_pr_reply`
-12. `repo_write_pr_resolve_thread`
-13. `repo_ci_status`
-14. `repo_write_ci_retry_failed`
-15. `repo_merge_gate_prepare`
-16. `repo_write_merge`
-17. `repo_post_merge_readback`
-18. `repo_task_admission`
+6. `repo_run_fable_review`
+7. `repo_remote_status`
+8. `repo_write_push`
+9. `repo_pr_create_or_update`
+10. `repo_pr_status`
+11. `repo_pr_review_threads`
+12. `repo_write_pr_reply`
+13. `repo_write_pr_resolve_thread`
+14. `repo_ci_status`
+15. `repo_write_ci_retry_failed`
+16. `repo_merge_gate_prepare`
+17. `repo_write_merge`
+18. `repo_post_merge_readback`
+19. `repo_task_admission`
 
-The total is exactly 66. No old or alternate lifecycle names are accepted as
+The total is exactly 67. No old or alternate lifecycle names are accepted as
 aliases. `repo_task_admission` is read-only and adds no configuration,
 credential, task mutation, worker launch, or retry authority.
 
@@ -71,6 +72,29 @@ entrypoint `dist/owner-agent-runner.js`. It is not started by the HTTP server an
 must be activated as an owner-local process against the same validated config.
 It exposes no public tool or listener. Existing manual runs and runs without an
 active exact task binding remain readable and are not attached automatically.
+
+## Managed Fable Review Bootstrap
+
+`repo_run_fable_review` is an additive public action and adds the durable
+`FABLE_REVIEW` operation kind. Existing task, operation, and artifact records are
+not rewritten. Existing configuration gains no new path, credential, provider,
+permission, or generic process authority; the action derives its fixed launcher
+boundary from the installed runtime and accepts only exact task/Git/scope inputs.
+
+The source checkout alone does not update a running MCP process. Build and install
+the trusted exact revision, reload the separately managed Repository MCP server,
+verify health and the 67-tool catalog, and then refresh the ChatGPT app metadata.
+Do not reload the router, modify its static bytes, or alter credentials/accounts
+as part of this migration. Until Repository MCP itself is reloaded, the new
+action is unavailable and an exact-head Fable review must remain blocked rather
+than fall back to a generic runner.
+
+For rollback, stop Repository MCP, restore the previously trusted build, restart
+it, verify its prior catalog, and refresh app metadata. Append-only Fable review
+claim/outcome and sanitized artifact records may remain; an older build ignores
+the unknown operation kind unless it attempts to parse those newer records.
+Never delete or rewrite contacted/unknown review evidence merely to make an older
+runtime admit a fresh attempt.
 
 ## Execution-Runtime Artifact Migration
 
@@ -129,7 +153,7 @@ local-only entries should be created with:
 npm run add -- /path/to/your/repo --mode ship --local-only
 ```
 
-The public tool count, names, order, and payload schemas remain exactly 66.
+The public tool count, names, order, and payload schemas are exactly 67 in this release.
 Local-only policy changes admission behavior, not the MCP tool catalog.
 
 ## Local Task-Only Operations Policy

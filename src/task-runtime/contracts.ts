@@ -38,7 +38,7 @@ export const OperationPhaseSchema = z.enum([
 ]);
 
 export const ObservedEffectStateSchema = z.enum(["NOT_STARTED", "ABSENT", "PRESENT", "PARTIAL", "UNKNOWN"]);
-export const OperationKindSchema = z.enum(["OPEN", "CLOSE", "CLEANUP", "AGENT_CONTINUE"]);
+export const OperationKindSchema = z.enum(["OPEN", "CLOSE", "CLEANUP", "AGENT_CONTINUE", "FABLE_REVIEW"]);
 
 const TimestampSchema = z.string().max(64).datetime();
 const RuntimePathSchema = z.string().min(1).max(4096).refine((value) => isAbsolute(value) && !value.includes("\0"));

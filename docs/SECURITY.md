@@ -48,6 +48,9 @@ not receive, read, or return the credential material.
 | Arbitrary local execution | No shell or arbitrary process/Git command schema exists; validation uses allowlisted profiles. |
 | Stale mutation | Expected bytes, HEAD, tree, staged paths, thread version, CI snapshot, and gate digest are checked where applicable. |
 | Replay after crash | `operation_id` plus durable operation/contact records distinguish replay from a new effect. |
+| Generic runner gains installed-runtime write authority | Fable review uses one fixed task-bound launcher adapter and append-only exact evidence; no public path, root, command, environment, or generic filesystem capability is exposed. |
+| Review contact is falsely reset | Contacted, unknown, and orphaned lineage claims are no-replay. Only a proved `provider_contact=NO` precontact outcome leaves the allowance unused. |
+| Provider model, credential, prompt, or raw stream leaks | Inputs contain no provider slug or credential field; outputs are reconstructed from an allowlist of sanitized result, receipt digest, contact/effect, FABLE/MAX, packet/target/scope, and lineage fields. |
 | App Server thread or authority substitution | Initial execution is a separate owner-local process that accepts only an exact admitted task/run, creates one canonical-root workspace-write, network-disabled, never-approve thread, and persists the returned model/provider. Continuation resolves only that private session, verifies the same-user owner-only socket plus repository/provider identity, sends no overrides, and can only cancel/abort approvals or grant the empty permission subset. |
 | Force push or wrong branch | Push receives only the server-owned task branch and cannot enable force. |
 | Arbitrary GitHub access | The strict adapter derives repository, branch, PR, run, and thread targets from task state. |
@@ -125,6 +128,31 @@ questions can use the existing `repo_write_agent_reply` path; unsafe or
 unanswerable questions receive an empty answer map. Sequential question rounds
 use distinct private hash-bound reply artifacts while the public operation
 remains the same.
+
+## Managed Fable Review Boundary
+
+The exact-head review action requires an active task repository with `implement`
+or `ship` authority and exact base commit/tree plus current HEAD/tree. It rejects
+dirty or stale worktrees before launcher invocation. The server constructs the
+canonical review packet from the committed diff, secret-scans it, pins the
+installed launcher and router bytes, verifies the launcher `describe` contract,
+and writes one fresh owner-only transport bundle with no-overwrite and exact
+read-back semantics before entering the contact boundary.
+
+The launcher route is primary capability class `FABLE` at `MAX`; no concrete
+provider-model slug is authoritative. Retry, fallback, reroute, reserve
+substitution, tools, MCP, plugins, subagents, session reuse, and continuation are
+disabled and attested. Existing installed static bytes and runtime evidence are
+read-only to Repository MCP except for the exact fresh per-attempt files that the
+installed launcher itself creates. The adapter never edits, chmods, replaces,
+cleans, or deletes pre-existing evidence.
+
+Public evidence excludes packet contents, prompts, credentials, raw provider
+streams, route internals, resolved concrete models, absolute installed paths, and
+unrelated runtime data. A receipt/read-back or attestation failure after known
+contact is `contacted_incomplete`; an ambiguous process effect is
+`unknown_effect`. Neither may be relabeled provider-origin or restarted as a
+fresh initial review.
 
 ## External And Merge Boundaries
 

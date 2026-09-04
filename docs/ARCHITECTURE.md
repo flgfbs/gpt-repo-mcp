@@ -1,7 +1,7 @@
 # Architecture
 
 Chat Pro Repository MCP is a contract-first, local-first MCP server. The public
-surface is a closed catalog of exactly 66 tools. Task/worktree lifecycle is
+surface is a closed catalog of exactly 67 tools. Task/worktree lifecycle is
 local; only the GitHub-enabled external subset is open-world because it
 contacts the configured Git remote and GitHub.
 
@@ -24,7 +24,7 @@ src/contracts/*.contract.ts
 - Package modules attach title, description, annotations, tier, capability, and
   thin handler.
 - `src/tools/registry.ts` rejects duplicates, missing definitions, and unknown
-  definitions, then constructs the canonical 66-tool order.
+  definitions, then constructs the canonical 67-tool order.
 - `src/register.ts` iterates that registry and registers each tool through
   `src/tools/define-tool.ts`.
 - Handlers parse, call one runtime/service boundary, audit safe metadata, and
@@ -32,7 +32,7 @@ src/contracts/*.contract.ts
 - Services own policy, state, Git, filesystem, artifacts, and external effects.
 
 The first 47 local names are preserved exactly. Managed-agent continuation is
-position 48, followed by the 18 lifecycle names listed in
+position 48, followed by the 19 lifecycle names listed in
 [Tool Surface](TOOL_SURFACE.md); compatibility aliases are not registered.
 
 ## Runtime Construction Seams
@@ -45,7 +45,8 @@ registered handler. Its dependencies are deliberately explicit:
 - optional code intelligence is injected behind its client factory;
 - `AgentContinuationRuntime` is injected behind the one continuation handler;
   default construction supplies a lazy local App Server control connection;
-- `LifecycleRuntime` is the strict handler boundary for the 18 lifecycle tools;
+- `LifecycleRuntime` is the strict handler boundary for the task and GitHub lifecycle tools;
+- `ManagedFableReviewRuntime` is the separate one-shot exact-head review boundary;
 - task-state/worktree storage owns task bindings and terminal state;
 - the artifact store owns content-addressed bytes and opaque public ids;
 - the optional Git push boundary accepts a fixed argument shape for the
@@ -147,6 +148,43 @@ have been accepted, the operation is unknown/no-replay rather than retried under
 a new id. A later operation may only query-reconcile an exact persisted turn id;
 missing or ambiguous ids stay blocked, and missing status cannot make an old
 result reviewable.
+
+## Managed Fable Review Plane
+
+`repo_run_fable_review` is a dedicated open-world, one-shot task operation; it is
+not a generic runner writable-root exception. The handler delegates to
+`ManagedFableReviewRuntime`, whose production adapter knows only the digest-pinned
+installed typed launcher and an owner-only transport bundle root. No public input
+can select an executable, path, root, environment, route, provider model, packet,
+prompt, or credential.
+
+The task lock covers exact-state admission through launcher response and receipt
+read-back:
+
+```text
+active implement/ship task + exact clean base/HEAD/tree + canonical scope
+  -> bounded exact diff + secret scan + immutable launcher/router check
+  -> append-only lineage/epoch claim + exclusive packet/request read-back
+  -> one typed PRIMARY FABLE/MAX invoke
+  -> retained receipt/response binding read-back
+  -> append-only contact/effect outcome + sanitized task artifact
+```
+
+The precontact operation may terminate with `provider_contact=NO`. Once invocation
+may have crossed the contact boundary, missing or malformed evidence cannot be
+collapsed into a local/provider-free failure: a known contact remains `YES` and
+an ambiguous effect remains `UNKNOWN`. Contacted, unknown, or orphaned claims
+block fresh-initial replay. A prior `NO` outcome alone leaves the explicit
+one-contact allowance unconsumed. Focused rereview uses a distinct epoch under
+the same server-derived lineage, requires retained `REVISE` or `BLOCK` evidence,
+and binds the prior attempt plus a changed exact target.
+
+The installed launcher remains responsible for its existing guards and exact
+owner-only diagnostic, claim/lock, response-retention, receipt, and binding
+files. Repository MCP uses exclusive creation and exact read-back only; it has no
+cleanup, chmod, replacement, or mutation path for pre-existing installed runtime
+evidence or static launcher/router bytes. Tests inject the launcher boundary and
+make zero live provider contacts.
 
 ## External Effect Plane
 

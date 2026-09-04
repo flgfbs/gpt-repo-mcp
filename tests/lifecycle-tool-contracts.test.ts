@@ -14,6 +14,7 @@ import {
   idempotentWriteAnnotations,
   openWorldMutationAnnotations,
   openWorldNonDestructiveMutationAnnotations,
+  openWorldOneShotMutationAnnotations,
   openWorldReadOnlyAnnotations,
   readOnlyAnnotations,
   safeMutationAnnotations
@@ -78,6 +79,7 @@ const LIFECYCLE_TOOL_ORDER = [
   "repo_task_close",
   "repo_task_cleanup",
   "repo_artifact_read",
+  "repo_run_fable_review",
   "repo_remote_status",
   "repo_write_push",
   "repo_pr_create_or_update",
@@ -123,6 +125,17 @@ const validInputs = {
   repo_task_close: { ...taskState, outcome: "completed", summary: "Lifecycle task completed." },
   repo_task_cleanup: { ...taskState, cleanup_scope: "workspace_only" },
   repo_artifact_read: { repo_id: REPO_ID, artifact_id: "artifact_1234567890abcdef", offset: 0, length: 65_536 },
+  repo_run_fable_review: {
+    operation_id: OPERATION_ID,
+    repo_id: REPO_ID,
+    task_id: TASK_ID,
+    expected_base_commit_sha: HEAD_SHA,
+    expected_base_tree_sha: TREE_SHA,
+    expected_head_sha: HEAD_SHA,
+    expected_tree_sha: TREE_SHA,
+    review_kind: "initial",
+    scope: { kind: "all_changes" }
+  },
   repo_remote_status: taskState,
   repo_write_push: taskState,
   repo_pr_create_or_update: { ...taskState, title: "Exact lifecycle task", body: "Bound PR body.", draft: true },
@@ -157,12 +170,12 @@ const validInputs = {
 } as const satisfies Record<(typeof LIFECYCLE_TOOL_ORDER)[number], Record<string, unknown>>;
 
 describe("lifecycle tool contracts", () => {
-  test("preserves the local prefix and appends exactly 18 canonical lifecycle names without aliases", () => {
-    expect(CANONICAL_TOOL_ORDER).toHaveLength(66);
+  test("preserves the local prefix and appends exactly 19 canonical lifecycle names without aliases", () => {
+    expect(CANONICAL_TOOL_ORDER).toHaveLength(67);
     expect(CANONICAL_TOOL_ORDER.slice(0, 48)).toEqual(INHERITED_TOOL_ORDER);
     expect(CANONICAL_TOOL_ORDER.slice(48)).toEqual(LIFECYCLE_TOOL_ORDER);
-    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(66);
-    expect(Object.keys(toolContracts)).toHaveLength(66);
+    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(67);
+    expect(Object.keys(toolContracts)).toHaveLength(67);
     expect([...CANONICAL_TOOL_ORDER].sort()).toEqual(Object.keys(toolContracts).sort());
     expect(toolRegistry.map(({ name }) => name)).toEqual(CANONICAL_TOOL_ORDER);
     expect(toolsForPackage("lifecycle").map(({ name }) => name)).toEqual(LIFECYCLE_TOOL_ORDER);
@@ -318,6 +331,7 @@ describe("lifecycle tool contracts", () => {
       ["repo_task_close", safeMutationAnnotations],
       ["repo_task_cleanup", idempotentWriteAnnotations],
       ["repo_artifact_read", readOnlyAnnotations],
+      ["repo_run_fable_review", openWorldOneShotMutationAnnotations],
       ["repo_remote_status", openWorldReadOnlyAnnotations],
       ["repo_write_push", openWorldMutationAnnotations],
       ["repo_pr_create_or_update", openWorldMutationAnnotations],
@@ -329,14 +343,13 @@ describe("lifecycle tool contracts", () => {
       ["repo_write_ci_retry_failed", openWorldNonDestructiveMutationAnnotations],
       ["repo_merge_gate_prepare", openWorldReadOnlyAnnotations],
       ["repo_write_merge", openWorldMutationAnnotations],
-      ["repo_post_merge_readback", openWorldReadOnlyAnnotations]
-,
+      ["repo_post_merge_readback", openWorldReadOnlyAnnotations],
       ["repo_task_admission", readOnlyAnnotations]
     ]);
 
     for (const tool of toolsForPackage("lifecycle")) {
       expect(tool.annotations, tool.name).toEqual(expected.get(tool.name));
-      expect(tool.annotations.idempotentHint, tool.name).toBe(true);
+      expect(tool.annotations.idempotentHint, tool.name).toBe(tool.name !== "repo_run_fable_review");
       expect(tool.requiredCapabilities).toEqual(["lifecycle"]);
       expect(tool.tier).toBe("specialist");
     }
@@ -361,10 +374,10 @@ describe("lifecycle tool contracts", () => {
       "writeCiRetryFailed",
       "mergeGatePrepare",
       "writeMerge",
-      "postMergeReadback"
-,
+      "postMergeReadback",
       "taskAdmission"
     ]) expect(source).toContain(`context.lifecycle.${method}(args)`);
+    expect(source).toContain("context.fableReviews.run(args)");
 
     expect(source).not.toMatch(/\b(?:exec|execFile|spawn|fetch)\s*\(/u);
     expect(source).not.toMatch(/new\s+\w+(?:Service|Adapter)\s*\(/u);

@@ -41,13 +41,17 @@ import { PolicyExplainInputSchema, PolicyExplainResultSchema } from "../src/cont
 import { ContextMapInputSchema, ContextMapResultSchema } from "../src/contracts/context-map.contract.js";
 import { SymbolContextInputSchema, SymbolContextResultSchema } from "../src/contracts/symbol-context.contract.js";
 import { FailureDiagnoseInputSchema, FailureDiagnoseResultSchema } from "../src/contracts/failure-diagnose.contract.js";
+import {
+  RepoRunFableReviewInputSchema,
+  RepoRunFableReviewResultSchema
+} from "../src/contracts/fable-review.contract.js";
 import { SemanticReviewInputSchema, SemanticReviewResultSchema } from "../src/contracts/semantic-review.contract.js";
 import { ShipReviewInputSchema, ShipReviewResultSchema, ShipReviewToolInputSchema } from "../src/contracts/ship-review.contract.js";
 import { PatchsetApplyInputSchema, PatchsetApplyResultSchema, PatchsetPrepareInputSchema, PatchsetPrepareResultSchema, PatchsetReviewInputSchema, PatchsetReviewResultSchema, PatchsetRollbackInputSchema, PatchsetRollbackResultSchema } from "../src/contracts/patchset.contract.js";
 import { ValidateInputSchema, ValidateResultSchema } from "../src/contracts/validation.contract.js";
 import { CurrentWorkSessionInputSchema, CurrentWorkSessionResultSchema, StartWorkSessionInputSchema, StartWorkSessionResultSchema, UpdateWorkSessionInputSchema, UpdateWorkSessionResultSchema } from "../src/contracts/work-session.contract.js";
 import { RepoReaderConfigSchema } from "../src/config/schema.js";
-import { idempotentWriteAnnotations, nonDestructiveMutationAnnotations, openWorldMutationAnnotations, readOnlyAnnotations, safeMutationAnnotations, writeAnnotations } from "../src/tools/annotations.js";
+import { idempotentWriteAnnotations, nonDestructiveMutationAnnotations, openWorldMutationAnnotations, openWorldOneShotMutationAnnotations, readOnlyAnnotations, safeMutationAnnotations, writeAnnotations } from "../src/tools/annotations.js";
 import { toolCatalog } from "../src/tools/catalog.js";
 import { CANONICAL_TOOL_ORDER, toolRegistry, toolsForPackage } from "../src/tools/registry.js";
 import * as handlerExports from "../src/tools/handlers.js";
@@ -137,6 +141,7 @@ describe("tool catalog contracts", () => {
       "repo_task_close",
       "repo_task_cleanup",
       "repo_artifact_read",
+      "repo_run_fable_review",
       "repo_remote_status",
       "repo_write_push",
       "repo_pr_create_or_update",
@@ -158,7 +163,7 @@ describe("tool catalog contracts", () => {
       expect(tool.inputSchema).toBeDefined();
       expect(tool.outputSchema).toBeDefined();
       if (tool.package === "lifecycle") {
-        expect(tool.annotations.idempotentHint).toBe(true);
+        expect(tool.annotations.idempotentHint).toBe(tool.name !== "repo_run_fable_review");
       } else if (isMutatingToolName(tool.name)) {
         expect(tool.annotations).toEqual(
           tool.name === "repo_continue_agent_run"
@@ -184,7 +189,7 @@ describe("tool catalog contracts", () => {
     const descriptionPayloadBytes = Buffer.byteLength(toolCatalog.map((tool) => tool.description).join(" "), "utf8");
 
     expect(instructionSourceBytes).toBeLessThan(6_000);
-    expect(descriptionSourceBytes).toBeLessThan(11_250);
+    expect(descriptionSourceBytes).toBeLessThan(11_750);
     expect(descriptionPayloadBytes).toBeLessThan(9_500);
     expect(instructionSourceBytes).toBeLessThan(Math.floor(15_644 * 0.4));
     expect(descriptionSourceBytes).toBeLessThan(Math.floor(16_819 * 0.7));
@@ -230,6 +235,7 @@ describe("tool catalog contracts", () => {
       "repo_task_open",
       "repo_task_close",
       "repo_task_cleanup",
+      "repo_run_fable_review",
       "repo_write_push",
       "repo_pr_create_or_update",
       "repo_write_pr_reply",
@@ -264,6 +270,7 @@ describe("tool catalog contracts", () => {
     const failureDiagnose = toolCatalog.find((tool) => tool.name === "repo_failure_diagnose");
     const semanticReview = toolCatalog.find((tool) => tool.name === "repo_semantic_review");
     const shipReview = toolCatalog.find((tool) => tool.name === "repo_ship_review");
+    const fableReview = toolCatalog.find((tool) => tool.name === "repo_run_fable_review");
 
     expect(policyExplain).toBeDefined();
     expect(policyExplain?.inputSchema).toBe(PolicyExplainInputSchema);
@@ -326,6 +333,13 @@ describe("tool catalog contracts", () => {
     expect(shipReview?.inputSchema).toBe(ShipReviewToolInputSchema);
     expect(shipReview?.outputSchema).toBe(ShipReviewResultSchema);
     expect(shipReview?.annotations).toEqual(readOnlyAnnotations);
+    expect(fableReview).toBeDefined();
+    expect(fableReview?.inputSchema).toBe(RepoRunFableReviewInputSchema);
+    expect(fableReview?.outputSchema).toBe(RepoRunFableReviewResultSchema);
+    expect(fableReview?.annotations).toEqual(openWorldOneShotMutationAnnotations);
+    for (const forbidden of ["command", "argv", "executable", "path", "root", "environment", "model", "model_slug", "retry", "fallback", "route"]) {
+      expect(forbidden in RepoRunFableReviewInputSchema.shape).toBe(false);
+    }
     expect(toolCatalog.some((tool) => (tool.name as string) === "repo_decision_log")).toBe(false);
     expect((toolContracts as Record<string, unknown>).repo_decision_log).toBeUndefined();
     expect(toolCatalog.some((tool) => (tool.name as string) === "repo_plan_review")).toBe(false);
@@ -383,7 +397,7 @@ describe("tool catalog contracts", () => {
   test("internal registry composes exact packages without changing the canonical surface", () => {
     expect(toolRegistry).toBe(toolCatalog);
     expect(toolRegistry.map((tool) => tool.name)).toEqual(CANONICAL_TOOL_ORDER);
-    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(66);
+    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(67);
     expect([...CANONICAL_TOOL_ORDER].sort()).toEqual(Object.keys(toolContracts).sort());
 
     expect(toolsForPackage("developer").map((tool) => tool.name)).toEqual([
@@ -417,7 +431,7 @@ describe("tool catalog contracts", () => {
     expect(toolsForPackage("advanced_operations")).toHaveLength(6);
     expect(toolsForPackage("diagnostics_and_discovery")).toHaveLength(4);
     expect(toolsForPackage("code_index")).toHaveLength(1);
-    expect(toolsForPackage("lifecycle")).toHaveLength(18);
+    expect(toolsForPackage("lifecycle")).toHaveLength(19);
 
     for (const tool of toolRegistry) {
       expect(tool.tier).toBe(tool.package === "developer" ? "default" : "specialist");
@@ -2788,6 +2802,7 @@ describe("tool catalog contracts", () => {
       "operationLedgerHandler",
       "policyExplainHandler",
       "postMergeReadbackHandler",
+      "runFableReviewHandler",
       "prCreateOrUpdateHandler",
       "prReviewThreadsHandler",
       "prStatusHandler",

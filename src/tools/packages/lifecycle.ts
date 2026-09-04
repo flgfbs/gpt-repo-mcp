@@ -2,6 +2,7 @@ import {
   idempotentWriteAnnotations,
   openWorldMutationAnnotations,
   openWorldNonDestructiveMutationAnnotations,
+  openWorldOneShotMutationAnnotations,
   openWorldReadOnlyAnnotations,
   readOnlyAnnotations,
   safeMutationAnnotations
@@ -15,6 +16,7 @@ import {
   prReviewThreadsHandler,
   prStatusHandler,
   remoteStatusHandler,
+  runFableReviewHandler,
   taskCleanupHandler,
   taskAdmissionHandler,
   taskCloseHandler,
@@ -36,6 +38,7 @@ export const lifecycleTools = [
   defineTool({ name: "repo_task_close", title: "Close repository task", package: "lifecycle", tier: "specialist", requiredCapabilities: lifecycleCapability, annotations: safeMutationAnnotations, handler: taskCloseHandler }),
   defineTool({ name: "repo_task_cleanup", title: "Clean repository task resources", package: "lifecycle", tier: "specialist", requiredCapabilities: lifecycleCapability, annotations: idempotentWriteAnnotations, handler: taskCleanupHandler }),
   defineTool({ name: "repo_artifact_read", title: "Read lifecycle artifact", package: "lifecycle", tier: "specialist", requiredCapabilities: lifecycleCapability, annotations: readOnlyAnnotations, handler: artifactReadHandler }),
+  defineTool({ name: "repo_run_fable_review", title: "Run exact-head Fable review", package: "lifecycle", tier: "specialist", requiredCapabilities: lifecycleCapability, annotations: openWorldOneShotMutationAnnotations, handler: runFableReviewHandler }),
   defineTool({ name: "repo_remote_status", title: "Read remote repository status", package: "lifecycle", tier: "specialist", requiredCapabilities: lifecycleCapability, annotations: openWorldReadOnlyAnnotations, handler: remoteStatusHandler }),
   defineTool({ name: "repo_write_push", title: "Push task branch", package: "lifecycle", tier: "specialist", requiredCapabilities: lifecycleCapability, annotations: openWorldMutationAnnotations, handler: writePushHandler }),
   defineTool({ name: "repo_pr_create_or_update", title: "Create or update pull request", package: "lifecycle", tier: "specialist", requiredCapabilities: lifecycleCapability, annotations: openWorldMutationAnnotations, handler: prCreateOrUpdateHandler }),
