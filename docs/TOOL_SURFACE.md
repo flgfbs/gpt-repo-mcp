@@ -311,9 +311,10 @@ the bound manifest.
 
 ### `repo_task_admission`
 
-66. Read whether an expected exact task is absent, is the sole matching active
-task, or conflicts with current active task state. It is closed-world,
-read-only, and accepts no operation id or mutation request.
+66. Read whether an expected exact task is absent, exactly matches its own active
+binding, or conflicts with its requested-task state. Unrelated active tasks do
+not deny an exact match. It is closed-world, read-only, and accepts no operation
+id or mutation request.
 
 ## Lifecycle Contract Pattern
 

@@ -91,7 +91,7 @@ export const TaskAdmissionStateSchema = z.discriminatedUnion("status", [
   }).strict(),
   z.object({
     status: z.literal("matching_active_task"),
-    active_task_count: z.literal(1),
+    active_task_count: z.number().int().positive(),
     task: MatchingTaskSchema,
     worktree_clean: z.boolean()
   }).strict(),

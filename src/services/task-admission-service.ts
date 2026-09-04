@@ -66,8 +66,10 @@ export class TaskAdmissionService {
 
     const candidate = activeTasks.find((task) => task.task_id === input.task_id);
     const reasons = new Set<TaskAdmissionConflictReason>();
-    if (!candidate) reasons.add("OTHER_ACTIVE_TASK");
-    if (activeTasks.length !== 1) reasons.add("MULTIPLE_ACTIVE_TASKS");
+    if (!candidate) {
+      reasons.add("OTHER_ACTIVE_TASK");
+      if (activeTasks.length > 1) reasons.add("MULTIPLE_ACTIVE_TASKS");
+    }
 
     if (candidate) {
       if (candidate.lifecycle !== "OPEN" || candidate.registration_state !== "REGISTERED" || candidate.close_disposition !== null) {
@@ -104,7 +106,7 @@ export class TaskAdmissionService {
             lifecycle_available: lifecycleAvailable,
             admission: {
               status: "matching_active_task",
-              active_task_count: 1,
+              active_task_count: activeTasks.length,
               task: candidateSummary(status.task, exact.head, exact.tree),
               worktree_clean: exact.clean
             },

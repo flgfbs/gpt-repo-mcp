@@ -212,8 +212,10 @@ publish a public ingress endpoint.
 Delegation uses versioned repository-owned task, result, interaction, and review
 artifacts. The provider-neutral execution substrate adds three bounded layers:
 
-1. `repo_task_admission` reads whether the expected exact task is absent, is the
-   sole matching active task, or conflicts with active lifecycle state.
+1. `repo_task_admission` reads whether the expected exact task is absent, matches
+   its own active registration and exact worktree binding, or conflicts with the
+   requested task's lifecycle or binding state. Unrelated active task
+   registrations do not deny an exact match.
 2. An admitted Delegation v3 run receives one immutable dispatch record followed
    by at most one immutable launch-intent record.
 3. A supervisor-owned queue consumer records typed service identity and health,

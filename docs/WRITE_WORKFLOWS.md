@@ -112,9 +112,11 @@ additional durable artifacts remain available by their opaque ids.
 Run the separately managed `dist/owner-agent-runner.js` process only on the
 owner machine after validating the same repository configuration. It consumes
 queued Delegation v3 entries that explicitly request `codex_app_server`, after
-the existing exact task-admission and one-shot dispatch checks. The process
-creates no MCP endpoint and accepts no repository, model, thread, permission, or
-retry input from ChatGPT.
+the existing exact task-admission and one-shot dispatch checks. Admission is
+evaluated for the requested task's own isolated binding; unrelated active tasks
+on the same base repository do not block it. Lifecycle task-capacity enforcement
+remains unchanged. The process creates no MCP endpoint and accepts no repository,
+model, thread, permission, or retry input from ChatGPT.
 
 The initial thread is bound to the canonical task worktree with workspace-write,
 network-disabled, never-approve policy. One accepted turn is durably bound to

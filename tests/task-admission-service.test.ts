@@ -124,7 +124,7 @@ describe("TaskAdmissionService", () => {
     });
   });
 
-  test("returns one exact matching active task only after registered Git readback", async () => {
+  test("returns an exact matching active task only after registered Git readback", async () => {
     const active = task();
     const result = await new TaskAdmissionService(registry({ registeredTask: active }), runtime([active])).read(input());
     expect(result).toMatchObject({
@@ -140,6 +140,82 @@ describe("TaskAdmissionService", () => {
           head_sha: HEAD,
           tree_sha: TREE
         }
+      }
+    });
+  });
+
+  test("admits an exact matching task alongside unrelated active tasks", async () => {
+    const active = task();
+    const unrelated = task({
+      task_id: "unrelated-task",
+      repo_id: `task-${"8".repeat(40)}`,
+      branch_slug: "unrelated-task",
+      server_branch: `chat-pro/tasks/unrelated-task-${"9".repeat(12)}`,
+      worktree_path: "/tmp/chat-pro-unrelated-task",
+      state_sha256: "a".repeat(64)
+    });
+    const result = await new TaskAdmissionService(
+      registry({ registeredTask: active }),
+      runtime([unrelated, active], active)
+    ).read(input());
+    expect(result).toMatchObject({
+      admission: {
+        status: "matching_active_task",
+        active_task_count: 2,
+        worktree_clean: true,
+        task: {
+          task_id: TASK_ID,
+          task_repo_id: TASK_REPO_ID,
+          head_sha: HEAD,
+          tree_sha: TREE
+        }
+      }
+    });
+  });
+
+  test("still rejects a mismatched requested-task binding alongside unrelated active tasks", async () => {
+    const active = task();
+    const unrelated = task({
+      task_id: "unrelated-task",
+      repo_id: `task-${"8".repeat(40)}`,
+      branch_slug: "unrelated-task"
+    });
+    const result = await new TaskAdmissionService(
+      registry({ registeredTask: active }),
+      runtime([unrelated, active], active)
+    ).read({
+      ...input(),
+      expected: { ...expected, authority: "ship" }
+    });
+    expect(result).toMatchObject({
+      admission: {
+        status: "conflicting_active_task",
+        active_task_count: 2,
+        conflict_reasons: ["TASK_BINDING_MISMATCH"]
+      }
+    });
+  });
+
+  test("reports multiple unrelated active tasks when the requested task is absent", async () => {
+    const first = task({
+      task_id: "other-task-one",
+      repo_id: `task-${"8".repeat(40)}`,
+      branch_slug: "other-task-one"
+    });
+    const second = task({
+      task_id: "other-task-two",
+      repo_id: `task-${"9".repeat(40)}`,
+      branch_slug: "other-task-two"
+    });
+    const result = await new TaskAdmissionService(
+      registry({ registeredTask: first }),
+      runtime([first, second], first)
+    ).read(input());
+    expect(result).toMatchObject({
+      admission: {
+        status: "conflicting_active_task",
+        active_task_count: 2,
+        conflict_reasons: ["MULTIPLE_ACTIVE_TASKS", "OTHER_ACTIVE_TASK"]
       }
     });
   });

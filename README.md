@@ -110,9 +110,10 @@ base tree, goal, and branch slug. The server derives and owns the task branch
 and isolated worktree.
 
 `repo_task_admission` is the read-only coordinator and supervisor view of this
-state. It distinguishes an absent expected task, one exact matching active task,
-and conflicting active task state without creating, claiming, closing, or
-changing a task.
+state. It distinguishes an absent expected task, an exact matching active task,
+and conflicting requested-task state without creating, claiming, closing, or
+changing a task. Unrelated active tasks on the same base repository do not deny
+an otherwise exact match.
 
 `ship` task authority admits reviewed local stage and commit operations.
 `ship` task authority is required for push and pull-request mutation. Push,

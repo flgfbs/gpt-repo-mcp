@@ -64,5 +64,5 @@ export const descriptions = {
   repo_merge_gate_prepare: "Use this when reading exact PR, review, and CI state to prepare an expiring merge manifest for owner CLI approval.",
   repo_write_merge: "Use this when consuming one exact unexpired owner-CLI approval to merge its bound manifest once.",
   repo_post_merge_readback: "Use this when reading GitHub after merge to confirm the exact PR, base ref, task ref, and merge commits.",
-  repo_task_admission: "Use this when a coordinator or execution supervisor must distinguish an absent task, one exact matching active task, or conflicting active task state without mutation."
+  repo_task_admission: "Use this when classifying the requested task as absent, exactly active, or conflicting. Unrelated active tasks do not conflict."
 } as const;
