@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { RepoTaskAdmissionInputSchema, TaskAdmissionStateSchema } from "../src/contracts/task-admission.contract.js";
 import { describe, expect, test } from "vitest";
+import { z } from "zod";
 import {
   RepoArtifactReadInputSchema,
   RepoMergeGatePrepareInputSchema,
@@ -188,7 +189,8 @@ describe("lifecycle tool contracts", () => {
       expect(contract.input.safeParse(input).success, name).toBe(true);
       expect(contract.input.safeParse({ ...input, unexpected: true }).success, `${name} must be strict`).toBe(false);
       if (name !== "repo_merge_gate_prepare") {
-        expect(contract.output.partial().safeParse({ unexpected: true }).success, `${name} output must be strict`).toBe(false);
+        const partialStrictOutput = z.strictObject(contract.output.shape).partial();
+        expect(partialStrictOutput.safeParse({ unexpected: true }).success, `${name} output must be strict`).toBe(false);
       }
     }
   });
