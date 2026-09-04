@@ -206,6 +206,12 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
       }
 
       let outcome = normalizeFableInvocation(invocation, preparation, input.review_kind);
+      if (
+        outcome.review_result
+        && this.scanner.hasSecretValue(canonicalJson(outcome.review_result))
+      ) {
+        outcome = contactedFableOutcome("STOP_MANAGED_REVIEW_OUTPUT_BLOCKED");
+      }
       knownOutcome = outcome;
       const stable = await exactFableGitState(repo.root, target.head_sha, target.tree_sha);
       if (!stable) {

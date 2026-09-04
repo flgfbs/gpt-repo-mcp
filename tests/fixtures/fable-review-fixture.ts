@@ -39,7 +39,7 @@ export type TaskFixture = {
   service(launcher: FableLauncherPort): ManagedFableReviewService;
 };
 
-export type FakeMode = "PASS" | "REVISE" | "PARTIAL" | "THROW";
+export type FakeMode = "PASS" | "REVISE" | "PARTIAL" | "THROW" | "OUTPUT_BLOCKED";
 
 export async function managedTaskFixture(): Promise<TaskFixture> {
   const parent = await realpath(await mkdtemp(join(tmpdir(), "managed-fable-review-")));
@@ -187,6 +187,19 @@ export class FakeFableLauncher implements FableLauncherPort {
           retry_authorized: "NO"
         }
       };
+    }
+    if (mode === "OUTPUT_BLOCKED") {
+      const invocation = successfulInvocation(
+        state.request,
+        state.packet,
+        prepared.packet_sha256,
+        this.invocationCount,
+        "PASS"
+      );
+      const payload = invocation.payload as Record<string, unknown>;
+      const reviewResult = payload.review_result as Record<string, unknown>;
+      reviewResult.summary = ["ghp", "_", "x".repeat(36)].join("");
+      return invocation;
     }
     if (mode !== "PASS" && mode !== "REVISE") throw new Error("No fake result was configured.");
     return successfulInvocation(state.request, state.packet, prepared.packet_sha256, this.invocationCount, mode);

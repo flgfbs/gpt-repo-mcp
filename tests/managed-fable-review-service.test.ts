@@ -111,6 +111,30 @@ describe("managed exact-head Fable review service", () => {
     expect(launcher.invocationCount).toBe(1);
   });
 
+  test("blocks suspected credential material in semantic output after contact", async () => {
+    const fixture = await trackedFixture();
+    const committed = await commitTaskChange(
+      fixture.taskRoot,
+      "reviewed.ts",
+      "export const value = 1;\n"
+    );
+    const launcher = new FakeFableLauncher(["OUTPUT_BLOCKED"]);
+    const result = await fixture.service(launcher).run(initialInput(
+      fixture,
+      committed,
+      "operation-fable-output-blocked"
+    ));
+    expect(result).toMatchObject({
+      review_state: "contacted_incomplete",
+      provider_contact: "YES",
+      effect_disposition: "ATTEMPT_EFFECT_ONLY",
+      outcome_code: "STOP_MANAGED_REVIEW_OUTPUT_BLOCKED"
+    });
+    expect(result.review_result).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain(["ghp", "_"].join(""));
+    expect(launcher.invocationCount).toBe(1);
+  });
+
   test("preserves contacted-incomplete and unknown effects and blocks fictitious fresh initials", async () => {
     for (const mode of ["PARTIAL", "THROW"] as const) {
       const fixture = await trackedFixture();
