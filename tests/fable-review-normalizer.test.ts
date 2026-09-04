@@ -214,7 +214,7 @@ describe("managed Fable review output normalization", () => {
         }
       }
     }]
-  ])("fails closed after contact on %s attestation mismatch", (_label, override) => {
+  ] as Array<[string, Record<string, unknown>]>) ("fails closed after contact on %s attestation mismatch", (_label, override) => {
     const result = normalizeFableInvocation(validInvocation({
       payload: validReviewPayload(override)
     }), preparation, "initial");
