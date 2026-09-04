@@ -3,6 +3,7 @@ import {
   idempotentWriteAnnotations,
   nonDestructiveMutationAnnotations,
   openWorldMutationAnnotations,
+  openWorldOneShotMutationAnnotations,
   openWorldNonDestructiveMutationAnnotations,
   openWorldReadOnlyAnnotations,
   readOnlyAnnotations,
@@ -31,7 +32,8 @@ export type ToolAnnotationSet =
   | typeof idempotentWriteAnnotations
   | typeof openWorldReadOnlyAnnotations
   | typeof openWorldMutationAnnotations
-  | typeof openWorldNonDestructiveMutationAnnotations;
+  | typeof openWorldNonDestructiveMutationAnnotations
+  | typeof openWorldOneShotMutationAnnotations;
 
 export type ToolDefinition = {
   name: ToolName;

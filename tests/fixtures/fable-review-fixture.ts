@@ -97,7 +97,7 @@ export async function managedTaskFixture(): Promise<TaskFixture> {
     parent,
     bundle,
     registry,
-    taskRoot: opened.task.worktree_path,
+    taskRoot: registry.get(opened.task.repo_id).root,
     taskRepoId: opened.task.repo_id,
     taskId,
     baseCommit,
