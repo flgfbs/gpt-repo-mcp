@@ -48,6 +48,7 @@ export async function advanceFableReviewOperation(
   resultRepoId?: string
 ): Promise<OperationState> {
   const { state_sha256: _stateSha256, ...current } = operation;
+  void _stateSha256;
   const terminal = TERMINAL_PHASES.has(phase);
   const timestamp = now.toISOString();
   return tasks.states.writeOperation({

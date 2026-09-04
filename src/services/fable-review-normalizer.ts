@@ -34,6 +34,9 @@ export function normalizeFableInvocation(
       const attestation = asRecord(payload.attestation);
       const exactTarget = asRecord(record.exact_target_bindings);
       const receipt = invocation.receipt_readback;
+      if (receipt?.ok !== true) {
+        throw new Error("receipt read-back failed");
+      }
       if (
         payload.result !== reviewResult.review_status
         || payload.model_class !== "FABLE"
@@ -43,7 +46,6 @@ export function normalizeFableInvocation(
         || payload.refusal_fallback !== "DISABLED"
         || payload.explicit_concurrency_limit !== 1
         || record.provider_contact_state !== "YES"
-        || receipt?.ok !== true
         || payload.invocation_id !== receipt.attempt_id
         || record.attempt_id !== receipt.attempt_id
         || record.valid_semantic_review_state !== "YES"
