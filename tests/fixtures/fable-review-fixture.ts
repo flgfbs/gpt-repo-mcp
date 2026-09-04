@@ -5,16 +5,16 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { RepoRunFableReviewInput } from "../../src/contracts/fable-review.contract.js";
 import { createLifecycleRuntimeBundle, type LifecycleRuntimeBundle } from "../../src/services/lifecycle-factory.js";
-import type {
-  FableLauncherInvocation,
-  FableLauncherPort,
-  FableLauncherPreflight,
-  PreparedFableInvocation
+import {
+  canonicalFableLauncherRequestBytes,
+  type FableLauncherInvocation,
+  type FableLauncherPort,
+  type FableLauncherPreflight,
+  type PreparedFableInvocation
 } from "../../src/services/fable-launcher-port.js";
 import { ManagedFableReviewService } from "../../src/services/managed-fable-review-service.js";
 import { RootRegistry } from "../../src/services/root-registry.js";
 import { sha256Hex } from "../../src/task-runtime/canonical-json.js";
-import { canonicalFableLauncherRequestBytes } from "../../src/services/fable-launcher-port.js";
 
 const execFileAsync = promisify(execFile);
 
