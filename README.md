@@ -2,7 +2,7 @@
 
 Chat Pro Repository MCP is a local-first Model Context Protocol server for
 working with explicitly registered repositories and owner-approved project
-roots. It gives ChatGPT 66 focused
+roots. It gives ChatGPT 67 focused
 tools for repository understanding, bounded edits, validation, local Git,
 task-isolated worktrees, and—when explicitly configured—GitHub pull requests,
 CI, review, and exact-head owner-approved merges.
@@ -123,6 +123,13 @@ local-only task rejects every such operation with `LIFECYCLE_POLICY_DENIED`.
 Where enabled, push is fast-forward-only to the exact server-owned task branch
 and never uses force; pull requests remain Draft.
 
+`repo_run_fable_review` is a separate exact-head review action for an active
+`implement` or `ship` task. It creates the packet server-side, verifies the exact
+clean task and pinned installed launcher before contact, permits one primary
+`FABLE`/`MAX` contact with no retry or fallback, and returns sanitized evidence
+only. A contacted or unknown incomplete epoch is no-replay; a focused successor
+requires retained `REVISE` or `BLOCK` evidence and a changed exact target.
+
 ## How ChatGPT Works
 
 The ordinary path is:
@@ -170,6 +177,11 @@ merge only.
   tree where applicable.
 - Unknown push effects are durably classified and read back; they are not
   blindly replayed.
+- Managed Fable review accepts no caller command, path, writable root,
+  environment, model slug, credential, packet, prompt, retry, fallback, reroute,
+  tool, MCP, plugin, subagent, reuse, or continuation authority. Its owner-only
+  launcher evidence is append-only and pre-existing runtime evidence is never
+  edited, replaced, chmodded, cleaned, or deleted.
 - The separate owner-local agent runner may consume only exact admitted
   `codex_app_server` queue entries through the existing same-user, owner-only
   App Server control socket. It creates one workspace-write, network-disabled,
@@ -186,8 +198,8 @@ See the full [security and threat model](docs/SECURITY.md).
 
 ## Tool Surface
 
-The public surface is exactly 66 canonical names: the preserved 47-tool local
-prefix, one managed-agent continuation tool, and 18 lifecycle tools. There are
+The public surface is exactly 67 canonical names: the preserved 47-tool local
+prefix, one managed-agent continuation tool, and 19 lifecycle tools. There are
 no aliases.
 See [Tool Surface](docs/TOOL_SURFACE.md) for the complete ordered catalog and
 [Capability Guide](docs/CAPABILITIES.md) for task-oriented guidance.
@@ -204,6 +216,11 @@ See [Tool Surface](docs/TOOL_SURFACE.md) for the complete ordered catalog and
 | Diagnose | `npm run doctor` |
 | Validate config | `npm run check:config` |
 | Stop | Stop the separately managed server or owner-runner process. |
+
+A source update does not change the running MCP process. The built revision must
+be installed and the separately managed server reloaded before ChatGPT can see a
+new tool; refresh the app metadata only after health and the 67-tool catalog are
+verified.
 
 For rollback and uninstall, stop the server and Secure MCP Tunnel first,
 remove the ChatGPT app/tunnel association, unregister roots with

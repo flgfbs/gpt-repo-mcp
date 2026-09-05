@@ -49,6 +49,7 @@ const context: RuntimeContext = {
   codeIntelligence,
   lifecycle: lifecycleBundle.lifecycle,
   taskMutations: lifecycleBundle.taskMutations,
+  fableReviews: lifecycleBundle.fableReviews,
   agentContinuation: lifecycleBundle.executionRuntime.createAgentContinuationRuntime({
     app_server: new CodexAppServerAdapter(appServerRpc)
   })

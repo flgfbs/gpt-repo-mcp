@@ -19,9 +19,11 @@ Notable public changes to Chat Pro Repository MCP are recorded here.
 - Serialized turn-start barriers, sequential structured-question rounds,
   paused human-wait runtime accounting, and bounded same-notification terminal
   settlement retry.
-- Eighteen task and optional GitHub lifecycle tools follow the preserved
-  47-tool local prefix and the continuation tool, producing an exact 66-tool
-  surface with no aliases.
+- Nineteen task and optional GitHub lifecycle tools follow the preserved
+  47-tool local prefix and the continuation tool, producing an exact 67-tool
+  surface with no aliases. The additive `repo_run_fable_review` action provides
+  one exact-head, active-task-bound Fable/MAX review through the installed typed
+  launcher without widening the generic runner filesystem surface.
 - Read-only `repo_task_admission` with typed absent, exact matching active, and
   conflicting active-task outcomes.
 - Provider-neutral immutable dispatch, one-launch-intent, supervisor identity

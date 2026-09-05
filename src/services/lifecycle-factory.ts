@@ -26,6 +26,11 @@ import {
 } from "./github-runtime-adapters.js";
 import { RepositoryLifecycleRuntime } from "./repository-lifecycle-runtime.js";
 import { DelegationExecutionRuntime } from "./delegation-execution-runtime.js";
+import { InstalledTypedFableLauncher } from "./installed-fable-launcher.js";
+import {
+  ManagedFableReviewService,
+  type ManagedFableReviewRuntime
+} from "./managed-fable-review-service.js";
 import type { RootRegistry } from "./root-registry.js";
 
 export type LifecycleRuntimeBundle = {
@@ -34,6 +39,7 @@ export type LifecycleRuntimeBundle = {
   artifacts: TaskArtifactStore;
   taskMutations: DurableTaskMutationRuntime;
   executionRuntime: DelegationExecutionRuntime;
+  fableReviews: ManagedFableReviewRuntime;
   github?: ProductionGitHubRuntimeBundle;
 };
 
@@ -90,6 +96,12 @@ export async function createLifecycleRuntimeBundle(
   await tasks.initialize();
   await tasks.rehydrateOpenTaskRepositories({ limit: 10_000 });
   const executionRuntime = new DelegationExecutionRuntime(registry, tasks);
+  const fableReviews = new ManagedFableReviewService(
+    registry,
+    tasks,
+    artifacts,
+    new InstalledTypedFableLauncher()
+  );
   const production = external
     ? undefined
     : await createProductionGitHubRuntimeBundle(registry, tasks, artifacts);
@@ -99,6 +111,7 @@ export async function createLifecycleRuntimeBundle(
     artifacts,
     taskMutations: new DurableTaskMutationRuntime(registry, tasks, artifacts),
     executionRuntime,
+    fableReviews,
     lifecycle: new RepositoryLifecycleRuntime(registry, tasks, artifacts, externalRuntime),
     ...(production ? { github: production } : {})
   };

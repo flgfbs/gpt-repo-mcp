@@ -4,7 +4,7 @@
 
 - Preserve `contracts -> tool-contract map -> packages -> registry ->
   registration -> handlers -> services`.
-- Keep exactly 66 canonical names in registry order unless an intentional public
+- Keep exactly 67 canonical names in registry order unless an intentional public
   contract change is approved. Do not add aliases.
 - Keep Zod objects strict and schemas centrally referenced.
 - Keep package definitions metadata-only, handlers thin, and effects in
@@ -22,6 +22,14 @@
 - Tests use deterministic fakes and never contact live GitHub.
 - External writes persist pre-contact, post-contact, read-back, and replay
   evidence.
+- Managed Fable review is the sole deliberate non-idempotent lifecycle action.
+  It requires exact base/HEAD/tree and a clean active implement/ship task,
+  completes provider-free gates before contact, writes append-only claims and
+  outcomes, and never retries a contacted or unknown epoch.
+- The Fable launcher adapter is fixed and dependency-injectable. Public inputs
+  expose no command, path, root, environment, provider slug, credential, packet,
+  prompt, retry, fallback, reroute, tool, MCP, plugin, subagent, reuse, or
+  continuation control; public outputs expose sanitized evidence only.
 - Artifact reads accept opaque ids and bounded byte windows, never paths.
 - Task admission is read-only and distinguishes absent, matching, and
   conflicting active task state from exact durable and Git read-back evidence.
@@ -92,7 +100,11 @@ Run the content-bound security export and scan from
 [Dependency Security](DEPENDENCY_SECURITY.md) after the candidate is clean.
 
 Tool-surface changes require order/count, contract identity, strict-schema,
-annotation, registration, and MCP discovery tests. Lifecycle service changes
+annotation, registration, and MCP discovery tests. Managed Fable review
+changes additionally require provider-free exact-binding, dirty-state,
+no-overwrite, pre-existing-evidence, zero/one-contact, contacted-incomplete,
+receipt-readback, attestation, no-retry/fallback/reroute, lineage, replay,
+non-disclosure, and unknown-effect tests. Lifecycle service changes
 also require crash/replay, stale-state, deterministic adapter, artifact, and
 owner-approval tests.
 

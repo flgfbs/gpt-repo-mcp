@@ -62,6 +62,7 @@ export const CANONICAL_TOOL_ORDER = [
   "repo_task_close",
   "repo_task_cleanup",
   "repo_artifact_read",
+  "repo_run_fable_review",
   "repo_remote_status",
   "repo_write_push",
   "repo_pr_create_or_update",

@@ -1,4 +1,5 @@
 import type { RepoTaskAdmissionInput } from "../../contracts/task-admission.contract.js";
+import type { RepoRunFableReviewInput } from "../../contracts/fable-review.contract.js";
 import type {
   RepoArtifactReadInput,
   RepoCiStatusInput,
@@ -23,9 +24,11 @@ import type { RuntimeContext } from "../../runtime/context.js";
 import { createSuccessEnvelope } from "../../runtime/result-envelope.js";
 import { audit } from "../../runtime/telemetry.js";
 import type { LifecycleRuntime } from "../../services/lifecycle-runtime.js";
+import type { ManagedFableReviewRuntime } from "../../services/managed-fable-review-service.js";
 import { safeTool, type ToolHandler } from "../handler-support.js";
 
 type LifecycleRuntimeContext = RuntimeContext & { readonly lifecycle: LifecycleRuntime };
+type FableReviewRuntimeContext = RuntimeContext & { readonly fableReviews: ManagedFableReviewRuntime };
 
 // Runtime construction must add this dependency when the lifecycle services are integrated.
 // Keeping the requirement structural here lets this bounded tool-surface slice compile without
@@ -33,6 +36,12 @@ type LifecycleRuntimeContext = RuntimeContext & { readonly lifecycle: LifecycleR
 function assertLifecycleRuntime(context: RuntimeContext): asserts context is LifecycleRuntimeContext {
   if (!("lifecycle" in context) || typeof context.lifecycle !== "object" || context.lifecycle === null) {
     throw new RepoReaderError("INTERNAL_ERROR", "Lifecycle runtime is not configured.");
+  }
+}
+
+function assertFableReviewRuntime(context: RuntimeContext): asserts context is FableReviewRuntimeContext {
+  if (!("fableReviews" in context) || typeof context.fableReviews !== "object" || context.fableReviews === null) {
+    throw new RepoReaderError("INTERNAL_ERROR", "Managed Fable review runtime is not configured.");
   }
 }
 
@@ -76,6 +85,21 @@ export const artifactReadHandler: ToolHandler = async (input, context) => safeTo
   const result = await context.lifecycle.artifactRead(args);
   audit({ tool: "repo_artifact_read", repo_id: args.repo_id, counts: { bytes: result.length }, truncated: !result.eof, warnings: result.warnings });
   return createSuccessEnvelope(result, `Read ${result.length} artifact bytes at offset ${result.offset}.`);
+});
+
+export const runFableReviewHandler: ToolHandler = async (input, context) => safeTool<RepoRunFableReviewInput>("repo_run_fable_review", input, async (args) => {
+  assertFableReviewRuntime(context);
+  const result = await context.fableReviews.run(args);
+  audit({
+    tool: "repo_run_fable_review",
+    repo_id: args.repo_id,
+    counts: { findings: result.review_result?.findings.length ?? 0 },
+    warnings: result.warnings
+  });
+  return createSuccessEnvelope(
+    result,
+    `Fable review state is ${result.review_state}; provider contact is ${result.provider_contact}.`
+  );
 });
 
 export const remoteStatusHandler: ToolHandler = async (input, context) => safeTool<RepoRemoteStatusInput>("repo_remote_status", input, async (args) => {

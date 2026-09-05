@@ -6,7 +6,7 @@ operation.
 
 ## Contract And Documentation
 
-- Confirm the public registry contains exactly 66 canonical names in order and
+- Confirm the public registry contains exactly 67 canonical names in order and
   no aliases.
 - Confirm strict schemas, descriptions, annotations, handlers, and runtime
   capabilities agree.
@@ -51,6 +51,13 @@ test.
 - No tool adds roots, reads credentials, executes arbitrary commands, forces a
   push, or performs release/deployment work.
 - GitHub adapter and Git push boundary remain fixed and separately testable.
+- Managed Fable review remains a fixed installed-launcher boundary with no
+  generic writable-root, command, path, environment, provider-model, credential,
+  retry, fallback, or continuation input.
+- Provider-free qualification covers exact/stale/dirty binding, append-only
+  no-overwrite evidence, zero/one contact, contacted incomplete and unknown
+  effects, retained-response read-back, FABLE/MAX attestation, focused lineage,
+  replay rejection, and public non-disclosure.
 - Owner approval remains exact, expiring, mode 0600, and one-time.
 - Dependency and license policy passes; no forced audit fix was used.
 
@@ -60,6 +67,9 @@ test.
   file list.
 - Install the packed archive in a temporary test directory and verify build,
   CLI help, config validation, doctor, server start, and health.
+- After installing the exact trusted build, reload the separately managed MCP
+  server, verify health and exactly 67 tools, and refresh ChatGPT app metadata.
+  Do not reload or mutate the router runtime as part of this step.
 - Create tags, releases, registries, signatures, or deployments only under a
   separate explicit owner decision.
 - After publication, read back the exact tag, assets, package metadata, and

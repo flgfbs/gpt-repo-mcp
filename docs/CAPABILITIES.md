@@ -1,8 +1,8 @@
 # Capability Guide
 
-Chat Pro Repository MCP exposes exactly 66 repository tools. The first 47 keep
+Chat Pro Repository MCP exposes exactly 67 repository tools. The first 47 keep
 their canonical local order and semantics; managed-agent continuation is next;
-18 task and optional GitHub lifecycle tools follow in one canonical order.
+19 task and optional GitHub lifecycle tools follow in one canonical order.
 There are no aliases.
 
 ## Everyday Repository Work
@@ -68,6 +68,37 @@ The lifecycle policy has two forms. `kind: "local"` admits task open/status,
 local implementation, validation, review, stage, commit, close, and cleanup.
 `kind: "github"` adds the external lifecycle. Legacy entries without `kind`
 parse as `kind: "github"`, preserving existing configuration behavior.
+
+## Run One Exact-Head Fable Review
+
+`repo_run_fable_review` is available only on the exact active task repository of
+an `implement` or `ship` task. The caller supplies an operation id, task identity,
+exact base commit/tree, exact current HEAD/tree, review kind, and canonical
+scope. The server—not the caller—builds the packet from the exact committed diff
+and derives its digest, lineage, epoch, and launcher bundle.
+
+Every local gate completes before launcher invocation: task registration and
+authority, clean exact Git state, scope, bounded diff, secret scan, pinned
+installed launcher/router bytes, typed launcher `describe`, replay admission,
+and exclusive bundle read-back. The installed launcher then owns its normal
+owner-only diagnostics, claim/lock, retained-response, receipt, and binding
+records. Repository MCP neither widens a generic writable root nor edits,
+replaces, chmods, cleans, or deletes pre-existing installed runtime evidence.
+
+The route is fixed to primary capability class `FABLE` at `MAX`. Concrete
+provider-model slugs, retry, fallback, reroute, reserve substitution, tools, MCP,
+plugins, subagents, session reuse, and continuation are not public inputs and are
+rejected by the result attestation. A precontact failure reports
+`provider_contact=NO`; a known contacted incomplete review remains `YES`; an
+ambiguous effect remains `UNKNOWN`. Neither contacted nor unknown epochs can be
+restarted as a fresh initial review. One focused rereview may follow a retained
+`REVISE` or `BLOCK` artifact after the exact target changes, preserving lineage
+and the prior attempt binding.
+
+The public result and opaque review artifact contain only sanitized review,
+receipt digest/attempt id, contact/effect, FABLE/MAX, packet/target/scope, and
+lineage evidence. They do not contain installed paths, route internals, concrete
+provider models, raw streams, credentials, or the private packet/prompt.
 
 ## Start A Queued Managed Local Child
 

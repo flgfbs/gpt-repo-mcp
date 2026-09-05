@@ -39,13 +39,16 @@ diagnosis, artifacts, and external-worker evidence remain optional.
   model or tool.
 - Local-only lifecycle never requires or synthesizes a remote and rejects every
   external lifecycle operation before contact.
-- The 66 public tools are focused schemas, not an arbitrary shell or API.
+- The 67 public tools are focused schemas, not an arbitrary shell or API.
 - Actual file bytes, Git objects, validation, review, and remote read-back take
   precedence over claims.
 - Push is task-branch-only, fast-forward-only, and non-force.
 - Pull requests stay Draft through the create/update boundary.
 - Merge requires one exact, unexpired owner approval and post-merge read-back.
 - Interrupted external effects are queried and classified before replay.
+- Exact-head Fable review uses one primary FABLE/MAX contact through the existing
+  typed launcher, with precontact gates, no fallback or replay, retained focused
+  lineage, and sanitized evidence only.
 - Errors and artifacts are bounded and do not expose credential material.
 
 ## User Control

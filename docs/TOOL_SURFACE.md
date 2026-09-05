@@ -1,8 +1,8 @@
 # Tool Surface
 
-Chat Pro Repository MCP publishes exactly 66 tools in the order below. The
+Chat Pro Repository MCP publishes exactly 67 tools in the order below. The
 first 47 are the preserved canonical local prefix, position 48 is managed-agent
-continuation, and the final 18 are the task and optional GitHub lifecycle
+continuation, and the final 19 are the task and optional GitHub lifecycle
 package. No aliases are registered.
 
 ## Tool Groups
@@ -13,11 +13,13 @@ package. No aliases are registered.
 - 37-40: transactional patchsets
 - 41-47: validation, work sessions, direct writes, and handoff
 - 48: managed Codex App Server continuation
-- 49-66: task worktrees, admission, Git/GitHub/CI/review/merge lifecycle
+- 49-67: task worktrees, exact-head Fable review, admission, and Git/GitHub/CI/review/merge lifecycle
 
 MCP annotations describe expected effects; they do not grant authority.
 External reads and writes have `openWorldHint: true`. Lifecycle mutations are
-operation-bound and idempotent at the exact contract boundary. Local policy,
+operation-bound. They are idempotent at the exact contract boundary except for
+`repo_run_fable_review`, whose one provider-contact allowance makes replay an
+explicit error. Local policy,
 task authority, exact state, and owner approval still decide admission.
 
 ## Canonical Ordered Catalog
@@ -253,65 +255,91 @@ and optionally its artifact set while retaining a receipt.
 53. Read at most 65,536 bytes from an opaque artifact id at a byte offset; no
 path is accepted.
 
+### `repo_run_fable_review`
+
+54. Run at most one exact-head independent review through the installed typed
+Fable launcher. The input requires an active `implement` or `ship` task repo,
+task id, exact base commit/tree, exact current HEAD/tree, operation id, review
+kind, and canonical scope. The server creates the packet and lineage, verifies a
+clean worktree and its provider-free admission checks before contact, selects primary
+`FABLE` at `MAX`, and rejects caller-supplied commands, paths, roots, environment,
+provider model slugs, routes, credentials, packets, prompts, retry, fallback,
+reroute, tools, MCP, plugins, subagents, reuse, and continuation. The action is
+open-world and deliberately non-idempotent: duplicate operations and contacted,
+unknown, or orphaned epochs are no-replay. It returns only sanitized review,
+receipt digest, provider-contact/effect, model-class/reasoning, packet, target,
+scope, and lineage evidence. A focused rereview requires a retained `REVISE` or
+`BLOCK` artifact and a changed exact target.
+
+`review_kind: "missing_body_recovery"` は、管理側の receipt 読戻し失敗で本文を失った
+歴史的な initial REVISE に限る明示的な回復契約です。`scope: {kind: "all_changes"}`、
+既存 `prior_review_artifact_id`、`missing_body_recovery` の
+`prior_operation_id`・`prior_attempt_id`・`expected_receipt_sha256` を必須とします。
+サーバーが旧 operation・artifact・claim/outcome・固定保存先の receipt と packet を照合し、
+本文の不在、追加接触の不在、変更後の子孫 HEAD を確認します。旧判定の採用や指摘の合成ではなく、
+同じ lineage の新 epoch による全差分の再審査です。旧 operation を書き換えず、同じ旧 operation
+への追加接触は別 artifact id でも再実行できません。外部の運用上の packet gate や人の承認を
+この入力が代替するものではありません。
+
 ### `repo_remote_status`
 
-54. Read exact remote base/task refs and their relationship to the bound task
+55. Read exact remote base/task refs and their relationship to the bound task
 HEAD/tree. This is an open-world read with an operation id.
 
 ### `repo_write_push`
 
-55. Idempotently fast-forward push the exact server-owned task branch through
+56. Idempotently fast-forward push the exact server-owned task branch through
 the fixed Git boundary. Requires `ship`; force is impossible.
 
 ### `repo_pr_create_or_update`
 
-56. Idempotently create or update the task-derived pull request while keeping
+57. Idempotently create or update the task-derived pull request while keeping
 it Draft. Requires `ship`.
 
 ### `repo_pr_status`
 
-57. Read current GitHub pull-request state for the exact task.
+58. Read current GitHub pull-request state for the exact task.
 
 ### `repo_pr_review_threads`
 
-58. Read bounded paginated review threads for the task pull request.
+59. Read bounded paginated review threads for the task pull request.
 
 ### `repo_write_pr_reply`
 
-59. Idempotently post one operation-bound reply to an exact review thread.
+60. Idempotently post one operation-bound reply to an exact review thread.
 
 ### `repo_write_pr_resolve_thread`
 
-60. Idempotently resolve an exact review thread at its expected update time.
+61. Idempotently resolve an exact review thread at its expected update time.
 Requires passed exact validation and either corrected-head evidence or a durable
 same-head reply followed by fresh exact validation.
 
 ### `repo_ci_status`
 
-61. Read GitHub Actions runs and checks for the exact task HEAD/tree and return
+62. Read GitHub Actions runs and checks for the exact task HEAD/tree and return
 a bound CI snapshot id.
 
 ### `repo_write_ci_retry_failed`
 
-62. Idempotently retry only exact failed run ids from a bound CI snapshot.
+63. Idempotently retry only exact failed run ids from a bound CI snapshot.
 
 ### `repo_merge_gate_prepare`
 
-63. Read fresh PR, review, CI, and Git state and return blockers or an expiring
+64. Read fresh PR, review, CI, and Git state and return blockers or an expiring
 exact merge manifest plus the owner CLI command.
 
 ### `repo_write_merge`
 
-64. Idempotently consume one exact, unexpired, one-time owner approval and merge
+65. Idempotently consume one exact, unexpired, one-time owner approval and merge
 the bound manifest.
 
 ### `repo_post_merge_readback`
 
-65. Read authoritative post-merge PR, base-ref, task-ref, and commit state.
+66. Read authoritative post-merge PR, base-ref, task-ref, and commit state.
 
 ### `repo_task_admission`
 
-66. Read whether an expected exact task is absent, exactly matches its own active
+67. Read whether an expected exact task is absent, exactly matches its own active
 binding, or conflicts with its requested-task state. Unrelated active tasks do
 not deny an exact match. It is closed-world, read-only, and accepts no operation
 id or mutation request.
@@ -326,5 +354,8 @@ the explicit exception to HEAD/tree input because the child may have changed
 its own worktree; it binds task/run/revision and private session identity
 instead. Inputs are strict: unknown fields, caller-selected paths, arbitrary
 remote URLs, and arbitrary command arguments are rejected.
+`repo_run_fable_review` binds both base and current Git objects and is the only
+non-idempotent lifecycle action; its operation id and lineage are replay guards,
+not retry authority.
 
 For end-to-end ordering, see [Write Workflows](WRITE_WORKFLOWS.md).

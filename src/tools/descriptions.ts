@@ -52,6 +52,7 @@ export const descriptions = {
   repo_task_close: "Use this when closing an exact unchanged task HEAD and tree with a completed, blocked, abandoned, or superseded outcome.",
   repo_task_cleanup: "Use this when deleting only closed, server-owned task workspace resources and, when selected, its artifacts.",
   repo_artifact_read: "Use this when reading a bounded byte window from an opaque lifecycle artifact id; it never accepts a filesystem path.",
+  repo_run_fable_review: "Use this when running one exact-head Fable/MAX review.",
   repo_remote_status: "Use this when contacting GitHub to compare the bound task HEAD and tree with its exact remote refs without mutation.",
   repo_write_push: "Use this when fast-forward pushing the exact server-owned task branch through the fixed Git boundary; it never forces.",
   repo_pr_create_or_update: "Use this when creating or updating the Draft pull request derived from the exact task branch through GitHub.",

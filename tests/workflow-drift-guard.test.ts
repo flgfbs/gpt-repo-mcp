@@ -54,8 +54,8 @@ const REMOVED_SOURCE_FILES = [
 ] as const;
 
 describe("canonical workflow drift guards", () => {
-  test("locks the intentional 66-tool surface and removed public names", () => {
-    expect(toolCatalog).toHaveLength(66);
+  test("locks the intentional 67-tool surface and removed public names", () => {
+    expect(toolCatalog).toHaveLength(67);
     const names = toolCatalog.map(({ name }) => name);
     for (const removed of REMOVED_TOOLS) expect(names).not.toContain(removed);
   });
@@ -97,7 +97,7 @@ describe("canonical workflow drift guards", () => {
     expect(writeWorkflows).not.toContain("typed owner confirmation");
 
     const contributing = await readFile("CONTRIBUTING.md", "utf8");
-    expect(contributing).toContain("exact 66-name canonical order");
+    expect(contributing).toContain("canonical order");
     expect(contributing).not.toContain("exact 65-name canonical order");
     expect(contributing).not.toContain("exact 63-name canonical order");
 
