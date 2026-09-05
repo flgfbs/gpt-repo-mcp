@@ -104,7 +104,17 @@ export const writeCodexReviewHandler: ToolHandler = async (input, context) => sa
     new PathSandbox(repo.root),
     new GitReviewService(repo.root, new OperationsPolicy(repo.operations)),
     new WritePolicy(repo.writes)
-  ).write(args);
+  ).write({
+    // Task mutation bindings are enforced by the outer durable runtime.
+    repo_id: args.repo_id,
+    run_id: args.run_id,
+    expected_review_state_sha256: args.expected_review_state_sha256,
+    product_verdict: args.product_verdict,
+    rationale: args.rationale,
+    evidence: args.evidence,
+    dry_run: args.dry_run,
+    reason: args.reason
+  });
   audit({ tool: "repo_write_codex_review", repo_id: args.repo_id, paths: result.written_paths.length > 0 ? result.written_paths : [result.review_path], counts: { evidence: args.evidence?.length ?? 0 }, warnings: result.warnings });
   return createSuccessEnvelope(result, result.dry_run ? `Dry run checked review attestation for ${result.run_id}.` : `Wrote state-bound review attestation for ${result.run_id}.`, { warnings: result.warnings });
 });
