@@ -217,7 +217,6 @@ function successfulInvocation(
   const requestOperation = request.operation as Record<string, unknown>;
   if (sha256Hex(packetText) !== packetSha256) throw new Error("Fixture packet binding mismatch.");
   const attemptId = invocation.toString(16).padStart(32, "0");
-  const responseSha256 = invocation.toString(16).repeat(64).slice(0, 64);
   const receiptSha256 = (invocation + 8).toString(16).repeat(64).slice(0, 64);
   const findings = status === "PASS" ? [] : [{
     finding_id: "FABLE-1",
@@ -228,6 +227,15 @@ function successfulInvocation(
     uncertainty: "Low.",
     proposed_test: "Apply the correction and run focused rereview."
   }];
+  const reviewResult = {
+    schema: "claude-review-router-findings.v1",
+    review_status: status,
+    summary: status === "PASS" ? "No material findings." : "One material correction is required.",
+    findings
+  };
+  const response = JSON.stringify(reviewResult);
+  const responseSha256 = sha256Hex(response);
+  const responseBytes = Buffer.byteLength(response, "utf8");
   return {
     exit_code: 0,
     timed_out: false,
@@ -237,7 +245,7 @@ function successfulInvocation(
       invocation_id: attemptId,
       sanitized_diagnostic_path: `runtime/claude_lain2/diagnostics/invocations/${attemptId}/receipt.json`,
       route: "sensitive-route-marker",
-      response: "sensitive-response-marker",
+      response,
       resolved_models: ["sensitive-model-marker"],
       model_class: "FABLE",
       reasoning: "MAX",
@@ -245,13 +253,8 @@ function successfulInvocation(
       automatic_fallback: "DISABLED",
       refusal_fallback: "DISABLED",
       explicit_concurrency_limit: 1,
-      review_result: {
-        schema: "claude-review-router-findings.v1",
-        review_status: status,
-        summary: status === "PASS" ? "No material findings." : "One material correction is required.",
-        findings
-      },
-      response_binding: { sha256: responseSha256, utf8_bytes: 120 },
+      review_result: reviewResult,
+      response_binding: { sha256: responseSha256, utf8_bytes: responseBytes },
       review_record: {
         attempt_id: attemptId,
         provider_contact_state: "YES",
@@ -290,7 +293,7 @@ function successfulInvocation(
       attempt_id: attemptId,
       receipt_sha256: receiptSha256,
       response_sha256: responseSha256,
-      response_utf8_bytes: 120
+      response_utf8_bytes: responseBytes
     }
   };
 }

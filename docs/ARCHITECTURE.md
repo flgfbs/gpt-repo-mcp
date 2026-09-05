@@ -195,9 +195,18 @@ response binding・review record の照合は維持します。実アダプタ�
 pin 済み router の receipt は v2、review record は v1 で、公開 payload に
 `response_retention` 拡張はありません。保存可否のラベルではなく、実際に返された
 応答本文の UTF-8 バイト数と SHA-256 を owner-only receipt と照合します。
-`retained_read_back` は保存済み receipt の読み戻しと応答 binding の検証を表し、
-router 側で応答本文を別ファイルへ保存したという意味ではありません。
-応答本文が欠落・改変している場合は接触済み不完全として保持します。
+管理側は receipt 検証の前に、schema・秘密情報検査を通った応答候補を task runtime の
+`fable-received` 内へ新規作成専用で保存し、同一バイトを読み戻します。候補には
+operation・target・scope・packet・lineage と、受信した判定および応答本文だけを束縛し、
+`UNVERIFIED_NOT_REVIEW_AUTHORITY` と明示します。raw stream、private prompt、
+credential、任意の launcher フィールドは保存しません。候補保存はレビュー承認でも
+再接触の許可でもありません。過去候補の読取りには現在の checkout の HEAD や clean 状態を要求しません。
+
+`retained_read_back` を公開できるのは、応答本文の保存・読み戻し、receipt と本文の
+hash・byte length・判定の一致、および最終 task artifact の保存・読み戻しがすべて成功した場合だけです。
+成功の operation 終端は最終 artifact の読戻し後に行い、保存失敗を warning だけで成功扱いしません。
+照合失敗時も保存済み候補は削除せず、接触済みを保持します。既存の失敗 operation は書き換えず、
+本文のない歴史的 receipt から指摘本文や完了証拠を合成しません。
 
 review record v1 の target は commit・tree・digest の3項目のみです。
 scope の検証では返却 record に未定義の項目を要求せず、record が示す packet digest、

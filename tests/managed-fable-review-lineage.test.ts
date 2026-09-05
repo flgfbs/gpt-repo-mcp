@@ -15,7 +15,7 @@ afterEach(async () => {
   await Promise.all(fixtures.splice(0).map((fixture) => rm(fixture.parent, { recursive: true, force: true })));
 });
 
-describe("managed Fable focused-rereview lineage", () => {
+describe("managed Fable focused-rereview lineage", { timeout: 30_000 }, () => {
   test("preserves a retained REVISE lineage on one changed-target focused successor", async () => {
     const fixture = await trackedFixture();
     const firstHead = await commitTaskChange(

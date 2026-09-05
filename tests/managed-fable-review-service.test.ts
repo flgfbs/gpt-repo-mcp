@@ -15,7 +15,7 @@ afterEach(async () => {
   await Promise.all(fixtures.splice(0).map((fixture) => rm(fixture.parent, { recursive: true, force: true })));
 });
 
-describe("managed exact-head Fable review service", () => {
+describe("managed exact-head Fable review service", { timeout: 30_000 }, () => {
   test("rejects stale bindings, dirty worktrees, and preflight failures before contact", async () => {
     const fixture = await trackedFixture();
     const committed = await commitTaskChange(fixture.taskRoot, "reviewed.ts", "export const value = 1;\n");

@@ -11,6 +11,7 @@ import { canonicalJson, hashedDiskKey, sha256Hex } from "../task-runtime/canonic
 import type { TaskArtifactMetadata, TaskArtifactStore } from "../task-runtime/artifact-store.js";
 import type { ExactTaskMutationState, TaskRuntimeService } from "../task-runtime/task-service.js";
 import { FableReviewClaimStore } from "./fable-review-claim-store.js";
+import { FableReceivedStore, receivedReviewMatches, type ReceivedFableReview } from "./fable-received-store.js";
 import type { FableLauncherInvocation, FableLauncherPort } from "./fable-launcher-port.js";
 import { canonicalFableLauncherRequestBytes } from "./fable-launcher-port.js";
 import {
@@ -57,6 +58,7 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
   private readonly now: () => Date;
   private readonly scanner = new SecretScanner();
   private readonly claims: FableReviewClaimStore;
+  private readonly received: FableReceivedStore;
 
   constructor(
     private readonly registry: RootRegistry,
@@ -67,6 +69,7 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
   ) {
     this.now = options.now ?? (() => new Date());
     this.claims = new FableReviewClaimStore(tasks.fs);
+    this.received = new FableReceivedStore(tasks.fs);
   }
 
   async run(rawInput: RepoRunFableReviewInput): Promise<RepoRunFableReviewResult> {
@@ -84,13 +87,17 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
     if (existing) throw duplicateOperation(existing.operation_id, existing.phase);
 
     let evidence: FableReviewEvidence;
+    let capturedEvidence: FableReviewEvidence | undefined;
     let stateChangedAfter = false;
     try {
       const locked = await this.tasks.runWithExactTaskState({
         task_id: input.task_id,
         expected_head: input.expected_head_sha,
         expected_tree: input.expected_tree_sha
-      }, async (before) => this.runLocked(input, scope, target, before));
+      }, async (before) => {
+        capturedEvidence = await this.runLocked(input, scope, target, before);
+        return capturedEvidence;
+      });
       evidence = locked.result;
       stateChangedAfter = (
         locked.after.head !== locked.before.head
@@ -99,19 +106,44 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
       );
     } catch (error) {
       if (isOperationConflict(error)) throw error;
-      return resultEnvelope(
-        failedEvidence(input, target, scope, safeErrorCode(error), this.now()),
-        []
-      );
+      // Failure after the callback (including Git refresh or lock release) is
+      // not evidence that the already-entered contact boundary was untouched.
+      if (capturedEvidence) {
+        evidence = evidenceFailure(capturedEvidence, "STOP_MANAGED_POSTCONTACT_STATE_READBACK_FAILED");
+      } else {
+        const observed = await this.tasks.states.readOperation(input.task_id, input.operation_id).catch(() => null);
+        const uncontacted = observed === undefined || (observed !== null
+          && ["CREATED", "ADMITTED", "FAILED_PRECONTACT"].includes(observed.phase));
+        const knownContact = observed !== null && observed !== undefined
+          && ["EXTERNAL_CONTACTED", "EXTERNAL_SUCCEEDED", "FAILED_KNOWN_AFTER_CONTACT"].includes(observed.phase);
+        evidence = evidenceRecord(input, target, scope, undefined,
+          uncontacted ? precontactFableOutcome(safeErrorCode(error))
+            : knownContact ? contactedFableOutcome("STOP_MANAGED_STATE_READBACK_FAILED")
+              : unknownFableOutcome("STOP_MANAGED_STATE_READBACK_UNKNOWN"), this.now());
+      }
     }
 
     const warnings = stateChangedAfter ? ["TASK_STATE_CHANGED_AFTER_REVIEW_OPERATION"] : [];
+    if (stateChangedAfter) evidence = evidenceFailure(evidence, "STOP_MANAGED_TARGET_DRIFT_AFTER_INVOCATION");
     let artifact: TaskArtifactMetadata | undefined;
+    const publishBytes = canonicalJson(evidence);
     try {
       artifact = await this.publishEvidence(evidence);
+      const readBack = await readWholeArtifact(this.artifacts, input.task_id, artifact.artifact_id);
+      if (readBack !== publishBytes) throw new Error("STOP_MANAGED_ARTIFACT_READBACK_FAILED");
     } catch {
+      artifact = undefined;
       warnings.push("FABLE_REVIEW_EVIDENCE_ARTIFACT_WRITE_FAILED");
+      evidence = evidenceFailure(evidence, "STOP_MANAGED_ARTIFACT_RETENTION_FAILED");
     }
+    try {
+      evidence = await this.settleEvidence(input, evidence);
+    } catch {
+      warnings.push("FABLE_REVIEW_OPERATION_SETTLEMENT_FAILED");
+      evidence = evidenceFailure(evidence, "STOP_MANAGED_OPERATION_SETTLEMENT_FAILED");
+    }
+    // Never return an artifact as the adopted result if settlement changed it.
+    if (canonicalJson(evidence) !== publishBytes) artifact = undefined;
     return resultEnvelope(evidence, warnings, artifact);
   }
 
@@ -153,6 +185,7 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
       const preflight = await this.launcher.preflight();
       validateFablePreflight(preflight);
       await this.claims.assertAdmissible(input.task_id, preparation.admission_key);
+      await this.received.assertFresh(input);
       const prepared = await this.launcher.prepare({
         bundle_id: preparation.bundle_id,
         request: preparation.request,
@@ -187,9 +220,24 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
       );
 
       let invocation: FableLauncherInvocation;
+      let received: ReceivedFableReview | undefined;
+      let receivedOnce = false;
+      let retentionError: string | undefined;
+      const retain = async (payload: unknown): Promise<void> => {
+        if (receivedOnce) throw new Error("STOP_MANAGED_RECEIVED_CALLBACK_REPLAY");
+        receivedOnce = true;
+        try {
+          received = await this.received.retain(input, preparation!, payload);
+        } catch (error) {
+          retentionError = safeErrorCode(error);
+        }
+      };
       contactBoundaryEntered = true;
       try {
-        invocation = await this.launcher.invoke(prepared);
+        invocation = await this.launcher.invoke(prepared, retain);
+        // Alternate typed adapters may deliver their received payload on return.
+        // This is local persistence only, never a second launcher invocation.
+        if (!receivedOnce && invocation.payload !== undefined) await retain(invocation.payload);
       } catch {
         const unknown = unknownFableOutcome("STOP_MANAGED_INVOKE_EFFECT_UNKNOWN");
         await this.writeClaimOutcomeBestEffort(input, preparation, unknown);
@@ -206,6 +254,13 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
       }
 
       let outcome = normalizeFableInvocation(invocation, preparation, input.review_kind);
+      if (retentionError || invocation.retention_failed
+        || (outcome.review_state === "review_completed" && !receivedReviewMatches(received, outcome))) {
+        const code = retentionError === "STOP_MANAGED_REVIEW_OUTPUT_BLOCKED"
+          ? retentionError : "STOP_MANAGED_RECEIVED_RETENTION_FAILED";
+        outcome = outcome.provider_contact === "YES" ? contactedFableOutcome(code)
+          : outcome.provider_contact === "NO" ? precontactFableOutcome(code) : unknownFableOutcome(code);
+      }
       if (
         outcome.review_result
         && this.scanner.hasSecretValue(canonicalJson(outcome.review_result))
@@ -222,28 +277,9 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
             : unknownFableOutcome("STOP_MANAGED_TARGET_DRIFT_EFFECT_UNKNOWN");
         knownOutcome = outcome;
       }
-      try {
-        await this.claims.writeOutcome({
-          task_id: input.task_id,
-          admission_key: preparation.admission_key,
-          operation_id: input.operation_id,
-          epoch_id: preparation.lineage.epoch_id,
-          provider_contact: outcome.provider_contact,
-          effect_disposition: outcome.effect_disposition,
-          outcome_code: outcome.outcome_code,
-          recorded_at: this.now().toISOString()
-        });
-      } catch {
-        outcome = unknownFableOutcome("STOP_MANAGED_OUTCOME_READBACK_UNKNOWN");
-      }
+      // Final adoption waits until the task artifact has been written and read
+      // back outside this non-reentrant task lock. The claim stays no-replay.
       knownOutcome = outcome;
-      await terminalizeFableReviewOperation(
-        this.tasks,
-        operation,
-        outcome,
-        input.repo_id,
-        this.now()
-      );
       return evidenceRecord(input, target, scope, preparation, outcome, this.now());
     } catch (error) {
       const code = safeErrorCode(error);
@@ -278,6 +314,47 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
     }
   }
 
+  private async settleEvidence(
+    input: RepoRunFableReviewInput,
+    initial: FableReviewEvidence
+  ): Promise<FableReviewEvidence> {
+    return this.tasks.locks.withLock(`task:${input.task_id}`, async () => {
+      const operation = await this.tasks.states.readOperation(input.task_id, input.operation_id);
+      if (!operation) {
+        if (initial.review_state !== "failed_precontact") throw new Error("STOP_MANAGED_OPERATION_STATE_MISSING");
+        return initial;
+      }
+      if (operation.kind !== "FABLE_REVIEW") throw new Error("STOP_MANAGED_OPERATION_BINDING_MISMATCH");
+      if (isTerminalFableOperation(operation)) {
+        if (initial.review_state === "review_completed") throw new Error("STOP_MANAGED_OPERATION_SETTLEMENT_CONFLICT");
+        return initial;
+      }
+      let evidence = initial;
+      if (evidence.review_state === "review_completed" && !await exactFableGitState(
+        this.registry.get(input.repo_id).root, input.expected_head_sha, input.expected_tree_sha
+      )) evidence = evidenceFailure(evidence, "STOP_MANAGED_TARGET_DRIFT_BEFORE_SETTLEMENT");
+      if (evidence.lineage) {
+        try {
+          await this.claims.writeOutcome({
+            task_id: input.task_id,
+            admission_key: input.review_kind === "initial"
+              ? `initial:${evidence.lineage.lineage_id}` : `focused:${input.prior_review_artifact_id}`,
+            operation_id: input.operation_id,
+            epoch_id: evidence.lineage.epoch_id,
+            provider_contact: evidence.provider_contact,
+            effect_disposition: evidence.effect_disposition,
+            outcome_code: evidence.outcome_code,
+            recorded_at: this.now().toISOString()
+          });
+        } catch {
+          evidence = evidenceFailure(evidence, "STOP_MANAGED_OUTCOME_READBACK_UNKNOWN");
+        }
+      }
+      await terminalizeFableReviewOperation(this.tasks, operation, evidence, input.repo_id, this.now());
+      return evidence;
+    });
+  }
+
   private async readPriorReview(
     input: RepoRunFableReviewInput,
     target: ExactFableTarget
@@ -286,8 +363,12 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
     if (!artifactId) throw new Error("STOP_MANAGED_PRIOR_REVIEW_REQUIRED");
     const content = await readWholeArtifact(this.artifacts, input.task_id, artifactId);
     const evidence = FableReviewEvidenceSchema.parse(JSON.parse(content));
+    const priorOperation = await this.tasks.states.readOperation(input.task_id, evidence.operation_id);
     if (
       evidence.repo_id !== input.repo_id
+      || priorOperation?.kind !== "FABLE_REVIEW"
+      || priorOperation.phase !== "EXTERNAL_SUCCEEDED"
+      || priorOperation.effect_state !== "PRESENT"
       || evidence.task_id !== input.task_id
       || evidence.review_state !== "review_completed"
       || evidence.provider_contact !== "YES"
@@ -382,6 +463,15 @@ function failedEvidence(
     precontactFableOutcome(code),
     now
   );
+}
+
+function evidenceFailure(evidence: FableReviewEvidence, code: string): FableReviewEvidence {
+  const outcome = evidence.provider_contact === "YES" ? contactedFableOutcome(code)
+    : evidence.provider_contact === "NO" ? precontactFableOutcome(code) : unknownFableOutcome(code);
+  const failed = { ...evidence, ...outcome };
+  delete failed.receipt;
+  delete failed.review_result;
+  return FableReviewEvidenceSchema.parse(failed);
 }
 
 function resultEnvelope(

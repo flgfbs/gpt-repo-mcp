@@ -34,7 +34,11 @@ export type FableLauncherInvocation = {
   output_complete: boolean;
   payload?: unknown;
   receipt_readback?: FableReceiptReadback;
+  retention_failed?: boolean;
 };
+
+// Internal persistence hook; never exposed as a caller-selectable MCP input.
+export type FablePayloadObserver = (payload: unknown) => Promise<void>;
 
 export function canonicalFableLauncherRequestBytes(value: Record<string, unknown>): Buffer {
   const encoded = `${canonicalJson(value)}\n`;
@@ -53,5 +57,5 @@ export interface FableLauncherPort {
     request: Record<string, unknown>;
     packet: Buffer;
   }): Promise<PreparedFableInvocation>;
-  invoke(prepared: PreparedFableInvocation): Promise<FableLauncherInvocation>;
+  invoke(prepared: PreparedFableInvocation, onReceived?: FablePayloadObserver): Promise<FableLauncherInvocation>;
 }

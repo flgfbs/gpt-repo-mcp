@@ -11,6 +11,7 @@ import type {
   FableLauncherInvocation,
   FableLauncherPort,
   FableLauncherPreflight,
+  FablePayloadObserver,
   FableReceiptReadback,
   PreparedFableInvocation
 } from "./fable-launcher-port.js";
@@ -129,7 +130,7 @@ export class InstalledTypedFableLauncher implements FableLauncherPort {
     };
   }
 
-  async invoke(prepared: PreparedFableInvocation): Promise<FableLauncherInvocation> {
+  async invoke(prepared: PreparedFableInvocation, onReceived?: FablePayloadObserver): Promise<FableLauncherInvocation> {
     const state = preparedState(prepared.opaque_state);
     const launcherPath = join(state.installed_root, PINNED_LAUNCHER.name);
     const result = await runProcessWithTail({
@@ -171,6 +172,14 @@ export class InstalledTypedFableLauncher implements FableLauncherPort {
       output_complete: true,
       payload
     };
+    // Persist the sanitized candidate before receipt validation can reject it.
+    // Keep the payload and known contact if local persistence fails.
+    try {
+      await onReceived?.(payload);
+    } catch {
+      invocation.retention_failed = true;
+      return invocation;
+    }
     const attemptId = successAttemptId(payload);
     if (attemptId !== undefined) {
       invocation.receipt_readback = await readSuccessReceipt(state.installed_root, attemptId, payload);

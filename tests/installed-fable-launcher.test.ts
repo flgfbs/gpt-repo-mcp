@@ -300,3 +300,31 @@ describe("installed typed Fable launcher contract", () => {
     expect(runProcess).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("installed launcher response persistence boundary", () => {
+  test("observes received content before receipt readback can reject it", async () => {
+    const f = await fixture("REVISE");
+    runProcess.mockResolvedValueOnce(result(f.payload));
+    const observer = vi.fn(async (payload: unknown) => {
+      expect(payload).toEqual(f.payload);
+      // Removing this disposable receipt proves that its read occurs later.
+      await rm(f.receiptPath);
+    });
+    const invocation = await new InstalledTypedFableLauncher().invoke(f.prepared, observer);
+    expect(observer).toHaveBeenCalledTimes(1);
+    expect(invocation.payload).toEqual(f.payload);
+    expect(invocation.receipt_readback).toEqual({ ok: false, code: "STOP_MANAGED_RECEIPT_READBACK_FAILED" });
+    expect(runProcess).toHaveBeenCalledTimes(1);
+  });
+
+  test("preserves the observed payload if the persistence observer fails", async () => {
+    const f = await fixture("REVISE");
+    runProcess.mockResolvedValueOnce(result(f.payload));
+    const invocation = await new InstalledTypedFableLauncher().invoke(f.prepared, async () => {
+      throw new Error("synthetic storage failure");
+    });
+    expect(invocation).toMatchObject({ output_complete: true, retention_failed: true, payload: f.payload });
+    expect(invocation.receipt_readback).toBeUndefined();
+    expect(runProcess).toHaveBeenCalledTimes(1);
+  });
+});
