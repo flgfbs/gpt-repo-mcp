@@ -24,6 +24,7 @@ const TRANSPORT_ROOT_PARTS = ["private", "tmp", "codex-fable-review"] as const;
 const OWNER_DIRECTORY_MODE = 0o700;
 const OWNER_FILE_MODE = 0o600;
 const MAX_LAUNCHER_OUTPUT_BYTES = 2 * 1024 * 1024;
+const MAX_LAUNCHER_STDERR_BYTES = 64 * 1024;
 const MAX_RECEIPT_BYTES = 2 * 1024 * 1024;
 // Bound the entire primary invocation, not just provider execution. The pinned
 // router allows 30 minutes of provider work after acquiring its serial route
@@ -149,36 +150,31 @@ export class InstalledTypedFableLauncher implements FableLauncherPort {
       env: launcherEnvironment(),
       timeout_ms: LAUNCH_TIMEOUT_MS,
       tail_bytes: 128 * 1024,
-      capture_bytes: MAX_LAUNCHER_OUTPUT_BYTES
+      capture_bytes: MAX_LAUNCHER_OUTPUT_BYTES,
+      stderr_capture_bytes: MAX_LAUNCHER_STDERR_BYTES
     });
-    const outputComplete = (
-      !result.timed_out
-      && result.signal === undefined
-      && result.captured_output !== undefined
-      && !result.captured_output.truncated
-    );
-    if (!outputComplete) {
-      return {
-        ...(result.exit_code === undefined ? {} : { exit_code: result.exit_code }),
-        timed_out: result.timed_out,
-        ...(result.signal === undefined ? {} : { signal: result.signal }),
-        output_complete: false
-      };
+    const capture = result.captured_output;
+    const execution = {
+      ...(result.exit_code === undefined ? {} : { exit_code: result.exit_code }),
+      timed_out: result.timed_out,
+      ...(result.signal === undefined ? {} : { signal: result.signal })
+    };
+    // A failed process may already have emitted a complete review candidate.
+    // Never parse a truncated prefix, even when that prefix is valid JSON.
+    if (!capture || (capture.stdout_truncated ?? capture.truncated)
+      || capture.stdout_utf8_valid === false) {
+      return { ...execution, output_complete: false };
     }
     let payload: unknown;
     try {
-      payload = JSON.parse(result.captured_output!.stdout);
+      payload = JSON.parse(capture.stdout);
     } catch {
-      return {
-        ...(result.exit_code === undefined ? {} : { exit_code: result.exit_code }),
-        timed_out: false,
-        output_complete: false
-      };
+      return { ...execution, output_complete: false };
     }
     const invocation: FableLauncherInvocation = {
-      ...(result.exit_code === undefined ? {} : { exit_code: result.exit_code }),
-      timed_out: false,
-      output_complete: true,
+      ...execution,
+      output_complete: result.exit_code === 0 && !result.timed_out
+        && result.signal === undefined && !capture.truncated,
       payload
     };
     // Persist the sanitized candidate before receipt validation can reject it.
@@ -189,6 +185,9 @@ export class InstalledTypedFableLauncher implements FableLauncherPort {
       invocation.retention_failed = true;
       return invocation;
     }
+    // Retention is not adoption. Failed execution or incomplete diagnostics
+    // stays fail-closed, without receipt adoption or another invocation.
+    if (!invocation.output_complete) return invocation;
     const attemptId = successAttemptId(payload);
     if (attemptId !== undefined) {
       invocation.receipt_readback = await readSuccessReceipt(state.installed_root, attemptId, payload);

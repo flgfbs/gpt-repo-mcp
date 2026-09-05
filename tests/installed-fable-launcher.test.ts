@@ -286,7 +286,7 @@ describe("installed typed Fable launcher contract", () => {
     }
   );
 
-  test("keeps an expired outer deadline unknown and does not retry", async () => {
+  test("keeps observed contact after an expired outer deadline and does not retry", async () => {
     const f = await fixture();
     runProcess.mockImplementationOnce(async input => ({
       ...result(f.payload, input.timeout_ms), timed_out: true, signal: "SIGTERM"
@@ -295,7 +295,7 @@ describe("installed typed Fable launcher contract", () => {
     expect(invocation).toMatchObject({ timed_out: true, output_complete: false });
     expect(invocation).not.toHaveProperty("receipt_readback");
     expect(normalizeFableInvocation(invocation, preparation, "initial")).toMatchObject({
-      review_state: "unknown_effect", provider_contact: "UNKNOWN"
+      review_state: "contacted_incomplete", provider_contact: "YES"
     });
     expect(runProcess).toHaveBeenCalledTimes(1);
   });
