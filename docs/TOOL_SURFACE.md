@@ -1,9 +1,8 @@
 # Tool Surface
 
-Chat Pro Repository MCP publishes exactly 66 tools in the order below. The
+Chat Pro Repository MCP publishes exactly 69 tools in the order below. The
 first 47 are the preserved canonical local prefix, position 48 is managed-agent
-continuation, and the final 18 are the task and optional GitHub lifecycle
-package. No aliases are registered.
+continuation, followed by 18 task/GitHub lifecycle tools and three existing-task messaging tools. No aliases are registered.
 
 ## Tool Groups
 
@@ -14,6 +13,7 @@ package. No aliases are registered.
 - 41-47: validation, work sessions, direct writes, and handoff
 - 48: managed Codex App Server continuation
 - 49-66: task worktrees, admission, Git/GitHub/CI/review/merge lifecycle
+- 67-69: bounded existing-task messaging
 
 MCP annotations describe expected effects; they do not grant authority.
 External reads and writes have `openWorldHint: true`. Lifecycle mutations are
@@ -315,6 +315,21 @@ the bound manifest.
 binding, or conflicts with its requested-task state. Unrelated active tasks do
 not deny an exact match. It is closed-world, read-only, and accepts no operation
 id or mutation request.
+
+### `repo_task_message_resolve`
+
+67. Owner-bound の既存宛先と実際の input capability を read-only で解決する。
+
+### `repo_send_task_message`
+
+68. 最大 8 宛先へ bounded context を送る。`notify` は現在 unsupported。
+明示的 `continue` だけが生成または active-turn feed を許可する。
+
+### `repo_task_message_read`
+
+69. 同じ message の per-recipient delivery を読み戻し、再送せず照合する。
+
+詳細と未完了の運用境界は [Task Messaging](TASK_MESSAGING.md) を参照。
 
 ## Lifecycle Contract Pattern
 

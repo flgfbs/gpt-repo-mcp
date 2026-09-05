@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { TaskMessageResolveInputSchema, TaskMessageResolveResultSchema, TaskMessageSendInputSchema, TaskMessageReadInputSchema, TaskMessageResultSchema } from "../contracts/task-messaging.contract.js";
 import { RepoTaskAdmissionInputSchema, RepoTaskAdmissionResultSchema } from "../contracts/task-admission.contract.js";
 import { AgentRunsInputSchema, AgentRunsResultSchema } from "../contracts/agent-runs.contract.js";
 import { AgentReplyInputSchema, AgentReplyResultSchema } from "../contracts/agent-reply.contract.js";
@@ -362,7 +363,10 @@ export const toolContracts = {
   repo_task_admission: {
     input: RepoTaskAdmissionInputSchema,
     output: RepoTaskAdmissionResultSchema
-  }
+  },
+  repo_task_message_resolve: { input: TaskMessageResolveInputSchema, output: TaskMessageResolveResultSchema },
+  repo_send_task_message: { input: TaskMessageSendInputSchema, output: TaskMessageResultSchema },
+  repo_task_message_read: { input: TaskMessageReadInputSchema, output: TaskMessageResultSchema }
 } as const satisfies Record<string, ToolContract>;
 
 export type ToolName = keyof typeof toolContracts;

@@ -4,7 +4,7 @@
 
 - Preserve `contracts -> tool-contract map -> packages -> registry ->
   registration -> handlers -> services`.
-- Keep exactly 66 canonical names in registry order unless an intentional public
+- Keep exactly 69 canonical names in registry order unless an intentional public
   contract change is approved. Do not add aliases.
 - Keep Zod objects strict and schemas centrally referenced.
 - Keep package definitions metadata-only, handlers thin, and effects in

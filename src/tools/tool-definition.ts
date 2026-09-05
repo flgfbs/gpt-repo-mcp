@@ -15,6 +15,7 @@ import { toolContracts, type ToolContract, type ToolName } from "./contracts.js"
 export type ToolPackage =
   | "developer"
   | "delegation"
+  | "task_messaging"
   | "patchsets"
   | "advanced_operations"
   | "diagnostics_and_discovery"
@@ -53,8 +54,8 @@ type ToolDefinitionInput = Omit<ToolDefinition, "description" | "inputSchema" | 
 };
 
 export function defineTool(input: ToolDefinitionInput): ToolDefinition {
-  if (input.taskMutationBoundary === "self_managed_external" && input.name !== "repo_continue_agent_run") {
-    throw new Error("Only repo_continue_agent_run may own a self-managed external task operation.");
+  if (input.taskMutationBoundary === "self_managed_external" && !["repo_continue_agent_run", "repo_send_task_message"].includes(input.name)) {
+    throw new Error("Only continuation and existing-task messaging may own self-managed external operations.");
   }
   const contract = toolContracts[input.name];
   return {

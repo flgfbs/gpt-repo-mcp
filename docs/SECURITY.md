@@ -182,3 +182,11 @@ the confidentiality of content intentionally returned to ChatGPT.
 
 Release, deployment, signing, package publication, and infrastructure changes
 are out of scope even when repository and task mode are `ship`.
+
+## Existing-task message trust boundary
+
+[Task Messaging](TASK_MESSAGING.md) の owner-controlled grants は source repository、
+local UID、recipient namespace と first-party identity、許可 mode を固定する。
+継続 envelope は実際の forwarding tool の結果であり、user approval を偽装しない。
+受動通知に generation を代用しない。不確かな effect は recipient fence と stable
+message identity で再送を防ぎ、secret scanner と既存 sensitive-path policy を維持する。

@@ -1,9 +1,13 @@
 # Capability Guide
 
-Chat Pro Repository MCP exposes exactly 66 repository tools. The first 47 keep
+Chat Pro Repository MCP exposes exactly 69 repository tools. The first 47 keep
 their canonical local order and semantics; managed-agent continuation is next;
-18 task and optional GitHub lifecycle tools follow in one canonical order.
+18 task and optional GitHub lifecycle tools and three existing-task messaging
+tools follow in one canonical order.
 There are no aliases.
+
+既存 UI タスクの messaging、unsupported な受動通知、明示的継続と readback の
+運用境界は [Task Messaging](TASK_MESSAGING.md) を参照。
 
 ## Everyday Repository Work
 

@@ -1,6 +1,9 @@
 import { ZodError } from "zod";
 
 export type RepoReaderErrorCode =
+  | "TASK_MESSAGE_DENIED"
+  | "TASK_MESSAGE_CONFLICT"
+  | "TASK_MESSAGE_NOT_FOUND"
   | "UNKNOWN_REPO"
   | "ABSOLUTE_PATH_REJECTED"
   | "PATH_TRAVERSAL_REJECTED"

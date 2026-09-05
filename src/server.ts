@@ -9,6 +9,8 @@ import { createLifecycleRuntimeBundle } from "./services/lifecycle-factory.js";
 import { CodexAppServerAdapter } from "./delegation/codex-app-server-adapter.js";
 import { CodexAppServerControlRpc } from "./delegation/codex-app-server-control-rpc.js";
 import { CodexAppServerRunSink } from "./delegation/codex-app-server-run-sink.js";
+import { AppServerTaskMessageTransport } from "./messaging/app-server-transport.js";
+import { TaskMessagingService } from "./services/task-messaging-service.js";
 import { createMcpServer } from "./register.js";
 import type { RuntimeContext } from "./runtime/context.js";
 import { buildMcpRoutePatterns, isAuthorizedMcpPath, sanitizeMcpRouteForAudit } from "./runtime/mcp-routes.js";
@@ -49,6 +51,7 @@ const context: RuntimeContext = {
   codeIntelligence,
   lifecycle: lifecycleBundle.lifecycle,
   taskMutations: lifecycleBundle.taskMutations,
+  taskMessaging: new TaskMessagingService(registry, new AppServerTaskMessageTransport(appServerRpc)),
   agentContinuation: lifecycleBundle.executionRuntime.createAgentContinuationRuntime({
     app_server: new CodexAppServerAdapter(appServerRpc)
   })
