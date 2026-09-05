@@ -14,10 +14,14 @@ vi.mock("../src/services/process-exec.js", () => ({
 }));
 
 const ATTEMPT = "a".repeat(32);
-const PACKET = "b".repeat(64);
 const SCOPE = "c".repeat(64);
 const HEAD = "1".repeat(40);
 const TREE = "2".repeat(40);
+const PACKET_BYTES = Buffer.from("REVIEW_PACKET_V1\n" + JSON.stringify({
+  schema: "chat-pro-repository-fable-review-header.v1",
+  target: { head_sha: HEAD, tree_sha: TREE, scope_sha256: SCOPE }
+}) + "\nsynthetic packet");
+const PACKET = sha256Hex(PACKET_BYTES);
 const MINUTE = 60_000;
 const roots: string[] = [];
 const runProcess = vi.mocked(runProcessWithTail);
@@ -43,8 +47,8 @@ const preparation: FableReviewPreparation = {
     epoch_id: "fable_epoch_" + "e".repeat(32),
     kind: "initial"
   },
-  packet: { sha256: PACKET, body_sha256: PACKET, byte_length: 100 },
-  packet_bytes: Buffer.from("synthetic packet"),
+  packet: { sha256: PACKET, body_sha256: PACKET, byte_length: PACKET_BYTES.length },
+  packet_bytes: PACKET_BYTES,
   request: {},
   bundle_id: "f".repeat(32),
   admission_key: "initial:installed-launcher-fixture"
@@ -77,7 +81,7 @@ async function fixture(verdict: "PASS" | "REVISE" | "BLOCK" = "PASS"): Promise<F
     utf8_bytes: Buffer.byteLength(response, "utf8")
   };
   const record = {
-    schema: "claude-review-router-review-record.v2",
+    schema: "claude-review-router-review-record.v1",
     attempt_id: ATTEMPT,
     provider_contact_state: "YES",
     valid_semantic_review_state: "YES",
@@ -90,14 +94,13 @@ async function fixture(verdict: "PASS" | "REVISE" | "BLOCK" = "PASS"): Promise<F
     exact_target_bindings: {
       commit: HEAD,
       tree: TREE,
-      digest: "sha256:" + PACKET,
-      target_scope_sha256: SCOPE
+      digest: "sha256:" + PACKET
     }
   };
-  // These are the receipt fields consumed by the adapter. The pinned v3
+  // These are the receipt fields consumed by the adapter. The pinned v2
   // receipt has no PROVIDER_RETRY_LIMIT: that control belongs to attestation.
   const receipt: Record<string, unknown> = {
-    RECEIPT_SCHEMA: "claude-review-router-attempt-receipt.v3",
+    RECEIPT_SCHEMA: "claude-review-router-attempt-receipt.v2",
     INVOCATION_ID: ATTEMPT,
     SANITIZED_DIAGNOSTIC_PATH: locator,
     PROVIDER_CONTACT: "YES",
@@ -125,7 +128,6 @@ async function fixture(verdict: "PASS" | "REVISE" | "BLOCK" = "PASS"): Promise<F
     review_result: reviewResult,
     response_binding: responseBinding,
     review_record: record,
-    response_retention: { availability: "AVAILABLE" },
     attestation: {
       capability_class: "FABLE",
       reasoning: "MAX",
@@ -175,6 +177,7 @@ describe("installed typed Fable launcher contract", () => {
       const f = await fixture(verdict);
       const before = await readFile(f.receiptPath);
       expect(f.receipt).not.toHaveProperty("PROVIDER_RETRY_LIMIT");
+      expect(f.payload).not.toHaveProperty("response_retention");
       runProcess.mockResolvedValueOnce(result(f.payload));
 
       const invocation = await new InstalledTypedFableLauncher().invoke(f.prepared);
@@ -229,6 +232,34 @@ describe("installed typed Fable launcher contract", () => {
       ok: false, code: "STOP_MANAGED_RECEIPT_READBACK_FAILED"
     });
   });
+
+  test.each([undefined, null, { availability: "UNAVAILABLE" }])(
+    "accepts verified response bytes independently of retention metadata %j",
+    async retention => {
+      const f = await fixture();
+      f.payload.response_retention = retention;
+      runProcess.mockResolvedValueOnce(result(f.payload));
+      const invocation = await new InstalledTypedFableLauncher().invoke(f.prepared);
+      expect(invocation.receipt_readback).toMatchObject({ ok: true });
+      expect(normalizeFableInvocation(invocation, preparation, "initial"))
+        .toMatchObject({ review_state: "review_completed", outcome_code: "PASS" });
+    }
+  );
+
+  test.each([undefined, 123, "changed response"])(
+    "rejects missing or changed response bytes %j",
+    async response => {
+      const f = await fixture();
+      f.payload.response = response;
+      runProcess.mockResolvedValueOnce(result(f.payload));
+      const invocation = await new InstalledTypedFableLauncher().invoke(f.prepared);
+      expect(invocation.receipt_readback).toEqual({
+        ok: false, code: "STOP_MANAGED_RECEIPT_READBACK_FAILED"
+      });
+      expect(normalizeFableInvocation(invocation, preparation, "initial"))
+        .toMatchObject({ review_state: "contacted_incomplete", provider_contact: "YES" });
+    }
+  );
 
   test("rejects an escaping receipt locator", async () => {
     const f = await fixture();

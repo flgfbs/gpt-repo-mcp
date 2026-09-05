@@ -271,7 +271,11 @@ async function readSuccessReceipt(
       || responseBytes > 1024 * 1024
       || publicBinding.sha256 !== responseSha256
       || publicBinding.utf8_bytes !== responseBytes
-      || asRecord(publicPayload.response_retention).availability !== "AVAILABLE"
+      // The pinned router has no response_retention extension. Bind the actual
+      // returned bytes to the retained receipt instead of requiring that label.
+      || typeof publicPayload.response !== "string"
+      || Buffer.byteLength(publicPayload.response, "utf8") !== responseBytes
+      || sha256Hex(publicPayload.response) !== responseSha256
     ) {
       throw new Error("receipt mismatch");
     }

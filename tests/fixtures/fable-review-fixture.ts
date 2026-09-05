@@ -215,9 +215,7 @@ function successfulInvocation(
 ): FableLauncherInvocation {
   const requestTarget = request.target as Record<string, string>;
   const requestOperation = request.operation as Record<string, unknown>;
-  const header = JSON.parse(packetText.split("\n", 3)[1]!) as {
-    target: { scope_sha256: string };
-  };
+  if (sha256Hex(packetText) !== packetSha256) throw new Error("Fixture packet binding mismatch.");
   const attemptId = invocation.toString(16).padStart(32, "0");
   const responseSha256 = invocation.toString(16).repeat(64).slice(0, 64);
   const receiptSha256 = (invocation + 8).toString(16).repeat(64).slice(0, 64);
@@ -267,8 +265,7 @@ function successfulInvocation(
         exact_target_bindings: {
           commit: requestTarget.commit,
           tree: requestTarget.tree,
-          digest: `sha256:${packetSha256}`,
-          target_scope_sha256: header.target.scope_sha256
+          digest: `sha256:${packetSha256}`
         }
       },
       attestation: {

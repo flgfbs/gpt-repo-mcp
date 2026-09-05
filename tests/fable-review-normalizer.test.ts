@@ -5,13 +5,18 @@ import {
   unknownFableOutcome
 } from "../src/services/fable-review-normalizer.js";
 import type { FableReviewPreparation } from "../src/services/fable-review-packet.js";
+import { sha256Hex } from "../src/task-runtime/canonical-json.js";
 
 const HEAD = "1".repeat(40);
 const TREE = "2".repeat(40);
 const BASE = "3".repeat(40);
 const BASE_TREE = "4".repeat(40);
 const SCOPE = "5".repeat(64);
-const PACKET = "6".repeat(64);
+const PACKET_BYTES = Buffer.from("REVIEW_PACKET_V1\n" + JSON.stringify({
+  schema: "chat-pro-repository-fable-review-header.v1",
+  target: { head_sha: HEAD, tree_sha: TREE, scope_sha256: SCOPE }
+}) + "\nsynthetic packet");
+const PACKET = sha256Hex(PACKET_BYTES);
 const RESPONSE = "7".repeat(64);
 const RECEIPT = "8".repeat(64);
 const ATTEMPT = "9".repeat(32);
@@ -36,9 +41,9 @@ const preparation: FableReviewPreparation = {
   packet: {
     sha256: PACKET,
     body_sha256: PACKET,
-    byte_length: 100
+    byte_length: PACKET_BYTES.length
   },
-  packet_bytes: Buffer.from("packet"),
+  packet_bytes: PACKET_BYTES,
   request: {},
   bundle_id: "c".repeat(32),
   admission_key: "initial:fixture"
@@ -81,8 +86,7 @@ function validReviewPayload(overrides: Record<string, unknown> = {}): Record<str
       exact_target_bindings: {
         commit: HEAD,
         tree: TREE,
-        digest: `sha256:${PACKET}`,
-        target_scope_sha256: SCOPE
+        digest: `sha256:${PACKET}`
       }
     },
     attestation: {
@@ -158,6 +162,18 @@ describe("managed Fable review output normalization", () => {
     expect(encoded).not.toContain("/must/not/escape");
   });
 
+  test.each([undefined, null, { availability: "UNAVAILABLE" }])(
+    "does not invent a router retention requirement for %j",
+    retention => {
+      const result = normalizeFableInvocation(validInvocation({
+        payload: validReviewPayload({ response_retention: retention })
+      }), preparation, "initial");
+      expect(result).toMatchObject({
+        review_state: "review_completed", provider_contact: "YES", outcome_code: "PASS"
+      });
+    }
+  );
+
   test("preserves a known contacted incomplete review instead of relabeling it precontact", () => {
     const result = normalizeFableInvocation({
       exit_code: 1,
@@ -209,8 +225,7 @@ describe("managed Fable review output normalization", () => {
         exact_target_bindings: {
           commit: "0".repeat(40),
           tree: TREE,
-          digest: `sha256:${PACKET}`,
-          target_scope_sha256: SCOPE
+          digest: `sha256:${PACKET}`
         }
       }
     }]
@@ -224,6 +239,14 @@ describe("managed Fable review output normalization", () => {
       effect_disposition: "ATTEMPT_EFFECT_ONLY",
       outcome_code: "STOP_MANAGED_REVIEW_ATTESTATION_MISMATCH"
     });
+  });
+
+  test.each(["scope", "bytes"] as const)("rejects changed packet %s without losing contact", changed => {
+    const altered: FableReviewPreparation = changed === "scope"
+      ? { ...preparation, scope: { ...preparation.scope, sha256: "0".repeat(64) } }
+      : { ...preparation, packet_bytes: Buffer.concat([PACKET_BYTES, Buffer.from("changed")]) };
+    expect(normalizeFableInvocation(validInvocation(), altered, "initial"))
+      .toMatchObject({ review_state: "contacted_incomplete", provider_contact: "YES" });
   });
 
   test("requires the focused rereview attestation on a successor epoch", () => {

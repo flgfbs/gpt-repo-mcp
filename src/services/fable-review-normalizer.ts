@@ -6,6 +6,7 @@ import {
 } from "../contracts/fable-review.contract.js";
 import type { FableLauncherInvocation } from "./fable-launcher-port.js";
 import type { FableReviewPreparation } from "./fable-review-packet.js";
+import { sha256Hex } from "../task-runtime/canonical-json.js";
 
 export type NormalizedFableOutcome = Pick<FableReviewEvidence,
   "review_state" | "provider_contact" | "effect_disposition" | "outcome_code"
@@ -30,7 +31,6 @@ export function normalizeFableInvocation(
       reviewResult = FableReviewResultSchema.parse(payload.review_result);
       const record = asRecord(payload.review_record);
       const binding = asRecord(payload.response_binding);
-      const retention = asRecord(payload.response_retention);
       const attestation = asRecord(payload.attestation);
       const exactTarget = asRecord(record.exact_target_bindings);
       const receipt = invocation.receipt_readback;
@@ -58,7 +58,7 @@ export function normalizeFableInvocation(
         || exactTarget.commit !== preparation.target.head_sha
         || exactTarget.tree !== preparation.target.tree_sha
         || exactTarget.digest !== `sha256:${preparation.packet.body_sha256}`
-        || exactTarget.target_scope_sha256 !== preparation.scope.sha256
+        || !hasBoundPacketScope(preparation)
         || attestation.capability_class !== "FABLE"
         || attestation.reasoning !== "MAX"
         || attestation.terminal_title_suppression !== "ACTIVE"
@@ -70,7 +70,6 @@ export function normalizeFableInvocation(
         || attestation.provider_retry !== "DISABLED"
         || attestation.provider_retry_limit !== 0
         || typeof binding.sha256 !== "string"
-        || retention.availability !== "AVAILABLE"
         || !/^[a-f0-9]{64}$/.test(binding.sha256)
         || typeof binding.utf8_bytes !== "number"
         || !Number.isSafeInteger(binding.utf8_bytes)
@@ -160,6 +159,26 @@ export function safeFableOutcomeCode(value: unknown): string {
   return typeof value === "string" && /^[A-Z0-9][A-Z0-9._:-]{0,159}$/.test(value)
     ? value
     : "STOP_MANAGED_LAUNCH_FAILURE";
+}
+
+
+function hasBoundPacketScope(preparation: FableReviewPreparation): boolean {
+  try {
+    // The pinned review-record v1 carries only commit/tree/digest. Its digest
+    // binds the full packet, including the server-authored scope header.
+    const bytes = preparation.packet_bytes;
+    if (sha256Hex(bytes) !== preparation.packet.body_sha256) return false;
+    const [marker, headerLine] = bytes.toString("utf8").split("\n", 3);
+    if (marker !== "REVIEW_PACKET_V1" || headerLine === undefined) return false;
+    const header = asRecord(JSON.parse(headerLine));
+    const target = asRecord(header.target);
+    return header.schema === "chat-pro-repository-fable-review-header.v1"
+      && target.head_sha === preparation.target.head_sha
+      && target.tree_sha === preparation.target.tree_sha
+      && target.scope_sha256 === preparation.scope.sha256;
+  } catch {
+    return false;
+  }
 }
 
 function observedContact(payload: Record<string, unknown>): "NO" | "YES" | "UNKNOWN" {

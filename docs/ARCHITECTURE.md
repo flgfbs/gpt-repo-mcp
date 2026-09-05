@@ -180,17 +180,29 @@ the same server-derived lineage, requires retained `REVISE` or `BLOCK` evidence,
 and binds the prior attempt plus a changed exact target.
 
 The installed launcher remains responsible for its existing guards and exact
-owner-only diagnostic, claim/lock, response-retention, receipt, and binding
+owner-only diagnostic, claim/lock, receipt, and binding
 files. Repository MCP uses exclusive creation and exact read-back only; it has no
 cleanup, chmod, replacement, or mutation path for pre-existing installed runtime
 evidence or static launcher/router bytes. Tests inject the launcher boundary and
 make zero live provider contacts.
 
-管理アダプターは、receipt v3 に存在しない `PROVIDER_RETRY_LIMIT` を要求しません。
+管理アダプターは、pin 済み receipt に存在しない `PROVIDER_RETRY_LIMIT` を要求しません。
 retry 禁止は返却 payload の `attestation.provider_retry` と
 `attestation.provider_retry_limit` で厳密に確認し、receipt と公開結果の identity・
 response binding・review record の照合は維持します。実アダプターを通す合成テストで
 `PASS`・`REVISE`・`BLOCK` の保持と、不正な retry 証明の拒否を検証します。
+
+pin 済み router の receipt は v2、review record は v1 で、公開 payload に
+`response_retention` 拡張はありません。保存可否のラベルではなく、実際に返された
+応答本文の UTF-8 バイト数と SHA-256 を owner-only receipt と照合します。
+`retained_read_back` は保存済み receipt の読み戻しと応答 binding の検証を表し、
+router 側で応答本文を別ファイルへ保存したという意味ではありません。
+応答本文が欠落・改変している場合は接触済み不完全として保持します。
+
+review record v1 の target は commit・tree・digest の3項目のみです。
+scope の検証では返却 record に未定義の項目を要求せず、record が示す packet digest、
+実際の packet bytes、packet header の scope・HEAD・tree を照合します。
+これにより scope を維持しながら pin 済み router の返却形式を受け入れます。
 
 外側の launcher 実行期限は65分です。pin 済み primary router の provider 上限30分、
 直列 route の1処理分に相当するキュー待ち30分、開始・終了処理5分を含めます。
