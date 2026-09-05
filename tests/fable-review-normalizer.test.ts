@@ -268,6 +268,31 @@ describe("managed Fable review output normalization", () => {
       .toMatchObject({ review_state: "review_completed", provider_contact: "YES" });
   });
 
+  test("does not let contradictory top-level no-contact erase a contacted receipt", () => {
+    const result = normalizeFableInvocation(validInvocation({
+      payload: validReviewPayload({ provider_contact: "NO" }),
+      receipt_readback: { ok: false, code: "STOP_MANAGED_RECEIPT_READBACK_FAILED" }
+    }), preparation, "initial");
+    expect(result).toMatchObject({ review_state: "contacted_incomplete", provider_contact: "YES" });
+  });
+
+  test("does not adopt a success payload with contradictory contact evidence", () => {
+    expect(normalizeFableInvocation(validInvocation({
+      payload: validReviewPayload({ provider_contact: "NO" })
+    }), preparation, "initial"))
+      .toMatchObject({ review_state: "contacted_incomplete", provider_contact: "YES" });
+  });
+
+  test.each([false, true])("preserves known contact on incomplete or unknown local output: %s", complete => {
+    const result = normalizeFableInvocation({
+      output_complete: complete, timed_out: !complete,
+      payload: { result: "STOP_LOCAL_FINALIZATION_UNKNOWN", provider_contact: "YES",
+        effect_disposition: "UNKNOWN_EXTERNAL_EFFECT" }
+    }, preparation, "initial");
+    expect(result).toMatchObject({ review_state: "contacted_incomplete", provider_contact: "YES" });
+    expect(result.review_result).toBeUndefined();
+  });
+
   test("keeps truncated, unparseable, or thrown-contact effects unknown", () => {
     expect(normalizeFableInvocation({
       timed_out: true,

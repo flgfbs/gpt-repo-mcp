@@ -1,5 +1,6 @@
 import {
   type FableReviewEvidence,
+  type FableRecoveryEvidence,
   type RepoRunFableReviewInput
 } from "../contracts/fable-review.contract.js";
 import { delegationControlArtifactGitExcludes } from "../policies/delegation-control-artifacts.js";
@@ -27,6 +28,7 @@ export type FableReviewPreparation = {
   lineage: NonNullable<FableReviewEvidence["lineage"]>;
   packet: NonNullable<FableReviewEvidence["packet"]>;
   packet_bytes: Buffer;
+  recovery?: FableRecoveryEvidence;
   request: Record<string, unknown>;
   bundle_id: string;
   admission_key: string;
@@ -95,10 +97,18 @@ export async function buildFableReviewPreparation(input: {
   target: ExactFableTarget;
   scope: CanonicalFableScope;
   prior?: PriorFableReview;
+  recovery?: FableRecoveryEvidence;
   scanner: SecretScanner;
 }): Promise<FableReviewPreparation> {
   const patch = await exactDiff(input.root, input.target.base_commit_sha, input.target.head_sha, input.scope);
   if (patch.length === 0) throw new Error("STOP_MANAGED_EMPTY_REVIEW_DIFF");
+  if (input.recovery) {
+    await runGitBounded({
+      root: input.root,
+      args: ["merge-base", "--is-ancestor", input.recovery.prior_target.head_sha, input.target.head_sha],
+      max_stdout_bytes: 1024
+    }).catch(() => { throw new Error("STOP_MANAGED_RECOVERY_TARGET_NOT_DESCENDANT"); });
+  }
   if (input.prior) {
     const correctionPatch = await exactDiff(
       input.root,
@@ -119,13 +129,14 @@ export async function buildFableReviewPreparation(input: {
     operation_id: input.request.operation_id,
     target: input.target,
     scope_sha256: input.scope.sha256,
-    prior_review_artifact_id: input.prior?.artifact_id ?? "NONE"
+    prior_review_artifact_id: input.prior?.artifact_id ?? input.recovery?.prior_review_artifact_id ?? "NONE"
   }).slice(0, 32)}`;
   const lineage = {
     lineage_id: lineageId,
     epoch_id: epochId,
     kind: input.request.review_kind,
-    ...(input.prior ? { prior_review_artifact_id: input.prior.artifact_id } : {})
+    ...(input.prior ? { prior_review_artifact_id: input.prior.artifact_id }
+      : input.recovery ? { prior_review_artifact_id: input.recovery.prior_review_artifact_id } : {})
   } as const;
   const payload = {
     schema: "chat-pro-repository-fable-review-payload.v1",
@@ -136,18 +147,24 @@ export async function buildFableReviewPreparation(input: {
     target: input.target,
     scope: input.scope,
     lineage,
+    ...(input.recovery ? { missing_body_recovery: input.recovery } : {}),
     prior_review: input.prior ? {
       review_status: input.prior.evidence.review_result!.review_status,
       summary: input.prior.evidence.review_result!.summary,
       findings: input.prior.evidence.review_result!.findings
-    } : "NONE",
+    } : input.recovery ? "HISTORICAL_REVISE_BODY_UNAVAILABLE_NOT_RECONSTRUCTED" : "NONE",
     review_instructions: {
       role: "fresh independent reviewer",
       language: "Japanese",
       review_only: true,
       modify_target: false,
       exact_head_required: true,
-      assess_correctness_safety_contracts_tests: true
+      assess_correctness_safety_contracts_tests: true,
+      ...(input.recovery ? {
+        full_scope_reexamination_required: true,
+        historical_findings_unavailable: true,
+        not_historical_finding_closure: true
+      } : {})
     },
     output_contract: {
       schema: "claude-review-router-findings.v1",
@@ -205,13 +222,17 @@ export async function buildFableReviewPreparation(input: {
       digest: `sha256:${packetSha256}`
     },
     operation: {
-      kind: input.prior ? "FOCUSED_REREVIEW" : "INITIAL",
+      kind: input.prior || input.recovery ? "FOCUSED_REREVIEW" : "INITIAL",
       route: "PRIMARY",
-      prior_attempt_id: input.prior?.receipt.attempt_id ?? "NONE",
+      prior_attempt_id: input.prior?.receipt.attempt_id ?? input.recovery?.prior_attempt_id ?? "NONE",
       causal_repair: input.prior ? {
         basis: "CAUSAL_REPAIR",
         code: "FOCUSED_REVIEW_CORRECTION",
         evidence_digest: `sha256:${input.prior.receipt.receipt_sha256}`
+      } : input.recovery ? {
+        basis: "CAUSAL_REPAIR",
+        code: "MISSING_BODY_FULL_SCOPE_REEXAMINATION",
+        evidence_digest: `sha256:${canonicalSha256(input.recovery)}`
       } : {
         basis: "NONE",
         code: "NONE",
@@ -236,11 +257,12 @@ export async function buildFableReviewPreparation(input: {
     lineage,
     packet,
     packet_bytes: packetBytes,
+    ...(input.recovery ? { recovery: input.recovery } : {}),
     request,
     bundle_id: bundleId,
     admission_key: input.prior
       ? `focused:${input.prior.artifact_id}`
-      : `initial:${lineageId}`
+      : input.recovery ? `recovery:${input.recovery.prior_operation_id}` : `initial:${lineageId}`
   };
 }
 

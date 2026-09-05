@@ -1,3 +1,4 @@
+import type { FableReviewEvidence } from "../contracts/fable-review.contract.js";
 import { canonicalJson } from "../task-runtime/canonical-json.js";
 
 export type FableLauncherPreflight = {
@@ -50,7 +51,24 @@ export function canonicalFableLauncherRequestBytes(value: Record<string, unknown
   return Buffer.from(encoded, "ascii");
 }
 
+export type HistoricalFableReadbackInput = {
+  evidence: FableReviewEvidence;
+  attempt_id: string;
+  expected_receipt_sha256: string;
+  bundle_id: string;
+};
+
+export type HistoricalFableReadback = {
+  attempt_id: string;
+  review_decision_id: string;
+  receipt_sha256: string;
+  response_sha256: string;
+  response_utf8_bytes: number;
+};
+
 export interface FableLauncherPort {
+  // Read-only, fixed-root historical evidence; not a provider invocation.
+  readHistorical?(input: HistoricalFableReadbackInput): Promise<HistoricalFableReadback>;
   preflight(): Promise<FableLauncherPreflight>;
   prepare(input: {
     bundle_id: string;

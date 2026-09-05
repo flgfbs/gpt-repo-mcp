@@ -261,7 +261,7 @@ path is accepted.
 Fable launcher. The input requires an active `implement` or `ship` task repo,
 task id, exact base commit/tree, exact current HEAD/tree, operation id, review
 kind, and canonical scope. The server creates the packet and lineage, verifies a
-clean worktree and every provider-free gate before contact, selects primary
+clean worktree and its provider-free admission checks before contact, selects primary
 `FABLE` at `MAX`, and rejects caller-supplied commands, paths, roots, environment,
 provider model slugs, routes, credentials, packets, prompts, retry, fallback,
 reroute, tools, MCP, plugins, subagents, reuse, and continuation. The action is
@@ -270,6 +270,16 @@ unknown, or orphaned epochs are no-replay. It returns only sanitized review,
 receipt digest, provider-contact/effect, model-class/reasoning, packet, target,
 scope, and lineage evidence. A focused rereview requires a retained `REVISE` or
 `BLOCK` artifact and a changed exact target.
+
+`review_kind: "missing_body_recovery"` は、管理側の receipt 読戻し失敗で本文を失った
+歴史的な initial REVISE に限る明示的な回復契約です。`scope: {kind: "all_changes"}`、
+既存 `prior_review_artifact_id`、`missing_body_recovery` の
+`prior_operation_id`・`prior_attempt_id`・`expected_receipt_sha256` を必須とします。
+サーバーが旧 operation・artifact・claim/outcome・固定保存先の receipt と packet を照合し、
+本文の不在、追加接触の不在、変更後の子孫 HEAD を確認します。旧判定の採用や指摘の合成ではなく、
+同じ lineage の新 epoch による全差分の再審査です。旧 operation を書き換えず、同じ旧 operation
+への追加接触は別 artifact id でも再実行できません。外部の運用上の packet gate や人の承認を
+この入力が代替するものではありません。
 
 ### `repo_remote_status`
 

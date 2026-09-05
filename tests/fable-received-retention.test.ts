@@ -1,6 +1,7 @@
 import { chmod, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import type { FableLauncherPort } from "../src/services/fable-launcher-port.js";
 import { FableReceivedStore, receivedFablePath } from "../src/services/fable-received-store.js";
 import { buildFableReviewPreparation, canonicalFableScope, targetFromInput } from "../src/services/fable-review-packet.js";
 import { SecretScanner } from "../src/services/secret-scanner.js";
@@ -184,6 +185,25 @@ describe("managed response retention before review adoption", { timeout: 30_000 
     });
     expect(focused).toMatchObject({ review_state: "failed_precontact", provider_contact: "NO",
       outcome_code: "STOP_MANAGED_PRIOR_REVIEW_NOT_ELIGIBLE" });
+    expect(launcher.invocationCount).toBe(1);
+  });
+
+  test("preserves known contact and received evidence when the launcher throws after observation", async () => {
+    const { fixture, input, launcher, store } = await setup("operation-retain-post-observation-error");
+    const invoke = launcher.invoke.bind(launcher);
+    vi.spyOn(launcher as FableLauncherPort, "invoke").mockImplementation(async (prepared, onReceived) => {
+      const invocation = await invoke(prepared);
+      await onReceived?.(invocation.payload);
+      throw new Error("synthetic local failure after received payload");
+    });
+    const result = await fixture.service(launcher).run(input);
+    expect(result).toMatchObject({ review_state: "contacted_incomplete", provider_contact: "YES" });
+    expect(result.review_result).toBeUndefined();
+    expect((await store.read(input)).received_review.review_status).toBe("REVISE");
+    expect(await fixture.bundle.tasks.states.readOperation(fixture.taskId, input.operation_id))
+      .toMatchObject({ phase: "FAILED_KNOWN_AFTER_CONTACT", effect_state: "PARTIAL" });
+    expect(await fixture.service(launcher).run({ ...input, operation_id: "operation-no-replay-after-observation" }))
+      .toMatchObject({ provider_contact: "NO", outcome_code: "STOP_MANAGED_REVIEW_REPLAY_BLOCKED" });
     expect(launcher.invocationCount).toBe(1);
   });
 

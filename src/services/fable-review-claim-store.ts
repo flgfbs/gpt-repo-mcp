@@ -66,6 +66,53 @@ export class FableReviewClaimStore {
     }
   }
 
+  async readRecoveryPredecessor(input: {
+    task_id: string; operation_id: string; lineage_id: string; epoch_id: string;
+    packet_sha256: string; target: FableReviewEvidence["target"];
+  }): Promise<{ claim_sha256: string; outcome_sha256: string }> {
+    const key = `initial:${input.lineage_id}`;
+    const paths = claimPaths(input.task_id, key, input.operation_id);
+    const claimBytes = await this.fs.readFile(paths.claim_path, 64 * 1024);
+    const outcomeBytes = await this.fs.readFile(paths.outcome_path, 64 * 1024);
+    const claim = parseDigestedRecord(claimBytes, "record_sha256");
+    const outcome = parseDigestedRecord(outcomeBytes, "record_sha256");
+    const common = (value: Record<string, unknown>) =>
+      value.task_id === input.task_id && value.operation_id === input.operation_id
+      && value.epoch_id === input.epoch_id && value.admission_key_sha256 === sha256Hex(key);
+    if (!common(claim) || !common(outcome)
+      || claim.schema !== "chat-pro-repository-fable-claim.v1"
+      || outcome.schema !== "chat-pro-repository-fable-outcome.v1"
+      || claim.packet_sha256 !== input.packet_sha256
+      || canonicalJson(claim.target) !== canonicalJson(input.target)
+      || outcome.provider_contact !== "YES"
+      || outcome.effect_disposition !== "ATTEMPT_EFFECT_ONLY"
+      || outcome.outcome_code !== "STOP_MANAGED_RECEIPT_READBACK_FAILED") {
+      throw new Error("STOP_MANAGED_RECOVERY_CLAIM_BINDING_MISMATCH");
+    }
+    // Every other initial claim must be a proven no-contact attempt. Never
+    // narrow history or admit recovery around an unresolved/additional contact.
+    for (const entry of await this.fs.listDirectory(paths.claim_directory, 1000)) {
+      if (entry.kind !== "file" || !/^[a-f0-9]{64}\.json$/.test(entry.name)) {
+        throw new Error("STOP_MANAGED_RECOVERY_HISTORY_INVALID");
+      }
+      if (entry.name === paths.claim_path.split("/").at(-1)) continue;
+      const sibling = parseDigestedRecord(await this.fs.readFile(posix.join(paths.claim_directory, entry.name), 64 * 1024), "record_sha256");
+      const settled = parseDigestedRecord(await this.fs.readFile(posix.join(paths.outcome_directory, entry.name), 64 * 1024), "record_sha256");
+      if (sibling.schema !== "chat-pro-repository-fable-claim.v1"
+        || settled.schema !== "chat-pro-repository-fable-outcome.v1"
+        || sibling.task_id !== input.task_id || settled.task_id !== input.task_id
+        || sibling.admission_key_sha256 !== sha256Hex(key) || settled.admission_key_sha256 !== sha256Hex(key)
+        || typeof sibling.operation_id !== "string"
+        || `${hashedDiskKey("fable-review-operation", sibling.operation_id)}.json` !== entry.name
+        || typeof sibling.epoch_id !== "string" || !/^fable_epoch_[a-f0-9]{32}$/.test(sibling.epoch_id)
+        || settled.operation_id !== sibling.operation_id || settled.epoch_id !== sibling.epoch_id
+        || settled.provider_contact !== "NO" || settled.effect_disposition !== "NO_EXTERNAL_EFFECT") {
+        throw new Error("STOP_MANAGED_RECOVERY_HISTORY_NOT_CLOSED");
+      }
+    }
+    return { claim_sha256: sha256Hex(claimBytes), outcome_sha256: sha256Hex(outcomeBytes) };
+  }
+
   async writeClaim(input: {
     task_id: string;
     admission_key: string;

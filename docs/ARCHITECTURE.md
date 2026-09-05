@@ -218,6 +218,38 @@ scope の検証では返却 record に未定義の項目を要求せず、record
 provider 自身の30分制限や接触回数を増やすものではなく、無制限のキュー待ちも保証しません。
 外側期限を超えた場合は従来どおり unknown/no-replay とし、再試行や履歴の消去は行いません。
 
+受信 payload または review record で接触済みを観測した後は、外側の例外・不完全な結果・
+矛盾する `NO` フィールドによって接触状態を巻き戻しません。矛盾した成功結果は採用せず、
+`contacted_incomplete` として保存・終端します。接触を示す証拠がない不明結果は従来どおり
+`UNKNOWN` のままであり、いずれも再実行を許可しません。
+
+### 本文欠落の回復レビュー
+
+回復対象は `STOP_MANAGED_RECEIPT_READBACK_FAILED` で終了した initial operation のうち、
+旧 receipt 自体は FABLE/MAX の有効な REVISE を証明し、管理ストアに本文が存在しないものだけです。
+receipt の判定 `VALID_REVIEW_RESULT` と管理 operation の `PARTIAL` は別の事実として保存し、
+旧 v1 artifact・claim/outcome・operation は変更しません。本文の破損・読取拒否・保存拡張や
+未知の隣接ファイルは「不在」に読み替えず停止します。
+既知の別保存領域についても、同じ attempt に対応する binding・response・unavailable の
+固定 locator を確認します。一つでも存在する場合や安全に調べられない場合は回復接触を拒否し、
+その内容の読出し・削除・書換えは行いません。他 attempt の保存記録は探索しません。
+
+回復入力は旧 artifact・operation・attempt・receipt hash を束縛します。サーバーは同じ task/base の
+初回 lineage/epoch と元の request digest を再計算し、追加の初回 claim がすべて無接触で確定済みで
+あることを確認します。変更後の全 task 差分を再審査し、旧指摘を復元したとも閉じたとも主張しません。
+transport には既存の `FOCUSED_REREVIEW` と旧 attempt を渡しますが、
+`MISSING_BODY_FULL_SCOPE_REEXAMINATION` と証拠 digest を明示します。
+
+接触前に `fable-recoveries` の新規作成専用レコードへ旧証拠の digest・新 target/scope/packet を
+保存・読戻しし、transport 準備後にも旧証拠を再読します。再実行防止のキーは旧 operation id で、
+artifact の別名や新 operation id は追加接触の許可になりません。接触後の失敗・不明は消費済みのままです。
+回復の公開証拠だけを v2 とし、旧判定と新判定を区別します。新応答にも既存の事前保存・receipt照合・
+最終 artifact 読戻しを適用し、返却された prior attempt/decision の両方を照合します。
+
+この製品契約だけでは、運用側の外部 packet gate、独立レビュー入場条件、runtime activation、
+merge approval は満たされません。運用側が全差分の回復再審査を受理できなければ、初回レビューや
+架空の指摘閉鎖に偽装せず、その能力境界で停止します。
+
 ## External Effect Plane
 
 This plane exists only for a GitHub lifecycle policy. A local lifecycle is

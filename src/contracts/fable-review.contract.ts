@@ -87,10 +87,43 @@ export const FableReviewResultSchema = z.object({
   }
 });
 
+export const FableMissingBodyRecoveryInputSchema = z.object({
+  prior_operation_id: LifecycleOperationIdSchema,
+  prior_attempt_id: z.string().regex(/^[a-f0-9]{32}$/),
+  expected_receipt_sha256: LifecycleSha256Schema
+}).strict();
+
+export const FableRecoveryEvidenceSchema = z.object({
+  schema: z.literal("chat-pro-repository-missing-body-recovery.v1"),
+  prior_operation_id: LifecycleOperationIdSchema,
+  prior_operation_sha256: LifecycleSha256Schema,
+  prior_review_artifact_id: LifecycleArtifactIdSchema,
+  prior_review_artifact_sha256: LifecycleSha256Schema,
+  prior_claim_sha256: LifecycleSha256Schema,
+  prior_outcome_sha256: LifecycleSha256Schema,
+  prior_epoch_id: z.string().regex(/^fable_epoch_[a-f0-9]{32}$/),
+  prior_target: FableReviewTargetSchema,
+  prior_scope: FableReviewScopeSchema,
+  prior_packet: FableReviewPacketSchema,
+  prior_attempt_id: z.string().regex(/^[a-f0-9]{32}$/),
+  prior_review_decision_id: z.string().min(1).max(160).regex(/^[A-Za-z0-9_.:-]+$/),
+  receipt_sha256: LifecycleSha256Schema,
+  response_sha256: LifecycleSha256Schema,
+  response_utf8_bytes: z.number().int().positive().max(1024 * 1024),
+  historical_provider_contact: z.literal("YES"),
+  historical_receipt_verdict: z.literal("REVISE"),
+  historical_receipt_effect: z.literal("VALID_REVIEW_RESULT"),
+  historical_operation_effect: z.literal("PARTIAL"),
+  body_state: z.literal("NOT_AVAILABLE_IN_MANAGED_STORES"),
+  historical_findings_reconstructed: z.literal(false),
+  historical_result_adopted: z.literal(false),
+  reexamination_scope: z.literal("ALL_TASK_CHANGES")
+}).strict();
+
 const FableReviewLineageSchema = z.object({
   lineage_id: z.string().regex(/^fable_lineage_[a-f0-9]{32}$/),
   epoch_id: z.string().regex(/^fable_epoch_[a-f0-9]{32}$/),
-  kind: z.enum(["initial", "focused_rereview"]),
+  kind: z.enum(["initial", "focused_rereview", "missing_body_recovery"]),
   prior_review_artifact_id: LifecycleArtifactIdSchema.optional()
 }).strict();
 
@@ -110,10 +143,24 @@ export const RepoRunFableReviewInputSchema = z.object({
   expected_base_tree_sha: LifecycleGitObjectIdSchema,
   expected_head_sha: LifecycleGitObjectIdSchema,
   expected_tree_sha: LifecycleGitObjectIdSchema,
-  review_kind: z.enum(["initial", "focused_rereview"]),
+  review_kind: z.enum(["initial", "focused_rereview", "missing_body_recovery"]),
   scope: FableReviewScopeInputSchema,
-  prior_review_artifact_id: LifecycleArtifactIdSchema.optional()
+  prior_review_artifact_id: LifecycleArtifactIdSchema.optional(),
+  missing_body_recovery: FableMissingBodyRecoveryInputSchema.optional()
 }).strict().superRefine((value, context) => {
+  if (value.review_kind === "missing_body_recovery") {
+    if (value.scope.kind !== "all_changes" || value.prior_review_artifact_id === undefined
+      || value.missing_body_recovery === undefined) {
+      context.addIssue({ code: "custom", path: ["missing_body_recovery"], message: "Missing-body recovery requires all task changes, the historical artifact and exact receipt bindings." });
+    }
+    if (value.operation_id === value.missing_body_recovery?.prior_operation_id) {
+      context.addIssue({ code: "custom", path: ["operation_id"], message: "Recovery must use a new operation; historical operations are immutable." });
+    }
+    return;
+  }
+  if (value.missing_body_recovery !== undefined) {
+    context.addIssue({ code: "custom", path: ["missing_body_recovery"], message: "Recovery bindings are not allowed on initial or ordinary focused reviews." });
+  }
   if (value.review_kind === "initial") {
     if (value.scope.kind !== "all_changes") {
       context.addIssue({ code: "custom", path: ["scope"], message: "Initial review must cover all exact task changes." });
@@ -132,7 +179,7 @@ export const RepoRunFableReviewInputSchema = z.object({
 });
 
 export const FableReviewEvidenceSchema = z.object({
-  schema: z.literal("chat-pro-repository-managed-fable-review.v1"),
+  schema: z.enum(["chat-pro-repository-managed-fable-review.v1", "chat-pro-repository-managed-fable-review.v2"]),
   operation_id: LifecycleOperationIdSchema,
   repo_id: LifecycleRepoIdSchema,
   task_id: LifecycleTaskIdSchema,
@@ -150,6 +197,7 @@ export const FableReviewEvidenceSchema = z.object({
   target: FableReviewTargetSchema,
   scope: FableReviewScopeSchema,
   packet: FableReviewPacketSchema.optional(),
+  recovery: FableRecoveryEvidenceSchema.optional(),
   lineage: FableReviewLineageSchema.optional(),
   receipt: FableReviewReceiptSchema.optional(),
   review_result: FableReviewResultSchema.optional(),
@@ -160,6 +208,12 @@ export const FableReviewEvidenceSchema = z.object({
   continuation_authorized: z.literal(false),
   recorded_at: z.string().datetime()
 }).strict().superRefine((value, context) => {
+  if ((value.schema === "chat-pro-repository-managed-fable-review.v2") !== (value.recovery !== undefined)) {
+    context.addIssue({ code: "custom", path: ["schema"], message: "Recovery evidence uses v2; unchanged legacy evidence retains v1." });
+  }
+  if ((value.lineage?.kind === "missing_body_recovery") !== (value.recovery !== undefined)) {
+    context.addIssue({ code: "custom", path: ["recovery"], message: "A recovery epoch must retain its verified historical evidence." });
+  }
   const completed = value.review_state === "review_completed";
   if (completed !== (value.provider_contact === "YES" && value.effect_disposition === "VALID_REVIEW_RESULT")) {
     context.addIssue({ code: "custom", path: ["review_state"], message: "Completed review state must bind one contacted valid review result." });
@@ -189,3 +243,5 @@ export type RepoRunFableReviewResult = z.infer<typeof RepoRunFableReviewResultSc
 export type FableReviewEvidence = z.infer<typeof FableReviewEvidenceSchema>;
 export type FableReviewResult = z.infer<typeof FableReviewResultSchema>;
 export type FableReviewScopeInput = z.infer<typeof FableReviewScopeInputSchema>;
+
+export type FableRecoveryEvidence = z.infer<typeof FableRecoveryEvidenceSchema>;

@@ -1,3 +1,4 @@
+import { readHistoricalFableReceipt } from "./fable-historical-receipt.js";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { createReadStream } from "node:fs";
@@ -13,6 +14,7 @@ import type {
   FableLauncherPreflight,
   FablePayloadObserver,
   FableReceiptReadback,
+  HistoricalFableReadbackInput,
   PreparedFableInvocation
 } from "./fable-launcher-port.js";
 
@@ -49,6 +51,13 @@ type PreparedState = {
 };
 
 export class InstalledTypedFableLauncher implements FableLauncherPort {
+  async readHistorical(input: HistoricalFableReadbackInput) {
+    return readHistoricalFableReceipt(input, {
+      installed_root: installedRootPath(),
+      transport_root: transportRootPath()
+    });
+  }
+
   async preflight(): Promise<FableLauncherPreflight> {
     const installedRoot = installedRootPath();
     const launcherPath = join(installedRoot, PINNED_LAUNCHER.name);

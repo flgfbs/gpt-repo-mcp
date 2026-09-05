@@ -257,6 +257,8 @@ function successfulInvocation(
       response_binding: { sha256: responseSha256, utf8_bytes: responseBytes },
       review_record: {
         attempt_id: attemptId,
+        prior_attempt_id: requestOperation.prior_attempt_id,
+        prior_review_decision_id: (JSON.parse(packetText.split("\n")[2]!) as { missing_body_recovery?: { prior_review_decision_id: string } }).missing_body_recovery?.prior_review_decision_id ?? "NONE",
         provider_contact_state: "YES",
         valid_semantic_review_state: "YES",
         effect_disposition: "VALID_REVIEW_RESULT",

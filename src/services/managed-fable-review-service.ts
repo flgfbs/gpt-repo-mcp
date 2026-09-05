@@ -1,5 +1,7 @@
 import {
   FableReviewEvidenceSchema,
+  FableRecoveryEvidenceSchema,
+  type FableRecoveryEvidence,
   RepoRunFableReviewInputSchema,
   RepoRunFableReviewResultSchema,
   type FableReviewEvidence,
@@ -7,8 +9,9 @@ import {
   type RepoRunFableReviewResult
 } from "../contracts/fable-review.contract.js";
 import { RepoReaderError } from "../runtime/errors.js";
-import { canonicalJson, hashedDiskKey, sha256Hex } from "../task-runtime/canonical-json.js";
+import { canonicalJson, canonicalSha256, hashedDiskKey, sha256Hex } from "../task-runtime/canonical-json.js";
 import type { TaskArtifactMetadata, TaskArtifactStore } from "../task-runtime/artifact-store.js";
+import { hasCode } from "../task-runtime/secure-runtime-fs.js";
 import type { ExactTaskMutationState, TaskRuntimeService } from "../task-runtime/task-service.js";
 import { FableReviewClaimStore } from "./fable-review-claim-store.js";
 import { FableReceivedStore, receivedReviewMatches, type ReceivedFableReview } from "./fable-received-store.js";
@@ -16,6 +19,7 @@ import type { FableLauncherInvocation, FableLauncherPort } from "./fable-launche
 import { canonicalFableLauncherRequestBytes } from "./fable-launcher-port.js";
 import {
   normalizeFableInvocation,
+  observedFableContact,
   precontactFableOutcome,
   safeFableOutcomeCode,
   contactedFableOutcome,
@@ -174,12 +178,15 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
       const prior = input.review_kind === "focused_rereview"
         ? await this.readPriorReview(input, target)
         : undefined;
+      const recovery = input.review_kind === "missing_body_recovery"
+        ? await this.readMissingBodyRecovery(input, target) : undefined;
       preparation = await buildFableReviewPreparation({
         request: input,
         root: repo.root,
         target,
         scope,
         ...(prior ? { prior } : {}),
+        ...(recovery ? { recovery } : {}),
         scanner: this.scanner
       });
       const preflight = await this.launcher.preflight();
@@ -198,6 +205,23 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
         || prepared.request_sha256 !== expectedRequestSha256
       ) {
         throw new Error("STOP_MANAGED_TRANSPORT_BINDING_MISMATCH");
+      }
+      if (recovery) {
+        const refreshed = await this.readMissingBodyRecovery(input, target);
+        if (canonicalJson(refreshed) !== canonicalJson(recovery)) {
+          throw new Error("STOP_MANAGED_RECOVERY_HISTORY_CHANGED");
+        }
+        const unsigned = {
+          schema: "chat-pro-repository-recovery-preparation.v1",
+          repo_id: input.repo_id, task_id: input.task_id, operation_id: input.operation_id,
+          target, scope, lineage: preparation.lineage, packet: preparation.packet, recovery
+        };
+        const bytes = Buffer.from(canonicalJson({ ...unsigned, record_sha256: canonicalSha256(unsigned) }), "utf8");
+        const path = `fable-recoveries/${hashedDiskKey("fable-recovery-task", input.task_id)}/${hashedDiskKey("fable-recovery-operation", input.operation_id)}.json`;
+        await this.tasks.fs.atomicWrite(path, bytes, { exclusive: true });
+        if (!(await this.tasks.fs.readFile(path, bytes.length)).equals(bytes)) {
+          throw new Error("STOP_MANAGED_RECOVERY_RECORD_READBACK_FAILED");
+        }
       }
       await this.claims.writeClaim({
         task_id: input.task_id,
@@ -222,8 +246,10 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
       let invocation: FableLauncherInvocation;
       let received: ReceivedFableReview | undefined;
       let receivedOnce = false;
+      let receivedContact = false;
       let retentionError: string | undefined;
       const retain = async (payload: unknown): Promise<void> => {
+        receivedContact ||= observedFableContact(payload) === "YES";
         if (receivedOnce) throw new Error("STOP_MANAGED_RECEIVED_CALLBACK_REPLAY");
         receivedOnce = true;
         try {
@@ -239,18 +265,13 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
         // This is local persistence only, never a second launcher invocation.
         if (!receivedOnce && invocation.payload !== undefined) await retain(invocation.payload);
       } catch {
-        const unknown = unknownFableOutcome("STOP_MANAGED_INVOKE_EFFECT_UNKNOWN");
-        await this.writeClaimOutcomeBestEffort(input, preparation, unknown);
-        await advanceFableReviewOperation(
-          this.tasks,
-          operation,
-          "UNKNOWN_AFTER_CONTACT",
-          "UNKNOWN",
-          this.now(),
-          unknown.outcome_code,
-          input.repo_id
-        );
-        return evidenceRecord(input, target, scope, preparation, unknown, this.now());
+        const failed = receivedContact
+          ? contactedFableOutcome("STOP_MANAGED_INVOKE_FAILED_AFTER_RECEIVED_CONTACT")
+          : unknownFableOutcome("STOP_MANAGED_INVOKE_EFFECT_UNKNOWN");
+        knownOutcome = failed;
+        // Publish and settle through the same durable path as returned output.
+        // A later local exception must not erase contact already observed.
+        return evidenceRecord(input, target, scope, preparation, failed, this.now());
       }
 
       let outcome = normalizeFableInvocation(invocation, preparation, input.review_kind);
@@ -338,7 +359,10 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
           await this.claims.writeOutcome({
             task_id: input.task_id,
             admission_key: input.review_kind === "initial"
-              ? `initial:${evidence.lineage.lineage_id}` : `focused:${input.prior_review_artifact_id}`,
+              ? `initial:${evidence.lineage.lineage_id}`
+              : input.review_kind === "missing_body_recovery"
+                ? `recovery:${input.missing_body_recovery!.prior_operation_id}`
+                : `focused:${input.prior_review_artifact_id}`,
             operation_id: input.operation_id,
             epoch_id: evidence.lineage.epoch_id,
             provider_contact: evidence.provider_contact,
@@ -352,6 +376,94 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
       }
       await terminalizeFableReviewOperation(this.tasks, operation, evidence, input.repo_id, this.now());
       return evidence;
+    });
+  }
+
+  private async readMissingBodyRecovery(
+    input: RepoRunFableReviewInput, target: ExactFableTarget
+  ): Promise<FableRecoveryEvidence> {
+    const locator = input.missing_body_recovery;
+    if (!locator || !input.prior_review_artifact_id || !this.launcher.readHistorical) {
+      throw new Error("STOP_MANAGED_RECOVERY_READBACK_UNAVAILABLE");
+    }
+    const content = await readWholeArtifact(this.artifacts, input.task_id, input.prior_review_artifact_id);
+    const prior = FableReviewEvidenceSchema.parse(JSON.parse(content));
+    const operation = await this.tasks.states.readOperation(input.task_id, locator.prior_operation_id);
+    const expectedLineage = `fable_lineage_${canonicalSha256({
+      schema: "chat-pro-repository-fable-lineage.v1",
+      repo_id: input.repo_id, task_id: input.task_id,
+      base_commit_sha: target.base_commit_sha, base_tree_sha: target.base_tree_sha
+    }).slice(0, 32)}`;
+    if (prior.repo_id !== input.repo_id || prior.task_id !== input.task_id
+      || prior.operation_id !== locator.prior_operation_id
+      || prior.schema !== "chat-pro-repository-managed-fable-review.v1"
+      || prior.review_state !== "contacted_incomplete" || prior.provider_contact !== "YES"
+      || prior.effect_disposition !== "ATTEMPT_EFFECT_ONLY"
+      || prior.outcome_code !== "STOP_MANAGED_RECEIPT_READBACK_FAILED"
+      || prior.review_result !== undefined || prior.receipt !== undefined
+      || prior.lineage?.kind !== "initial" || prior.lineage.lineage_id !== expectedLineage
+      || prior.lineage.prior_review_artifact_id !== undefined
+      || !prior.packet || prior.scope.kind !== "all_changes" || prior.scope.paths.length !== 0
+      || prior.scope.sha256 !== canonicalFableScope({ ...input, scope: { kind: "all_changes" } }, prior.target).sha256
+      || operation?.kind !== "FABLE_REVIEW" || operation.phase !== "FAILED_KNOWN_AFTER_CONTACT"
+      || operation.effect_state !== "PARTIAL" || operation.error_code !== prior.outcome_code
+      || prior.target.base_commit_sha !== target.base_commit_sha
+      || prior.target.base_tree_sha !== target.base_tree_sha
+      || prior.target.head_sha === target.head_sha || prior.target.tree_sha === target.tree_sha) {
+      throw new Error("STOP_MANAGED_RECOVERY_PRIOR_NOT_ELIGIBLE");
+    }
+    const oldRequest = {
+      operation_id: prior.operation_id, repo_id: prior.repo_id, task_id: prior.task_id,
+      expected_base_commit_sha: prior.target.base_commit_sha, expected_base_tree_sha: prior.target.base_tree_sha,
+      expected_head_sha: prior.target.head_sha, expected_tree_sha: prior.target.tree_sha,
+      review_kind: "initial", scope: { kind: "all_changes" }
+    };
+    const expectedEpoch = `fable_epoch_${canonicalSha256({
+      schema: "chat-pro-repository-fable-epoch.v1", lineage_id: expectedLineage,
+      operation_id: prior.operation_id, target: prior.target, scope_sha256: prior.scope.sha256,
+      prior_review_artifact_id: "NONE"
+    }).slice(0, 32)}`;
+    if (operation.request_sha256 !== canonicalSha256(oldRequest) || prior.lineage.epoch_id !== expectedEpoch) {
+      throw new Error("STOP_MANAGED_RECOVERY_OPERATION_BINDING_MISMATCH");
+    }
+    try {
+      await this.received.read({ repo_id: input.repo_id, task_id: input.task_id, operation_id: prior.operation_id });
+      throw new Error("STOP_MANAGED_RECOVERY_BODY_ALREADY_RETAINED");
+    } catch (error) {
+      if (!hasCode(error, "ENOENT")) throw error;
+    }
+    const bound = await this.claims.readRecoveryPredecessor({
+      task_id: input.task_id, operation_id: prior.operation_id,
+      lineage_id: prior.lineage.lineage_id, epoch_id: prior.lineage.epoch_id,
+      packet_sha256: prior.packet.sha256, target: prior.target
+    });
+    const bundleId = canonicalSha256({
+      schema: "chat-pro-repository-fable-bundle.v1", task_id: input.task_id,
+      operation_id: prior.operation_id, epoch_id: prior.lineage.epoch_id,
+      packet_sha256: prior.packet.sha256
+    }).slice(0, 32);
+    const historical = await this.launcher.readHistorical({
+      evidence: prior, attempt_id: locator.prior_attempt_id,
+      expected_receipt_sha256: locator.expected_receipt_sha256, bundle_id: bundleId
+    });
+    if (historical.attempt_id !== locator.prior_attempt_id
+      || historical.receipt_sha256 !== locator.expected_receipt_sha256) {
+      throw new Error("STOP_MANAGED_RECOVERY_RECEIPT_DIGEST_MISMATCH");
+    }
+    return FableRecoveryEvidenceSchema.parse({
+      schema: "chat-pro-repository-missing-body-recovery.v1",
+      prior_operation_id: prior.operation_id, prior_operation_sha256: operation.state_sha256,
+      prior_review_artifact_id: input.prior_review_artifact_id, prior_review_artifact_sha256: sha256Hex(content),
+      prior_claim_sha256: bound.claim_sha256, prior_outcome_sha256: bound.outcome_sha256,
+      prior_epoch_id: prior.lineage.epoch_id, prior_target: prior.target,
+      prior_scope: prior.scope, prior_packet: prior.packet,
+      prior_attempt_id: historical.attempt_id, prior_review_decision_id: historical.review_decision_id,
+      receipt_sha256: historical.receipt_sha256, response_sha256: historical.response_sha256,
+      response_utf8_bytes: historical.response_utf8_bytes,
+      historical_provider_contact: "YES", historical_receipt_verdict: "REVISE",
+      historical_receipt_effect: "VALID_REVIEW_RESULT", historical_operation_effect: "PARTIAL",
+      body_state: "NOT_AVAILABLE_IN_MANAGED_STORES", historical_findings_reconstructed: false,
+      historical_result_adopted: false, reexamination_scope: "ALL_TASK_CHANGES"
     });
   }
 
@@ -425,7 +537,8 @@ function evidenceRecord(
   now: Date
 ): FableReviewEvidence {
   return FableReviewEvidenceSchema.parse({
-    schema: "chat-pro-repository-managed-fable-review.v1",
+    schema: preparation?.recovery
+      ? "chat-pro-repository-managed-fable-review.v2" : "chat-pro-repository-managed-fable-review.v1",
     operation_id: input.operation_id,
     repo_id: input.repo_id,
     task_id: input.task_id,
@@ -437,6 +550,7 @@ function evidenceRecord(
     target,
     scope,
     ...(preparation ? { packet: preparation.packet, lineage: preparation.lineage } : {}),
+    ...(preparation?.recovery ? { recovery: preparation.recovery } : {}),
     ...(outcome.receipt ? { receipt: outcome.receipt } : {}),
     ...(outcome.review_result ? { review_result: outcome.review_result } : {}),
     outcome_code: outcome.outcome_code,

@@ -96,6 +96,17 @@ the unknown operation kind unless it attempts to parse those newer records.
 Never delete or rewrite contacted/unknown review evidence merely to make an older
 runtime admit a fresh attempt.
 
+### 本文欠落回復の互換性
+
+`missing_body_recovery` は追加の明示的 review kind です。過去の v1 証拠を変換せず、
+回復 epoch の公開証拠だけに `chat-pro-repository-managed-fable-review.v2` と旧証拠の束縛を付けます。
+新サーバーは従来 v1 と回復 v2 を読み、既存の initial/focused 入力は同じままです。
+旧サーバーへ戻しても回復履歴を消去したり v1 に書き換えたりしてはいけません。
+回復 v2 を解釈できない旧サーバーでは、その履歴に基づく継続を停止します。
+
+候補 runtime を有効化する前に、現在導入済みの task-bound review handler 修正など別途の差分も
+候補へ統合・検証し、機能を後退させないでください。source の修正だけを導入完了とは扱いません。
+
 ## Execution-Runtime Artifact Migration
 
 Queued Delegation v3 runs are bound to immutable

@@ -20,11 +20,13 @@ export function normalizeFableInvocation(
   preparation: FableReviewPreparation,
   reviewKind: RepoRunFableReviewInput["review_kind"]
 ): NormalizedFableOutcome {
-  if (!invocation.output_complete || invocation.payload === undefined) {
-    return unknownFableOutcome("STOP_MANAGED_LAUNCH_OUTPUT_UNKNOWN");
-  }
   const payload = asRecord(invocation.payload);
-  const contact = observedContact(payload);
+  const contact = observedFableContact(payload);
+  if (!invocation.output_complete || invocation.payload === undefined) {
+    return contact === "YES"
+      ? contactedFableOutcome("STOP_MANAGED_LAUNCH_OUTPUT_UNKNOWN")
+      : unknownFableOutcome("STOP_MANAGED_LAUNCH_OUTPUT_UNKNOWN");
+  }
   if (["PASS", "REVISE", "BLOCK"].includes(String(payload.result))) {
     let reviewResult: FableReviewResult | undefined;
     try {
@@ -39,6 +41,7 @@ export function normalizeFableInvocation(
       }
       if (
         payload.result !== reviewResult.review_status
+        || (payload.provider_contact !== undefined && payload.provider_contact !== "YES")
         || payload.model_class !== "FABLE"
         || payload.reasoning !== "MAX"
         || payload.terminal_title_suppression !== "ACTIVE"
@@ -54,7 +57,11 @@ export function normalizeFableInvocation(
         || record.observed_model_class_attestation !== "FABLE"
         || record.requested_reasoning_attestation !== "MAX"
         || record.observed_reasoning_attestation !== "MAX"
-        || record.focused_rereview_state !== (reviewKind === "focused_rereview" ? "FOCUSED" : "INITIAL")
+        || record.focused_rereview_state !== (reviewKind === "initial" ? "INITIAL" : "FOCUSED")
+        || (preparation.recovery !== undefined && (
+          record.prior_attempt_id !== preparation.recovery.prior_attempt_id
+          || record.prior_review_decision_id !== preparation.recovery.prior_review_decision_id
+        ))
         || exactTarget.commit !== preparation.target.head_sha
         || exactTarget.tree !== preparation.target.tree_sha
         || exactTarget.digest !== `sha256:${preparation.packet.body_sha256}`
@@ -121,6 +128,8 @@ export function normalizeFableInvocation(
       outcome_code: code
     };
   }
+  // A local effect-classification failure cannot erase an observed contact.
+  if (contact === "YES") return contactedFableOutcome(code);
   return unknownFableOutcome(
     code === "STOP_MANAGED_LAUNCH_FAILURE"
       ? "STOP_MANAGED_LAUNCH_EFFECT_UNKNOWN"
@@ -181,12 +190,14 @@ function hasBoundPacketScope(preparation: FableReviewPreparation): boolean {
   }
 }
 
-function observedContact(payload: Record<string, unknown>): "NO" | "YES" | "UNKNOWN" {
-  if (payload.provider_contact === "NO" || payload.provider_contact === "YES") return payload.provider_contact;
+export function observedFableContact(value: unknown): "NO" | "YES" | "UNKNOWN" {
+  const payload = asRecord(value);
   const record = asRecord(payload.review_record);
-  if (record.provider_contact_state === "NO" || record.provider_contact_state === "YES") {
-    return record.provider_contact_state;
-  }
+  const observations = [payload.provider_contact, record.provider_contact_state];
+  // Positive contact is monotone even when another field contradicts it.
+  if (observations.includes("YES")) return "YES";
+  if (observations.includes("UNKNOWN")) return "UNKNOWN";
+  if (observations.includes("NO")) return "NO";
   return "UNKNOWN";
 }
 
