@@ -22,7 +22,14 @@ const OWNER_DIRECTORY_MODE = 0o700;
 const OWNER_FILE_MODE = 0o600;
 const MAX_LAUNCHER_OUTPUT_BYTES = 2 * 1024 * 1024;
 const MAX_RECEIPT_BYTES = 2 * 1024 * 1024;
-const LAUNCH_TIMEOUT_MS = 20 * 60_000;
+// Bound the entire primary invocation, not just provider execution. The pinned
+// router allows 30 minutes of provider work after acquiring its serial route
+// lock. Allow one such queue slot and five minutes for admission/finalization.
+// This does not extend the provider timeout or authorize retries/successors.
+const PRIMARY_PROVIDER_TIMEOUT_MS = 30 * 60_000;
+const ROUTE_QUEUE_ALLOWANCE_MS = PRIMARY_PROVIDER_TIMEOUT_MS;
+const FINALIZATION_ALLOWANCE_MS = 5 * 60_000;
+const LAUNCH_TIMEOUT_MS = PRIMARY_PROVIDER_TIMEOUT_MS + ROUTE_QUEUE_ALLOWANCE_MS + FINALIZATION_ALLOWANCE_MS;
 
 const PINNED_LAUNCHER = {
   name: "typed_fable_launcher.py",
@@ -230,6 +237,7 @@ async function readSuccessReceipt(
     const receipt = asRecord(JSON.parse(bytes.toString("ascii")));
     const publicBinding = asRecord(publicPayload.response_binding);
     const publicRecord = asRecord(publicPayload.review_record);
+    const attestation = asRecord(publicPayload.attestation);
     const record = asRecord(receipt.review_record);
     const responseSha256 = receipt.RESPONSE_SHA256;
     const responseBytes = receipt.RESPONSE_UTF8_BYTES;
@@ -242,7 +250,9 @@ async function readSuccessReceipt(
       || receipt.RESULT !== publicPayload.result
       || receipt.TERMINAL_TITLE_SUPPRESSION !== "ACTIVE"
       || receipt.AUTOMATIC_FALLBACK !== "DISABLED"
-      || receipt.PROVIDER_RETRY_LIMIT !== 0
+      // Retry controls are public attestation fields, not receipt v3 fields.
+      || attestation.provider_retry !== "DISABLED"
+      || attestation.provider_retry_limit !== 0
       || receipt.EXPLICIT_CONCURRENCY_LIMIT !== 1
       || record.attempt_id !== attemptId
       || record.provider_contact_state !== "YES"

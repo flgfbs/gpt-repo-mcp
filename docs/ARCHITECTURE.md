@@ -186,6 +186,17 @@ cleanup, chmod, replacement, or mutation path for pre-existing installed runtime
 evidence or static launcher/router bytes. Tests inject the launcher boundary and
 make zero live provider contacts.
 
+管理アダプターは、receipt v3 に存在しない `PROVIDER_RETRY_LIMIT` を要求しません。
+retry 禁止は返却 payload の `attestation.provider_retry` と
+`attestation.provider_retry_limit` で厳密に確認し、receipt と公開結果の identity・
+response binding・review record の照合は維持します。実アダプターを通す合成テストで
+`PASS`・`REVISE`・`BLOCK` の保持と、不正な retry 証明の拒否を検証します。
+
+外側の launcher 実行期限は65分です。pin 済み primary router の provider 上限30分、
+直列 route の1処理分に相当するキュー待ち30分、開始・終了処理5分を含めます。
+provider 自身の30分制限や接触回数を増やすものではなく、無制限のキュー待ちも保証しません。
+外側期限を超えた場合は従来どおり unknown/no-replay とし、再試行や履歴の消去は行いません。
+
 ## External Effect Plane
 
 This plane exists only for a GitHub lifecycle policy. A local lifecycle is
