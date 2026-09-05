@@ -250,6 +250,7 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
       let retentionError: string | undefined;
       const retain = async (payload: unknown): Promise<void> => {
         receivedContact ||= observedFableContact(payload) === "YES";
+        if (receivedContact) knownOutcome = contactedFableOutcome("STOP_MANAGED_LOCAL_FAILURE_AFTER_RECEIVED_CONTACT");
         if (receivedOnce) throw new Error("STOP_MANAGED_RECEIVED_CALLBACK_REPLAY");
         receivedOnce = true;
         try {
@@ -275,6 +276,10 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
       }
 
       let outcome = normalizeFableInvocation(invocation, preparation, input.review_kind);
+      // A return value cannot revoke contact already observed by the callback.
+      if (receivedContact && outcome.provider_contact !== "YES") {
+        outcome = contactedFableOutcome("STOP_MANAGED_RESULT_LOST_RECEIVED_CONTACT");
+      }
       if (retentionError || invocation.retention_failed
         || (outcome.review_state === "review_completed" && !receivedReviewMatches(received, outcome))) {
         const code = retentionError === "STOP_MANAGED_REVIEW_OUTPUT_BLOCKED"

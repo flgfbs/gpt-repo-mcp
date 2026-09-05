@@ -207,6 +207,40 @@ describe("managed response retention before review adoption", { timeout: 30_000 
     expect(launcher.invocationCount).toBe(1);
   });
 
+  test.each(["precontact", "unknown", "truncated"] as const)(
+    "keeps observed contact when the launcher returns a %s result after its callback",
+    async mode => {
+      const { fixture, input, launcher, store } = await setup(`operation-retain-callback-return-${mode}`);
+      const invoke = launcher.invoke.bind(launcher);
+      vi.spyOn(launcher as FableLauncherPort, "invoke").mockImplementation(async (prepared, onReceived) => {
+        const received = await invoke(prepared);
+        await onReceived?.(received.payload);
+        return mode === "truncated"
+          ? { timed_out: false, output_complete: false }
+          : {
+            timed_out: false, output_complete: true,
+            payload: {
+              result: "STOP_SYNTHETIC_LOCAL_FINALIZATION",
+              provider_contact: mode === "precontact" ? "NO" : "UNKNOWN",
+              effect_disposition: mode === "precontact" ? "NO_EXTERNAL_EFFECT" : "UNKNOWN_EXTERNAL_EFFECT"
+            }
+          };
+      });
+      const result = await fixture.service(launcher).run(input);
+      expect(result).toMatchObject({
+        review_state: "contacted_incomplete", provider_contact: "YES",
+        outcome_code: "STOP_MANAGED_RESULT_LOST_RECEIVED_CONTACT"
+      });
+      expect(result.review_result).toBeUndefined();
+      expect((await store.read(input)).received_review.review_status).toBe("REVISE");
+      expect(await fixture.bundle.tasks.states.readOperation(fixture.taskId, input.operation_id))
+        .toMatchObject({ phase: "FAILED_KNOWN_AFTER_CONTACT", effect_state: "PARTIAL" });
+      expect(await fixture.service(launcher).run({ ...input, operation_id: `operation-callback-return-replay-${mode}` }))
+        .toMatchObject({ provider_contact: "NO", outcome_code: "STOP_MANAGED_REVIEW_REPLAY_BLOCKED" });
+      expect(launcher.invocationCount).toBe(1);
+    }
+  );
+
   test("does not mislabel a post-callback Git-refresh failure as precontact", async () => {
     const { fixture, input, launcher, store } = await setup("operation-retain-refresh-failure");
     const withState = fixture.bundle.tasks.runWithExactTaskState.bind(fixture.bundle.tasks);
