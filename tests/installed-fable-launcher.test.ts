@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -7,6 +7,7 @@ import { normalizeFableInvocation } from "../src/services/fable-review-normalize
 import type { FableReviewPreparation } from "../src/services/fable-review-packet.js";
 import { InstalledTypedFableLauncher } from "../src/services/installed-fable-launcher.js";
 import { runProcessWithTail, type ProcessTailResult } from "../src/services/process-exec.js";
+import { canonicalNativeJson } from "../src/services/fable-native-retention.js";
 import { sha256Hex } from "../src/task-runtime/canonical-json.js";
 
 vi.mock("../src/services/process-exec.js", () => ({
@@ -29,6 +30,8 @@ const runProcess = vi.mocked(runProcessWithTail);
 type Fixture = {
   root: string;
   receiptPath: string;
+  bodyPath: string;
+  bindingPath: string;
   receipt: Record<string, unknown>;
   payload: Record<string, unknown>;
   prepared: PreparedFableInvocation;
@@ -81,7 +84,9 @@ async function fixture(verdict: "PASS" | "REVISE" | "BLOCK" = "PASS"): Promise<F
     utf8_bytes: Buffer.byteLength(response, "utf8")
   };
   const record = {
-    schema: "claude-review-router-review-record.v1",
+    schema: "claude-review-router-review-record.v2",
+    review_decision_id: "TYPED-SYNTHETIC",
+    prior_review_decision_id: "NONE",
     attempt_id: ATTEMPT,
     provider_contact_state: "YES",
     valid_semantic_review_state: "YES",
@@ -94,13 +99,20 @@ async function fixture(verdict: "PASS" | "REVISE" | "BLOCK" = "PASS"): Promise<F
     exact_target_bindings: {
       commit: HEAD,
       tree: TREE,
-      digest: "sha256:" + PACKET
+      digest: "sha256:" + PACKET,
+      target_scope_sha256: SCOPE
     }
   };
-  // These are the receipt fields consumed by the adapter. The pinned v2
-  // receipt has no PROVIDER_RETRY_LIMIT: that control belongs to attestation.
+  // Native v3 retention plus public attestation are independently verified.
   const receipt: Record<string, unknown> = {
-    RECEIPT_SCHEMA: "claude-review-router-attempt-receipt.v2",
+    RECEIPT_SCHEMA: "claude-review-router-attempt-receipt.v3",
+    PACKET_BINDING: "sha256:" + PACKET,
+    SELECTED_OUTPUT_CARRIER: "TEXT_JSON",
+    RESPONSE_BINDING: "EXACT_JSON_TEXT",
+    CHILD_EXIT: 0,
+    CHILD_SIGNAL: "NONE",
+    FIRST_MODEL_EVENT: "YES",
+    ATTESTATION_STATUS: "PASS",
     INVOCATION_ID: ATTEMPT,
     SANITIZED_DIAGNOSTIC_PATH: locator,
     PROVIDER_CONTACT: "YES",
@@ -142,9 +154,30 @@ async function fixture(verdict: "PASS" | "REVISE" | "BLOCK" = "PASS"): Promise<F
     }
   };
   await mkdir(dirname(receiptPath), { recursive: true, mode: 0o700 });
-  await writeFile(receiptPath, JSON.stringify(receipt), { mode: 0o600 });
+  const receiptBytes = canonicalNativeJson(receipt);
+  await writeFile(receiptPath, receiptBytes, { mode: 0o600 });
+  const bodyLocator = "runtime/review-response-retention/v1/responses/" + responseBinding.sha256.slice(0, 2)
+    + "/" + responseBinding.sha256 + "/" + ATTEMPT + ".response";
+  const bindingLocator = "runtime/review-response-retention/v1/bindings/" + ATTEMPT.slice(0, 2) + "/" + ATTEMPT + ".json";
+  const nativeBinding = {
+    schema: "review-response-binding.v1", contract_version: "ReviewResponseRetentionV1",
+    availability: "AVAILABLE", attempt_id: ATTEMPT,
+    review_decision_id: record.review_decision_id, prior_review_decision_id: record.prior_review_decision_id,
+    receipt_schema: receipt.RECEIPT_SCHEMA, receipt_sha256: sha256Hex(receiptBytes),
+    packet_sha256: PACKET, target: record.exact_target_bindings,
+    carrier: { selected_output_carrier: "TEXT_JSON", response_binding: "EXACT_JSON_TEXT" },
+    attestation: { model_class: "FABLE", reasoning: "MAX" },
+    response_artifact: { schema: "review-response-artifact.v1", locator: bodyLocator,
+      sha256: responseBinding.sha256, utf8_bytes: responseBinding.utf8_bytes, encoding: "UTF-8",
+      content: "EXACT_ALREADY_SANITIZED_REVIEW_RESPONSE" }
+  };
+  await mkdir(dirname(join(root, bodyLocator)), { recursive: true, mode: 0o700 });
+  await mkdir(dirname(join(root, bindingLocator)), { recursive: true, mode: 0o700 });
+  await writeFile(join(root, bodyLocator), response, { mode: 0o600 });
+  await writeFile(join(root, bindingLocator), canonicalNativeJson(nativeBinding), { mode: 0o600 });
   return {
     root, receiptPath, receipt, payload,
+    bodyPath: join(root, bodyLocator), bindingPath: join(root, bindingLocator),
     prepared: {
       bundle_id: "f".repeat(32),
       request_sha256: "9".repeat(64),
@@ -299,6 +332,64 @@ describe("installed typed Fable launcher contract", () => {
     });
     expect(runProcess).toHaveBeenCalledTimes(1);
   });
+});
+
+
+describe("native v3 evidence is mandatory after candidate retention", () => {
+  test.each(["missing-body", "changed-body", "missing-binding", "changed-binding", "v2-receipt",
+    "v1-record", "duplicate-json", "body-mode", "binding-mode", "parent-mode", "body-symlink", "body-hardlink"] as const)(
+    "rejects %s while preserving the observed candidate and contact",
+    async kind => {
+      const f = await fixture("REVISE");
+      if (kind === "missing-body") await rm(f.bodyPath);
+      if (kind === "changed-body") await writeFile(f.bodyPath, "changed");
+      if (kind === "missing-binding") await rm(f.bindingPath);
+      if (kind === "changed-binding") await writeFile(f.bindingPath, "{}\n");
+      if (kind === "v2-receipt") await writeFile(f.receiptPath, canonicalNativeJson({
+        ...f.receipt, RECEIPT_SCHEMA: "claude-review-router-attempt-receipt.v2"
+      }));
+      if (kind === "v1-record") {
+        const record = { ...(f.receipt.review_record as object), schema: "claude-review-router-review-record.v1" };
+        f.payload.review_record = record;
+        await writeFile(f.receiptPath, canonicalNativeJson({ ...f.receipt, review_record: record }));
+      }
+      if (kind === "duplicate-json") {
+        const original = await readFile(f.receiptPath, "utf8");
+        await writeFile(f.receiptPath, original.replace("{", '{"INVOCATION_ID":"' + ATTEMPT + '",'));
+      }
+      if (kind === "body-mode") await chmod(f.bodyPath, 0o644);
+      if (kind === "binding-mode") await chmod(f.bindingPath, 0o644);
+      if (kind === "parent-mode") await chmod(dirname(f.bodyPath), 0o755);
+      if (kind === "body-symlink") {
+        const saved = join(f.root, "saved-response");
+        await rename(f.bodyPath, saved);
+        await symlink(saved, f.bodyPath);
+      }
+      if (kind === "body-hardlink") await link(f.bodyPath, join(f.root, "response-alias"));
+      runProcess.mockResolvedValueOnce(result(f.payload));
+      const observed = vi.fn(async () => {});
+      const invocation = await new InstalledTypedFableLauncher().invoke(f.prepared, observed);
+      expect(observed).toHaveBeenCalledExactlyOnceWith(f.payload);
+      expect(invocation.payload).toEqual(f.payload);
+      expect(invocation.receipt_readback).toEqual({ ok: false, code: "STOP_MANAGED_RECEIPT_READBACK_FAILED" });
+      expect(normalizeFableInvocation(invocation, preparation, "initial"))
+        .toMatchObject({ review_state: "contacted_incomplete", provider_contact: "YES" });
+      expect(runProcess).toHaveBeenCalledTimes(1);
+    }
+  );
+  test.each(["attempt_id", "receipt_sha256", "packet_sha256", "review_decision_id", "prior_review_decision_id",
+    "schema", "target", "response_artifact", "carrier", "attestation"] as const)(
+    "rejects substituted native binding field %s", async field => {
+      const f = await fixture("REVISE");
+      const binding = JSON.parse(await readFile(f.bindingPath, "utf8")) as Record<string, unknown>;
+      binding[field] = field.endsWith("sha256") ? "0".repeat(64) : "SUBSTITUTED";
+      await writeFile(f.bindingPath, canonicalNativeJson(binding));
+      runProcess.mockResolvedValueOnce(result(f.payload));
+      const invocation = await new InstalledTypedFableLauncher().invoke(f.prepared);
+      expect(invocation.receipt_readback?.ok).toBe(false);
+      expect(invocation.payload).toEqual(f.payload);
+    }
+  );
 });
 
 describe("installed launcher response persistence boundary", () => {

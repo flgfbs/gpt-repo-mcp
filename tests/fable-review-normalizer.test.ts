@@ -75,6 +75,7 @@ function validReviewPayload(overrides: Record<string, unknown> = {}): Record<str
     },
     review_record: {
       attempt_id: ATTEMPT,
+      schema: "claude-review-router-review-record.v2",
       provider_contact_state: "YES",
       valid_semantic_review_state: "YES",
       effect_disposition: "VALID_REVIEW_RESULT",
@@ -86,7 +87,8 @@ function validReviewPayload(overrides: Record<string, unknown> = {}): Record<str
       exact_target_bindings: {
         commit: HEAD,
         tree: TREE,
-        digest: `sha256:${PACKET}`
+        digest: `sha256:${PACKET}`,
+        target_scope_sha256: SCOPE
       }
     },
     attestation: {

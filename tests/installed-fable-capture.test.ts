@@ -4,6 +4,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import type { FableLauncherPort, FablePayloadObserver } from "../src/services/fable-launcher-port.js";
 import { FableReceivedStore } from "../src/services/fable-received-store.js";
 import { InstalledTypedFableLauncher } from "../src/services/installed-fable-launcher.js";
+import { canonicalNativeJson } from "../src/services/fable-native-retention.js";
+import { sha256Hex } from "../src/task-runtime/canonical-json.js";
 import { runProcessWithTail, type ProcessTailResult } from "../src/services/process-exec.js";
 import { commitTaskChange, FakeFableLauncher, initialInput, managedTaskFixture, type TaskFixture } from "./fixtures/fable-review-fixture.js";
 
@@ -69,8 +71,11 @@ async function exercise(mode: Mode) {
       }
       const binding = payload.response_binding as { sha256: string; utf8_bytes: number };
       receiptPath = join(f.parent, payload.sanitized_diagnostic_path as string);
-      receiptBefore = JSON.stringify({
-        RECEIPT_SCHEMA: "claude-review-router-attempt-receipt.v2",
+      receiptBefore = canonicalNativeJson({
+        RECEIPT_SCHEMA: "claude-review-router-attempt-receipt.v3",
+        PACKET_BINDING: "sha256:" + prepared.packet_sha256,
+        SELECTED_OUTPUT_CARRIER: "TEXT_JSON", RESPONSE_BINDING: "EXACT_JSON_TEXT",
+        CHILD_EXIT: 0, CHILD_SIGNAL: "NONE", FIRST_MODEL_EVENT: "YES", ATTESTATION_STATUS: "PASS",
         INVOCATION_ID: payload.invocation_id,
         SANITIZED_DIAGNOSTIC_PATH: payload.sanitized_diagnostic_path,
         PROVIDER_CONTACT: "YES", EFFECT_DISPOSITION: "VALID_REVIEW_RESULT",
@@ -78,9 +83,32 @@ async function exercise(mode: Mode) {
         AUTOMATIC_FALLBACK: "DISABLED", EXPLICIT_CONCURRENCY_LIMIT: 1,
         RESPONSE_SHA256: binding.sha256, RESPONSE_UTF8_BYTES: binding.utf8_bytes,
         review_record: payload.review_record
-      });
+      }).toString("ascii");
       await mkdir(dirname(receiptPath), { recursive: true, mode: 0o700 });
       await writeFile(receiptPath, receiptBefore, { mode: 0o600 });
+
+      const reviewRecord = payload.review_record as Record<string, unknown>;
+      const bodyLocator = "runtime/review-response-retention/v1/responses/" + binding.sha256.slice(0, 2)
+        + "/" + binding.sha256 + "/" + String(payload.invocation_id) + ".response";
+      const bindingLocator = "runtime/review-response-retention/v1/bindings/"
+        + String(payload.invocation_id).slice(0, 2) + "/" + String(payload.invocation_id) + ".json";
+      const nativeBinding = {
+        schema: "review-response-binding.v1", contract_version: "ReviewResponseRetentionV1",
+        availability: "AVAILABLE", attempt_id: payload.invocation_id,
+        review_decision_id: reviewRecord.review_decision_id,
+        prior_review_decision_id: reviewRecord.prior_review_decision_id,
+        receipt_schema: "claude-review-router-attempt-receipt.v3", receipt_sha256: sha256Hex(receiptBefore),
+        packet_sha256: prepared.packet_sha256, target: reviewRecord.exact_target_bindings,
+        carrier: { selected_output_carrier: "TEXT_JSON", response_binding: "EXACT_JSON_TEXT" },
+        attestation: { model_class: "FABLE", reasoning: "MAX" },
+        response_artifact: { schema: "review-response-artifact.v1", locator: bodyLocator,
+          sha256: binding.sha256, utf8_bytes: binding.utf8_bytes, encoding: "UTF-8",
+          content: "EXACT_ALREADY_SANITIZED_REVIEW_RESPONSE" }
+      };
+      await mkdir(dirname(join(f.parent, bodyLocator)), { recursive: true, mode: 0o700 });
+      await mkdir(dirname(join(f.parent, bindingLocator)), { recursive: true, mode: 0o700 });
+      await writeFile(join(f.parent, bodyLocator), payload.response as string, { mode: 0o600 });
+      await writeFile(join(f.parent, bindingLocator), canonicalNativeJson(nativeBinding), { mode: 0o600 });
       return {
         ...prepared,
         opaque_state: { installed_root: f.parent, request_path: join(f.parent, "request.json") }

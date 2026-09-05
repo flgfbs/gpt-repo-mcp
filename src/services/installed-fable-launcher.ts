@@ -1,7 +1,7 @@
 import { readHistoricalFableReceipt } from "./fable-historical-receipt.js";
-import { createHash } from "node:crypto";
+import { readNativePrivateFile, verifyNativeFableRetention } from "./fable-native-retention.js";
+import { assertPinnedStaticFile, FABLE_STATIC_DEPENDENCY_PINS } from "./installed-fable-static-pins.js";
 import { constants } from "node:fs";
-import { createReadStream } from "node:fs";
 import { lstat, mkdir, open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -37,13 +37,13 @@ const LAUNCH_TIMEOUT_MS = PRIMARY_PROVIDER_TIMEOUT_MS + ROUTE_QUEUE_ALLOWANCE_MS
 
 const PINNED_LAUNCHER = {
   name: "typed_fable_launcher.py",
-  byte_length: 75_105,
-  sha256: "edb6f9839cb273df909cbedcdb8fea4e4aad1098fbcd30f6ea8e9e62b83912a8"
+  byte_length: 89395,
+  sha256: "1721142dc01211a81a6014bbf52a8333b0ef635ae47fe751edd20c10b3a9bc94"
 } as const;
 const PINNED_ROUTER = {
   name: "claude_review_router.py",
-  byte_length: 373_811,
-  sha256: "d7a999aebffb8246a1d36f107a7d73fb0764c60478e6533963659a0fcdcf12a9"
+  byte_length: 427362,
+  sha256: "37c497ca87459268d49c9f90084e3df34acea3feb897305bfa7aec98740a6882"
 } as const;
 
 type PreparedState = {
@@ -65,7 +65,8 @@ export class InstalledTypedFableLauncher implements FableLauncherPort {
     const routerPath = join(installedRoot, PINNED_ROUTER.name);
     await Promise.all([
       assertPinnedExecutable(launcherPath, PINNED_LAUNCHER),
-      assertPinnedExecutable(routerPath, PINNED_ROUTER)
+      assertPinnedExecutable(routerPath, PINNED_ROUTER),
+      ...FABLE_STATIC_DEPENDENCY_PINS.map(pin => assertPinnedStaticFile(join(installedRoot, pin.name), pin))
     ]);
     const described = await runProcessWithTail({
       executable: launcherPath,
@@ -248,8 +249,7 @@ async function readSuccessReceipt(
     ) {
       throw new Error("receipt locator invalid");
     }
-    const receiptPath = join(installedRoot, ...parts);
-    const bytes = await readPrivateRegularFile(receiptPath, MAX_RECEIPT_BYTES);
+    const bytes = await readNativePrivateFile(installedRoot, locator, MAX_RECEIPT_BYTES);
     const receiptSha256 = sha256Hex(bytes);
     const receipt = asRecord(JSON.parse(bytes.toString("ascii")));
     const publicBinding = asRecord(publicPayload.response_binding);
@@ -259,7 +259,9 @@ async function readSuccessReceipt(
     const responseSha256 = receipt.RESPONSE_SHA256;
     const responseBytes = receipt.RESPONSE_UTF8_BYTES;
     if (
-      receipt.INVOCATION_ID !== attemptId
+      receipt.RECEIPT_SCHEMA !== "claude-review-router-attempt-receipt.v3"
+      || record.schema !== "claude-review-router-review-record.v2"
+      || receipt.INVOCATION_ID !== attemptId
       || receipt.SANITIZED_DIAGNOSTIC_PATH !== locator
       || receipt.PROVIDER_CONTACT !== "YES"
       || receipt.EFFECT_DISPOSITION !== "VALID_REVIEW_RESULT"
@@ -288,14 +290,15 @@ async function readSuccessReceipt(
       || responseBytes > 1024 * 1024
       || publicBinding.sha256 !== responseSha256
       || publicBinding.utf8_bytes !== responseBytes
-      // The pinned router has no response_retention extension. Bind the actual
-      // returned bytes to the retained receipt instead of requiring that label.
+      // Public retention labels are not proof. Read native body and binding below.
       || typeof publicPayload.response !== "string"
       || Buffer.byteLength(publicPayload.response, "utf8") !== responseBytes
       || sha256Hex(publicPayload.response) !== responseSha256
     ) {
       throw new Error("receipt mismatch");
     }
+    await verifyNativeFableRetention({ installed_root: installedRoot, receipt,
+      receipt_bytes: bytes, response: publicPayload.response as string });
     return {
       ok: true,
       attempt_id: attemptId,
@@ -350,18 +353,7 @@ async function assertPinnedExecutable(
   path: string,
   expected: { byte_length: number; sha256: string }
 ): Promise<void> {
-  const metadata = await lstat(path);
-  if (
-    !metadata.isFile()
-    || metadata.isSymbolicLink()
-    || metadata.nlink !== 1
-    || metadata.uid !== currentUid()
-    || (metadata.mode & 0o777) !== OWNER_DIRECTORY_MODE
-    || metadata.size !== expected.byte_length
-    || await hashFile(path) !== expected.sha256
-  ) {
-    throw new Error("STOP_MANAGED_INSTALLED_BYTES_MISMATCH");
-  }
+  await assertPinnedStaticFile(path, { ...expected, mode: 0o700 });
 }
 
 async function ensurePrivateDirectory(path: string): Promise<void> {
@@ -443,16 +435,6 @@ function currentUid(): number {
   const uid = process.getuid?.();
   if (uid === undefined) throw new Error("STOP_MANAGED_OWNER_ID_UNAVAILABLE");
   return uid;
-}
-
-async function hashFile(path: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const hash = createHash("sha256");
-    const stream = createReadStream(path);
-    stream.on("data", (chunk) => hash.update(chunk));
-    stream.on("error", reject);
-    stream.on("end", () => resolve(hash.digest("hex")));
-  });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

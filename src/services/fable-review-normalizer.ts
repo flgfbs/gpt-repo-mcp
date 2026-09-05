@@ -48,6 +48,7 @@ export function normalizeFableInvocation(
         || payload.automatic_fallback !== "DISABLED"
         || payload.refusal_fallback !== "DISABLED"
         || payload.explicit_concurrency_limit !== 1
+        || record.schema !== "claude-review-router-review-record.v2"
         || record.provider_contact_state !== "YES"
         || payload.invocation_id !== receipt.attempt_id
         || record.attempt_id !== receipt.attempt_id
@@ -65,6 +66,8 @@ export function normalizeFableInvocation(
         || exactTarget.commit !== preparation.target.head_sha
         || exactTarget.tree !== preparation.target.tree_sha
         || exactTarget.digest !== `sha256:${preparation.packet.body_sha256}`
+        || exactTarget.target_scope_sha256 !== preparation.scope.sha256
+        || Object.keys(exactTarget).sort().join(",") !== "commit,digest,target_scope_sha256,tree"
         || !hasBoundPacketScope(preparation)
         || attestation.capability_class !== "FABLE"
         || attestation.reasoning !== "MAX"
@@ -173,8 +176,7 @@ export function safeFableOutcomeCode(value: unknown): string {
 
 function hasBoundPacketScope(preparation: FableReviewPreparation): boolean {
   try {
-    // The pinned review-record v1 carries only commit/tree/digest. Its digest
-    // binds the full packet, including the server-authored scope header.
+    // Recheck both explicit v2 scope and the actual server-authored packet header.
     const bytes = preparation.packet_bytes;
     if (sha256Hex(bytes) !== preparation.packet.body_sha256) return false;
     const [marker, headerLine] = bytes.toString("utf8").split("\n", 3);

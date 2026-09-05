@@ -257,6 +257,8 @@ function successfulInvocation(
       response_binding: { sha256: responseSha256, utf8_bytes: responseBytes },
       review_record: {
         attempt_id: attemptId,
+        schema: "claude-review-router-review-record.v2",
+        review_decision_id: `TYPED-SYNTHETIC-${attemptId}`,
         prior_attempt_id: requestOperation.prior_attempt_id,
         prior_review_decision_id: (JSON.parse(packetText.split("\n")[2]!) as { missing_body_recovery?: { prior_review_decision_id: string } }).missing_body_recovery?.prior_review_decision_id ?? "NONE",
         provider_contact_state: "YES",
@@ -270,7 +272,8 @@ function successfulInvocation(
         exact_target_bindings: {
           commit: requestTarget.commit,
           tree: requestTarget.tree,
-          digest: `sha256:${packetSha256}`
+          digest: `sha256:${packetSha256}`,
+          target_scope_sha256: (JSON.parse(packetText.split("\n")[1]!) as { target: { scope_sha256: string } }).target.scope_sha256
         }
       },
       attestation: {

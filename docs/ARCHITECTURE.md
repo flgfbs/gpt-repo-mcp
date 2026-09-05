@@ -192,9 +192,14 @@ retry 禁止は返却 payload の `attestation.provider_retry` と
 response binding・review record の照合は維持します。実アダプターを通す合成テストで
 `PASS`・`REVISE`・`BLOCK` の保持と、不正な retry 証明の拒否を検証します。
 
-pin 済み router の receipt は v2、review record は v1 で、公開 payload に
-`response_retention` 拡張はありません。保存可否のラベルではなく、実際に返された
-応答本文の UTF-8 バイト数と SHA-256 を owner-only receipt と照合します。
+新しい互換 candidate の採用経路は receipt v3、review record v2 と native な完全応答保存を要求します。
+公開 payload の `response_retention` ラベルだけでは採用せず、固定 locator の
+native store の `<attempt>.response`・`<attempt>.json` と、診断側の `receipt.json` を実際に読みます。
+owner-only の親ディレクトリと通常ファイルを検査し、symlink・hardlink・mode違反・
+不完全なUTF-8・未知キー・非正規JSON・bytes/hash/identityの不一致を拒否します。
+3ファイルを二度読み、内容と配置の安定性、完全な4項目target、packet/scope、判定、
+attempt/decision/priorの結合を照合します。既存のv2/v1履歴は別の本文欠落検査に残し、
+新しい成功結果を旧versionへdowngradeして受理しません。
 管理側は receipt 検証の前に、schema・秘密情報検査を通った応答候補を task runtime の
 `fable-received` 内へ新規作成専用で保存し、同一バイトを読み戻します。候補には
 operation・target・scope・packet・lineage と、受信した判定および応答本文だけを束縛し、
@@ -208,10 +213,9 @@ hash・byte length・判定の一致、および最終 task artifact の保存�
 照合失敗時も保存済み候補は削除せず、接触済みを保持します。既存の失敗 operation は書き換えず、
 本文のない歴史的 receipt から指摘本文や完了証拠を合成しません。
 
-review record v1 の target は commit・tree・digest の3項目のみです。
-scope の検証では返却 record に未定義の項目を要求せず、record が示す packet digest、
-実際の packet bytes、packet header の scope・HEAD・tree を照合します。
-これにより scope を維持しながら pin 済み router の返却形式を受け入れます。
+review record v2 は commit・tree・digest・target_scope_sha256 の4項目だけを
+target に持ち、record 自体にも明示したscopeを要求します。両scopeと実際のpacket header・
+HEAD・treeを照合します。旧v1の3項目targetは歴史的証拠の検査だけに使用します。
 
 外側の launcher 実行期限は65分です。pin 済み primary router の provider 上限30分、
 直列 route の1処理分に相当するキュー待ち30分、開始・終了処理5分を含めます。
@@ -347,3 +351,25 @@ semantics without contacting a model. Provider adapters, credentials, model
 selection, and live execution authority remain outside public MCP inputs and
 HTTP server startup. A worker result is evidence; repository validation and
 review remain authoritative.
+
+## Installed Fable static compatibility
+
+MCP の native receipt v3 / retention record v2 読戻しは、router ソース
+`b5a73e7cd37bf0d1524976b4dea783547f3213f0` の launcher と router、および
+閉じた五つの依存ファイルに明示的に固定します。依存は
+`task_prior_archive.py`、`review_response_retention_bootstrap.py`、
+`review_lineage_reconciliation.py`（各 0700）、`route-policy.json`（0600）、
+`resolver_registry.py`（既存 0644 を維持）です。
+
+describe より先に、七つの固定パスについてサイズ、SHA-256、所有者、mode、
+regular file、単一 link、非 symlink を検査します。一つの no-follow descriptor
+から上限付きで読み、読み前後および名前側の identity を照合します。
+これは preflight 時点の静的検査であり、継続的な installed-byte lock、
+provider attestation、runtime activation、任意の root / executable 選択ではありません。
+不一致は接触前に fail-closed となり、既存 installed bytes は書き換えません。
+
+このソース固定は v2–v6 の既存互換修正までです。v6 は完全な archive が存在する
+再審査専用であり、歴史的な欠落本文を回復しません。managed missing-body 専用 v7
+入口は未適用です。MCP 候補の activation と launcher / router pin の整合性は別の
+条件であり、activation 前に activation 後のツール公開を要求しません。
+ただし、現在の運用回復 gate は未実行可能のままです。
