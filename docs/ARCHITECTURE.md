@@ -355,7 +355,7 @@ review remain authoritative.
 ## Installed Fable static compatibility
 
 MCP の native receipt v3 / retention record v2 読戻しと本文欠落回復の専用 v7 要求は、
-router ソース `b02fff27a71cd7b5c5803b7b22037fc898aa0488` の launcher と router、
+router ソース `cf36c972c7e03d43827d50e8c3373ec2d4e3eb8e` の launcher と router、
 および閉じた六つの依存ファイルに明示的に固定します。依存は
 `managed_missing_body_admission.py`、`task_prior_archive.py`、
 `review_response_retention_bootstrap.py`、`review_lineage_reconciliation.py`
@@ -383,5 +383,11 @@ v7 の読取専用適格性確認は invocation 権限ではありません。�
 MCP 候補の activation と launcher / router pin の整合性は別条件であり、
 activation 前に activation 後のツール公開を要求しません。Plan B の恒久 router 候補は
 router 自身の正当な履歴に結合した独立 Fable/MAX レビューと明示的な promotion を要し、
-MCP の PASS を router の承認へ転用しません。既存 bootstrap v1/v2 で最終依存閉包と
-必要な review profile を扱えるとは未確認であり、現在の運用 gate は未実行可能です。
+MCP の PASS を router の承認へ転用しません。固定七件の bootstrap V3 は、保存済みの
+native REVISE、元 transaction の既知の rollback、本文・receipt・binding・packet epoch を
+再照合し、PRIMARY / PLAIN_MARKDOWN の linked focused review だけを扱います。
+旧 v1/v2 の INITIAL controls は変更せず、MCP の本文欠落回復 v7 を bootstrap に混入しません。
+V3 の prior claim は rollback 後も保持され、native link は新しい REVISE leaf に結び、
+packet header の parent は元の有効な initial epoch を維持します。
+現在の pin 更新はこのソース候補への明示的な互換期待値の更新であり、installed byte の
+変更、activation、独立レビュー PASS、promotion、operational recovery を意味しません。
