@@ -117,8 +117,15 @@ class Fixture:
         self.manifest_path.write_bytes(c.encoded(self.manifest))
         self.digest = c.sha(self.manifest_path.read_bytes())
 
-    def op(self, hook=None, process=None):
-        return c.Cohort(self.manifest_path, self.digest, process=process or Quiet(), after_exchange=hook)
+    def op(self, hook=None, process=None, real_source=False):
+        operation = c.Cohort(self.manifest_path, self.digest, process=process or Quiet(), after_exchange=hook)
+        if not real_source:
+            # Fault-matrix cases exercise the real filesystem/controller with a
+            # stable Git seam. Real Git admission remains covered independently
+            # and in the Node restart end-to-end test; avoid thousands of Git
+            # subprocesses competing with the rest of the repository suite.
+            operation.source = lambda: None
+        return operation
 
 
 class ControllerTests(unittest.TestCase):
@@ -271,7 +278,7 @@ class ControllerTests(unittest.TestCase):
     def test_source_drift_blocks(self):
         (self.f.root / "source.txt").write_text("other source")
         with self.assertRaisesRegex(c.Blocked, "SOURCE_IDENTITY_DRIFT"):
-            self.f.op().prepare()
+            self.f.op(real_source=True).prepare()
 
     def test_each_rollback_interruption_preserves_recovery(self):
         for phase in range(0, 10):
@@ -392,7 +399,7 @@ class ControllerTests(unittest.TestCase):
                     self.assertIn("MODULE_NOT_FOUND", result.stderr)
                     self.assertNotIn("MIXED_COHORT", result.stderr)
                 observed.append(phase)
-            op = f.op(restart)
+            op = f.op(restart, real_source=True)
             op.prepare()
             op.run()
             op.run(True)

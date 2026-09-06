@@ -66,4 +66,7 @@ MCP の回復 verdict を router 自身の qualification/promotion に転用し�
 実行します。全 writable root は disposable fixture で、service/provider/GitHub への接触はありません。
 実 atomic exchange、閉じた旧 hardlink、各 apply/rollback 中断点、実 Node entrypoint restart、
 drift、symlink、未知 member、保存側欠落、排他、非変更を確認します。
+障害注入の組合せテストは Git を安定した合成 seam に置き換えます。実 Git の状態照合は
+独立した drift テストと実 Node restart の end-to-end テストで維持し、ファイル交換・journal・
+hardlink・回復処理は全ケースで本番実装を通します。
 これらは source 検証であり、実 installed recovery、独立 Fable review、運用完了ではありません。
