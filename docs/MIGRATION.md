@@ -188,3 +188,11 @@ Tunnel, stop the server, restore the preserved compatible configuration, and
 restart the previously trusted revision. Do not reuse a lifecycle operation,
 merge gate, or approval across revisions unless the exact runtime reports it as
 current and compatible.
+
+## Existing-task messaging (additive source change)
+
+既存の 66 tool を同じ順序・schema で保持し、末尾に `repo_task_message_resolve`、
+`repo_send_task_message`、`repo_task_message_read` を追加して計 69 tool とする。
+optional private `task_messaging` config が未設定なら無効であり、既存 managed-run state
+の migration は不要。導入・runtime reload・owner binding・actual ChatGPT exposure は
+別の activation 境界である。[Task Messaging](TASK_MESSAGING.md) を参照。

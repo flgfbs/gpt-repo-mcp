@@ -40,7 +40,8 @@ export class RootRegistry {
       max_total_bytes: number;
     },
     readonly codeIntelligence: z.output<typeof RepoReaderConfigSchema>["code_intelligence"],
-    readonly runtimeRoot: string
+    readonly runtimeRoot: string,
+    readonly taskMessaging: z.output<typeof RepoReaderConfigSchema>["task_messaging"]
   ) {
     this.reposById = new Map(repos.map((repo) => [repo.repo_id, repo]));
     this.baseRepoIds = new Set(repos.map((repo) => repo.repo_id));
@@ -53,7 +54,7 @@ export class RootRegistry {
       max_files: parsed.limits.max_files ?? DEFAULT_LIMITS.max_files,
       max_bytes_per_file: parsed.limits.max_bytes_per_file ?? DEFAULT_LIMITS.max_bytes_per_file,
       max_total_bytes: parsed.limits.max_total_bytes ?? DEFAULT_LIMITS.max_total_bytes
-    }, parsed.code_intelligence, resolve(parsed.runtime_root));
+    }, parsed.code_intelligence, resolve(parsed.runtime_root), parsed.task_messaging);
   }
 
   static async fromFile(configPath: string): Promise<RootRegistry> {

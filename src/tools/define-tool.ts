@@ -8,11 +8,13 @@ export function registerCatalogTool(server: McpServer, context: RuntimeContext, 
     {
       title: tool.title,
       description: tool.description,
-      inputSchema: tool.inputSchema.shape,
+      // Preserve strict objects/refinements at the SDK boundary. Converting these
+      // contracts to a raw shape would silently strip attempted role overrides.
+      inputSchema: tool.package === "task_messaging" ? tool.inputSchema : tool.inputSchema.shape,
       outputSchema: tool.outputSchema.shape,
       annotations: tool.annotations
     },
-    async (args) => {
+    async (args: Record<string, unknown>) => {
       const taskBinding = typeof args.repo_id === "string"
         ? context.registry.taskBinding(args.repo_id)
         : undefined;

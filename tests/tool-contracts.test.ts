@@ -47,7 +47,7 @@ import { PatchsetApplyInputSchema, PatchsetApplyResultSchema, PatchsetPrepareInp
 import { ValidateInputSchema, ValidateResultSchema } from "../src/contracts/validation.contract.js";
 import { CurrentWorkSessionInputSchema, CurrentWorkSessionResultSchema, StartWorkSessionInputSchema, StartWorkSessionResultSchema, UpdateWorkSessionInputSchema, UpdateWorkSessionResultSchema } from "../src/contracts/work-session.contract.js";
 import { RepoReaderConfigSchema } from "../src/config/schema.js";
-import { idempotentWriteAnnotations, nonDestructiveMutationAnnotations, openWorldMutationAnnotations, readOnlyAnnotations, safeMutationAnnotations, writeAnnotations } from "../src/tools/annotations.js";
+import { idempotentWriteAnnotations, nonDestructiveMutationAnnotations, openWorldMutationAnnotations, openWorldReadOnlyAnnotations, readOnlyAnnotations, safeMutationAnnotations, writeAnnotations } from "../src/tools/annotations.js";
 import { toolCatalog } from "../src/tools/catalog.js";
 import { CANONICAL_TOOL_ORDER, toolRegistry, toolsForPackage } from "../src/tools/registry.js";
 import * as handlerExports from "../src/tools/handlers.js";
@@ -149,7 +149,10 @@ describe("tool catalog contracts", () => {
       "repo_merge_gate_prepare",
       "repo_write_merge",
       "repo_post_merge_readback",
-      "repo_task_admission"
+      "repo_task_admission",
+      "repo_task_message_resolve",
+      "repo_send_task_message",
+      "repo_task_message_read"
     ]);
 
     for (const tool of toolCatalog) {
@@ -157,7 +160,9 @@ describe("tool catalog contracts", () => {
       expect(tool.description.startsWith("Use this when")).toBe(true);
       expect(tool.inputSchema).toBeDefined();
       expect(tool.outputSchema).toBeDefined();
-      if (tool.package === "lifecycle") {
+      if (tool.package === "task_messaging") {
+        expect(tool.annotations).toEqual(tool.name === "repo_send_task_message" ? openWorldMutationAnnotations : openWorldReadOnlyAnnotations);
+      } else if (tool.package === "lifecycle") {
         expect(tool.annotations.idempotentHint).toBe(true);
       } else if (isMutatingToolName(tool.name)) {
         expect(tool.annotations).toEqual(
@@ -184,10 +189,11 @@ describe("tool catalog contracts", () => {
     const descriptionPayloadBytes = Buffer.byteLength(toolCatalog.map((tool) => tool.description).join(" "), "utf8");
 
     expect(instructionSourceBytes).toBeLessThan(6_000);
-    expect(descriptionSourceBytes).toBeLessThan(11_250);
-    expect(descriptionPayloadBytes).toBeLessThan(9_500);
+    // Three explicitly approved messaging actions add bounded capability/effect metadata.
+    expect(descriptionSourceBytes).toBeLessThan(11_250 + 750);
+    expect(descriptionPayloadBytes).toBeLessThan(9_500 + 650);
     expect(instructionSourceBytes).toBeLessThan(Math.floor(15_644 * 0.4));
-    expect(descriptionSourceBytes).toBeLessThan(Math.floor(16_819 * 0.7));
+    expect(descriptionSourceBytes).toBeLessThan(Math.floor(16_819 * 0.7) + 750);
 
     const description = (name: string) => toolCatalog.find((tool) => tool.name === name)?.description ?? "";
     expect(description("repo_context_map")).toContain("file-level impact");
@@ -235,7 +241,8 @@ describe("tool catalog contracts", () => {
       "repo_write_pr_reply",
       "repo_write_pr_resolve_thread",
       "repo_write_ci_retry_failed",
-      "repo_write_merge"
+      "repo_write_merge",
+      "repo_send_task_message"
     ]);
     expect(MUTATING_TOOL_NAMES).toEqual(toolCatalog
       .filter((tool) => tool.annotations.readOnlyHint === false)
@@ -383,7 +390,7 @@ describe("tool catalog contracts", () => {
   test("internal registry composes exact packages without changing the canonical surface", () => {
     expect(toolRegistry).toBe(toolCatalog);
     expect(toolRegistry.map((tool) => tool.name)).toEqual(CANONICAL_TOOL_ORDER);
-    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(66);
+    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(69);
     expect([...CANONICAL_TOOL_ORDER].sort()).toEqual(Object.keys(toolContracts).sort());
 
     expect(toolsForPackage("developer").map((tool) => tool.name)).toEqual([

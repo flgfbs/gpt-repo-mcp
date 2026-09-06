@@ -54,7 +54,7 @@ transport:
 | Recovery | launch intent without result and unknown effects stop without replay |
 
 `repo_task_admission` is the public admission surface, and
-`repo_continue_agent_run` is the single public continuation mutation. The separate owner-local queue
+`repo_continue_agent_run` remains the managed-run continuation mutation. The separate owner-local queue
 consumer, dispatch store, launcher interface, App Server adapter, private
 thread/turn identifiers, and notification sink are internal runtime components.
 They are not a second MCP server, scheduler, status plane, or control plane.

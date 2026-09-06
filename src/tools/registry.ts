@@ -6,6 +6,7 @@ import { developerTools } from "./packages/developer.js";
 import { diagnosticAndDiscoveryTools } from "./packages/diagnostics-and-discovery.js";
 import { lifecycleTools } from "./packages/lifecycle.js";
 import { patchsetTools } from "./packages/patchsets.js";
+import { taskMessagingTools } from "./packages/task-messaging.js";
 import type { ToolDefinition, ToolPackage } from "./tool-definition.js";
 
 export const CANONICAL_TOOL_ORDER = [
@@ -74,7 +75,10 @@ export const CANONICAL_TOOL_ORDER = [
   "repo_merge_gate_prepare",
   "repo_write_merge",
   "repo_post_merge_readback",
-  "repo_task_admission"
+  "repo_task_admission",
+  "repo_task_message_resolve",
+  "repo_send_task_message",
+  "repo_task_message_read"
 ] as const satisfies readonly ToolName[];
 
 const packageDefinitions = [
@@ -84,7 +88,8 @@ const packageDefinitions = [
   ...advancedOperationTools,
   ...diagnosticAndDiscoveryTools,
   ...codeIndexTools,
-  ...lifecycleTools
+  ...lifecycleTools,
+  ...taskMessagingTools
 ];
 
 const definitionsByName = new Map<ToolName, ToolDefinition>();

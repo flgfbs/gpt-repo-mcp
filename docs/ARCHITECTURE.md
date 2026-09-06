@@ -1,7 +1,7 @@
 # Architecture
 
 Chat Pro Repository MCP is a contract-first, local-first MCP server. The public
-surface is a closed catalog of exactly 66 tools. Task/worktree lifecycle is
+surface is a closed catalog of exactly 69 tools. Task/worktree lifecycle is
 local; only the GitHub-enabled external subset is open-world because it
 contacts the configured Git remote and GitHub.
 
@@ -24,7 +24,7 @@ src/contracts/*.contract.ts
 - Package modules attach title, description, annotations, tier, capability, and
   thin handler.
 - `src/tools/registry.ts` rejects duplicates, missing definitions, and unknown
-  definitions, then constructs the canonical 66-tool order.
+  definitions, then constructs the canonical 69-tool order.
 - `src/register.ts` iterates that registry and registers each tool through
   `src/tools/define-tool.ts`.
 - Handlers parse, call one runtime/service boundary, audit safe metadata, and
@@ -232,3 +232,11 @@ semantics without contacting a model. Provider adapters, credentials, model
 selection, and live execution authority remain outside public MCP inputs and
 HTTP server startup. A worker result is evidence; repository validation and
 review remain authoritative.
+
+## Existing-task messaging
+
+[既存タスク messaging](TASK_MESSAGING.md) は managed task/run と独立した private
+message identity を持つ。既存 contract/registry/handler/service、owner control
+socket、secure filesystem と cross-process lock を再利用する。public send input は
+owner grant の alias と digest を固定し、任意の runtime ID、role、override を拒否する。
+通知は unsupported のまま返し、明示的継続の acceptance と persistence を区別する。

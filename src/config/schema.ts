@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { DEFAULT_OPERATIONS_POLICY, SHIP_VALIDATION_TEST_PATH_GLOBS } from "../policies/operations-defaults.js";
 import { DEFAULT_WRITE_POLICY } from "../policies/write-defaults.js";
+import { TaskMessagingConfigSchema } from "./task-messaging.js";
 
 const PositiveIntSchema = z.number().int().positive();
 
@@ -239,6 +240,7 @@ export const RepoReaderConfigSchema = z.object({
   project_roots: z.array(ProjectRootConfigSchema).default([]),
   limits: LimitsConfigSchema.default({}),
   code_intelligence: CodeIntelligenceConfigSchema.optional(),
+  task_messaging: TaskMessagingConfigSchema.optional(),
   runtime_root: z.string().min(1).refine(isAbsolute, "runtime_root must be an absolute path").default(DEFAULT_RUNTIME_ROOT)
 }).strict();
 
@@ -259,6 +261,7 @@ export type RepoReaderConfig = {
   project_roots?: ProjectRootConfig[];
   limits: z.input<typeof LimitsConfigSchema>;
   code_intelligence?: z.input<typeof CodeIntelligenceConfigSchema>;
+  task_messaging?: z.input<typeof TaskMessagingConfigSchema>;
   runtime_root?: string;
 };
 export type ParsedRepoConfig = z.output<typeof RepoConfigSchema>;

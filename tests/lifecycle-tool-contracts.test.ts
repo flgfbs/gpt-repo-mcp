@@ -158,11 +158,11 @@ const validInputs = {
 
 describe("lifecycle tool contracts", () => {
   test("preserves the local prefix and appends exactly 18 canonical lifecycle names without aliases", () => {
-    expect(CANONICAL_TOOL_ORDER).toHaveLength(66);
+    expect(CANONICAL_TOOL_ORDER).toHaveLength(69);
     expect(CANONICAL_TOOL_ORDER.slice(0, 48)).toEqual(INHERITED_TOOL_ORDER);
-    expect(CANONICAL_TOOL_ORDER.slice(48)).toEqual(LIFECYCLE_TOOL_ORDER);
-    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(66);
-    expect(Object.keys(toolContracts)).toHaveLength(66);
+    expect(CANONICAL_TOOL_ORDER.slice(48, 66)).toEqual(LIFECYCLE_TOOL_ORDER);
+    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(69);
+    expect(Object.keys(toolContracts)).toHaveLength(69);
     expect([...CANONICAL_TOOL_ORDER].sort()).toEqual(Object.keys(toolContracts).sort());
     expect(toolRegistry.map(({ name }) => name)).toEqual(CANONICAL_TOOL_ORDER);
     expect(toolsForPackage("lifecycle").map(({ name }) => name)).toEqual(LIFECYCLE_TOOL_ORDER);

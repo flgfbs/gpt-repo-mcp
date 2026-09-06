@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import { RepoReaderError } from "../runtime/errors.js";
 
-export type CodexAppServerMethod = "thread/read" | "thread/resume" | "thread/start" | "turn/start";
+export type CodexAppServerMethod = "thread/read" | "thread/items/list" | "thread/resume" | "thread/start" | "turn/start";
 
 export type CodexAppServerTurnStatus = "inProgress" | "completed" | "interrupted" | "failed";
 

@@ -64,5 +64,8 @@ export const descriptions = {
   repo_merge_gate_prepare: "Use this when reading exact PR, review, and CI state to prepare an expiring merge manifest for owner CLI approval.",
   repo_write_merge: "Use this when consuming one exact unexpired owner-CLI approval to merge its bound manifest once.",
   repo_post_merge_readback: "Use this when reading GitHub after merge to confirm the exact PR, base ref, task ref, and merge commits.",
-  repo_task_admission: "Use this when classifying the requested task as absent, exactly active, or conflicting. Unrelated active tasks do not conflict."
+  repo_task_admission: "Use this when classifying the requested task as absent, exactly active, or conflicting. Unrelated active tasks do not conflict.",
+  repo_task_message_resolve: "Use this when resolving one owner-bound existing task and its actual input capability. No account-wide enumeration or managed-run creation.",
+  repo_send_task_message: "Use this when sending bounded context to up to eight resolved existing tasks. notify never generates or steers and currently returns unsupported. continue explicitly starts generation or feeds an active turn. Preserve message_id across retries; inspect per-recipient evidence.",
+  repo_task_message_read: "Use this when reading or reconciling the same message without resending. Persistence, acceptance, uncertainty and acknowledgement remain distinct."
 } as const;
