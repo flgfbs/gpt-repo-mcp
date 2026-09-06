@@ -10,13 +10,13 @@ export type InstalledStaticPin = {
 };
 
 // Closed production support closure. These are not caller-selectable paths.
-// Source cohort: router cf36c972c7e03d43827d50e8c3373ec2d4e3eb8e.
+// Source cohort: router 59255140880abf38176e4504271051bd00be4ff4.
 // Resolver mode 0644 is preserved; the remaining modes are activation targets.
 // This binds source expectations only. It never installs or rewrites bytes.
 export const FABLE_STATIC_DEPENDENCY_PINS = [
   { name: "managed_missing_body_admission.py", byte_length: 29708, sha256: "516cc1db7a05c134e33a647303b8d4bccca038f482d7562802e9ef3e20084332", mode: 0o700 },
   { name: "task_prior_archive.py", byte_length: 9088, sha256: "77305071d2a5cb01ec255a20055182ae7d825c6d9ef07f7aca471432636ecfa1", mode: 0o700 },
-  { name: "review_response_retention_bootstrap.py", byte_length: 85995, sha256: "0b9a79bd0f311a174a765831269a237a4bc608b362af3d01b6776654f9f31f2b", mode: 0o700 },
+  { name: "review_response_retention_bootstrap.py", byte_length: 98844, sha256: "639f2d0b40e3dcf033c56da9483994c63a6ea62ca16c7d756c506823fdb19a18", mode: 0o700 },
   { name: "review_lineage_reconciliation.py", byte_length: 28795, sha256: "7d58b0778f2abe6f9d6796cc45acd01354f4a67fd59c74dc0923dc47f33f48c4", mode: 0o700 },
   { name: "route-policy.json", byte_length: 4467, sha256: "b4e2335ab4bc42212f03580b26a5e7966fe5f122e4a4bc1c982582fe82426bf8", mode: 0o600 },
   { name: "resolver_registry.py", byte_length: 22860, sha256: "bbc12e68b8a7eeb1a0142b23da1655a5ddbe22011c65f8a5a420f534fa1ddbb4", mode: 0o644 }

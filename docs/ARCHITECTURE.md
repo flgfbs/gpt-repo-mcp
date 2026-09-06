@@ -355,7 +355,7 @@ review remain authoritative.
 ## Installed Fable static compatibility
 
 MCP の native receipt v3 / retention record v2 読戻しと本文欠落回復の専用 v7 要求は、
-router ソース `cf36c972c7e03d43827d50e8c3373ec2d4e3eb8e` の launcher と router、
+router ソース `59255140880abf38176e4504271051bd00be4ff4` の launcher と router、
 および閉じた六つの依存ファイルに明示的に固定します。依存は
 `managed_missing_body_admission.py`、`task_prior_archive.py`、
 `review_response_retention_bootstrap.py`、`review_lineage_reconciliation.py`
@@ -389,5 +389,12 @@ native REVISE、元 transaction の既知の rollback、本文・receipt・bindi
 旧 v1/v2 の INITIAL controls は変更せず、MCP の本文欠落回復 v7 を bootstrap に混入しません。
 V3 の prior claim は rollback 後も保持され、native link は新しい REVISE leaf に結び、
 packet header の parent は元の有効な initial epoch を維持します。
+archive-present の閉じた V3 prior variant では、元 known-rollback anchor と保管済み focused
+REVISE を別々に照合し、native prior / linked decision / predecessor claim は後者へ結びます。
+この場合だけ既存 typed-v6 を使い、MCP の v7 missing-body semantics へ置き換えません。
+外部 controller の4依存を source commit の SHA-256/size へ固定し、全依存の読取・照合後に
+保持した bytes のみを実行します。installed 側の arm/claim からも manifest の外部 controller
+path を使います。prepare/activate/arm/claim の native history 再検査、既存の完全な packet
+history gate と claim を省略せず、archive descriptor のみから最新 leaf とは推定しません。
 現在の pin 更新はこのソース候補への明示的な互換期待値の更新であり、installed byte の
 変更、activation、独立レビュー PASS、promotion、operational recovery を意味しません。
