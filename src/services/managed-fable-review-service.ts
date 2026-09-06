@@ -186,11 +186,11 @@ export class ManagedFableReviewService implements ManagedFableReviewRuntime {
         target,
         scope,
         ...(prior ? { prior } : {}),
-        ...(recovery ? { recovery } : {}),
+        ...(recovery ? { recovery, managed_runtime_root: this.tasks.fs.root } : {}),
         scanner: this.scanner
       });
       const preflight = await this.launcher.preflight();
-      validateFablePreflight(preflight);
+      validateFablePreflight(preflight, recovery !== undefined);
       await this.claims.assertAdmissible(input.task_id, preparation.admission_key);
       await this.received.assertFresh(input);
       const prepared = await this.launcher.prepare({

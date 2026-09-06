@@ -10,10 +10,11 @@ export type InstalledStaticPin = {
 };
 
 // Closed production support closure. These are not caller-selectable paths.
-// Source cohort: router b5a73e7cd37bf0d1524976b4dea783547f3213f0.
+// Source cohort: router b02fff27a71cd7b5c5803b7b22037fc898aa0488.
 // Resolver mode 0644 is preserved; the remaining modes are activation targets.
 // This binds source expectations only. It never installs or rewrites bytes.
 export const FABLE_STATIC_DEPENDENCY_PINS = [
+  { name: "managed_missing_body_admission.py", byte_length: 29708, sha256: "516cc1db7a05c134e33a647303b8d4bccca038f482d7562802e9ef3e20084332", mode: 0o700 },
   { name: "task_prior_archive.py", byte_length: 9088, sha256: "77305071d2a5cb01ec255a20055182ae7d825c6d9ef07f7aca471432636ecfa1", mode: 0o700 },
   { name: "review_response_retention_bootstrap.py", byte_length: 74405, sha256: "1b19f853f9b97967225dabe360dc47d66d735915029a1058eb1b87b1c9379585", mode: 0o700 },
   { name: "review_lineage_reconciliation.py", byte_length: 28795, sha256: "7d58b0778f2abe6f9d6796cc45acd01354f4a67fd59c74dc0923dc47f33f48c4", mode: 0o700 },

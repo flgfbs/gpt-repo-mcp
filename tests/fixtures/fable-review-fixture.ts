@@ -22,6 +22,7 @@ const PREFLIGHT: FableLauncherPreflight = {
   launcher_sha256: "a".repeat(64),
   router_sha256: "b".repeat(64),
   request_schema: "claude-review-router-typed-launch.v2",
+  managed_missing_body_request_schema: "claude-review-router-typed-launch.v7",
   provider_contact_limit: 1,
   model_class: "FABLE",
   reasoning: "MAX"

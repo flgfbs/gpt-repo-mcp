@@ -146,6 +146,15 @@ describe("missing-body recovery contract", { timeout: 30_000 }, () => {
     expect(Buffer.from(artifact.content_base64, "base64").toString()).toBe(canonicalJson(x.prior));
     const durable = `fable-recoveries/${hashedDiskKey("fable-recovery-task", x.f.taskId)}/${hashedDiskKey("fable-recovery-operation", x.input.operation_id)}.json`;
     expect(JSON.parse((await x.f.bundle.tasks.fs.readFile(durable, 65536)).toString()).recovery).toEqual(result.recovery);
+    expect(x.launcher.requests[0]).toMatchObject({
+      schema: "claude-review-router-typed-launch.v7",
+      managed_missing_body: {
+        schema: "claude-review-router-managed-missing-body.v1",
+        runtime_root: x.f.bundle.tasks.fs.root, repo_id: x.input.repo_id,
+        task_id: x.input.task_id, operation_id: x.input.operation_id,
+        recovery_sha256: sha256Hex(canonicalJson(result.recovery))
+      }
+    });
     expect(x.launcher.requests[0]?.operation).toMatchObject({
       kind: "FOCUSED_REREVIEW", prior_attempt_id: ATTEMPT,
       causal_repair: { code: "MISSING_BODY_FULL_SCOPE_REEXAMINATION" }
@@ -157,6 +166,20 @@ describe("missing-body recovery contract", { timeout: 30_000 }, () => {
     const replay = await x.service.run({ ...x.input, operation_id: "operation-recovery-alias", prior_review_artifact_id: alias.artifact_id });
     expect(replay).toMatchObject({ provider_contact: "NO", outcome_code: "STOP_MANAGED_REVIEW_REPLAY_BLOCKED" });
     expect(x.launcher.invocationCount).toBe(1);
+  });
+
+  test("recovery requires explicit v7 preflight before bundle or contact", async () => {
+    const x = await fixture();
+    const observed = await x.launcher.preflight();
+    const { managed_missing_body_request_schema: _schema, ...legacy } = observed;
+    void _schema;
+    vi.spyOn(x.launcher, "preflight").mockResolvedValue(legacy);
+    const prepare = vi.spyOn(x.launcher, "prepare");
+    expect(await x.service.run(x.input)).toMatchObject({
+      provider_contact: "NO", outcome_code: "STOP_MANAGED_LAUNCHER_ATTESTATION_MISMATCH"
+    });
+    expect(prepare).not.toHaveBeenCalled();
+    expect(x.launcher.invocationCount).toBe(0);
   });
 
   test("requires the old body to be absent, not merely unadopted", async () => {

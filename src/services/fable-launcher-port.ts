@@ -5,6 +5,8 @@ export type FableLauncherPreflight = {
   launcher_sha256: string;
   router_sha256: string;
   request_schema: "claude-review-router-typed-launch.v2";
+  // Attested internal compatibility capability; never a public path selector.
+  managed_missing_body_request_schema?: "claude-review-router-typed-launch.v7";
   provider_contact_limit: 1;
   model_class: "FABLE";
   reasoning: "MAX";

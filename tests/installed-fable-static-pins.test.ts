@@ -40,6 +40,7 @@ const actual = await vi.importActual<typeof import("../src/services/installed-fa
   "../src/services/installed-fable-static-pins.js"
 );
 const SUPPORT = [
+  "managed_missing_body_admission.py",
   "task_prior_archive.py",
   "review_response_retention_bootstrap.py",
   "review_lineage_reconciliation.py",
@@ -73,7 +74,7 @@ async function fixture(): Promise<{ home: string; installed: string }> {
 }
 
 function described(): string {
-  const schemas = [2, 3, 4, 5, 6].map(version => "claude-review-router-typed-launch.v" + version);
+  const schemas = [2, 3, 4, 5, 6, 7].map(version => "claude-review-router-typed-launch.v" + version);
   return JSON.stringify({
     supported_request_schemas: schemas,
     provider_contacts_per_launcher_invocation_max: Object.fromEntries(schemas.map(value =>
@@ -105,7 +106,7 @@ afterEach(async () => {
 });
 
 describe("closed installed Fable static support pins", () => {
-  test("has exactly five source-bound production dependencies", async () => {
+  test("has exactly six source-bound production dependencies", async () => {
     expect(actual.FABLE_STATIC_DEPENDENCY_PINS.map(pin => pin.name)).toEqual(SUPPORT);
     for (const pin of actual.FABLE_STATIC_DEPENDENCY_PINS) {
       expect(pin.byte_length).toBeGreaterThan(0);
@@ -116,7 +117,7 @@ describe("closed installed Fable static support pins", () => {
     expect(runProcess).not.toHaveBeenCalled();
   });
 
-  test("checks all seven fixed files before the one describe process", async () => {
+  test("checks all eight fixed files before the one describe process", async () => {
     const f = await fixture();
     const before = new Map(await Promise.all([...EXECUTABLES, ...SUPPORT].map(async name =>
       [name, await readFile(join(f.installed, name))] as const)));
@@ -130,6 +131,7 @@ describe("closed installed Fable static support pins", () => {
     });
     await expect(new InstalledTypedFableLauncher().preflight()).resolves.toMatchObject({
       request_schema: "claude-review-router-typed-launch.v2",
+      managed_missing_body_request_schema: "claude-review-router-typed-launch.v7",
       provider_contact_limit: 1, model_class: "FABLE", reasoning: "MAX"
     });
     expect(runProcess).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
@@ -137,6 +139,41 @@ describe("closed installed Fable static support pins", () => {
     }));
     for (const [name, bytes] of before) expect(await readFile(join(f.installed, name))).toEqual(bytes);
   });
+
+  test("legacy describe never implies managed recovery capability", async () => {
+    await fixture();
+    const value = JSON.parse(described());
+    value.supported_request_schemas = value.supported_request_schemas.filter(
+      (schema: string) => !schema.endsWith(".v7"));
+    runProcess.mockResolvedValueOnce({
+      exit_code: 0, timed_out: false, duration_ms: 0, stdout_tail: "", stderr_tail: "",
+      captured_output: { stdout: JSON.stringify(value), stderr: "", truncated: false }
+    });
+    const result = await new InstalledTypedFableLauncher().preflight();
+    expect(result.request_schema).toBe("claude-review-router-typed-launch.v2");
+    expect(result).not.toHaveProperty("managed_missing_body_request_schema");
+    expect(runProcess).toHaveBeenCalledOnce();
+  });
+
+  test.each(["generic_limit", "missing_limit", "multiple_contacts", "missing_successor", "enabled_successor"] as const)(
+    "v7 rejects %s before preparation or provider contact", async kind => {
+      await fixture();
+      const value = JSON.parse(described());
+      const schema = "claude-review-router-typed-launch.v7";
+      if (kind === "generic_limit") value.provider_contacts_per_launcher_invocation_max = 1;
+      if (kind === "missing_limit") delete value.provider_contacts_per_launcher_invocation_max[schema];
+      if (kind === "multiple_contacts") value.provider_contacts_per_launcher_invocation_max[schema] = 2;
+      if (kind === "missing_successor") delete value.automatic_successor_per_launcher_invocation[schema];
+      if (kind === "enabled_successor") value.automatic_successor_per_launcher_invocation[schema] = "PRE_MODEL_HTTP_529_ONCE";
+      runProcess.mockResolvedValueOnce({
+        exit_code: 0, timed_out: false, duration_ms: 0, stdout_tail: "", stderr_tail: "",
+        captured_output: { stdout: JSON.stringify(value), stderr: "", truncated: false }
+      });
+      await expect(new InstalledTypedFableLauncher().preflight())
+        .rejects.toThrow("STOP_MANAGED_LAUNCHER_CONTRACT_MISMATCH");
+      expect(runProcess).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ args: ["describe"] }));
+    }
+  );
 
   for (const name of SUPPORT) {
     test.each(["missing", "tampered", "mode", "symlink", "hardlink"] as const)(

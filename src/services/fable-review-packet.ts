@@ -12,6 +12,7 @@ import { GitService } from "./git-service.js";
 import type { SecretScanner } from "./secret-scanner.js";
 
 const REQUEST_SCHEMA = "claude-review-router-typed-launch.v2";
+const MANAGED_RECOVERY_REQUEST_SCHEMA = "claude-review-router-typed-launch.v7";
 const MAX_DIFF_BYTES = 16 * 1024 * 1024;
 
 export type CanonicalFableScope = FableReviewEvidence["scope"];
@@ -78,9 +79,10 @@ export function assertExactFableTaskBinding(
   }
 }
 
-export function validateFablePreflight(value: FableLauncherPreflight): void {
+export function validateFablePreflight(value: FableLauncherPreflight, missingBodyRecovery = false): void {
   if (
     value.request_schema !== REQUEST_SCHEMA
+    || (missingBodyRecovery && value.managed_missing_body_request_schema !== MANAGED_RECOVERY_REQUEST_SCHEMA)
     || value.provider_contact_limit !== 1
     || value.model_class !== "FABLE"
     || value.reasoning !== "MAX"
@@ -98,8 +100,10 @@ export async function buildFableReviewPreparation(input: {
   scope: CanonicalFableScope;
   prior?: PriorFableReview;
   recovery?: FableRecoveryEvidence;
+  managed_runtime_root?: string;
   scanner: SecretScanner;
 }): Promise<FableReviewPreparation> {
+  if (input.recovery && !input.managed_runtime_root) throw new Error("STOP_MANAGED_RECOVERY_RUNTIME_BINDING_REQUIRED");
   const patch = await exactDiff(input.root, input.target.base_commit_sha, input.target.head_sha, input.scope);
   if (patch.length === 0) throw new Error("STOP_MANAGED_EMPTY_REVIEW_DIFF");
   if (input.recovery) {
@@ -210,7 +214,15 @@ export async function buildFableReviewPreparation(input: {
     packet_sha256: packetSha256
   }).slice(0, 32);
   const request = {
-    schema: REQUEST_SCHEMA,
+    schema: input.recovery ? MANAGED_RECOVERY_REQUEST_SCHEMA : REQUEST_SCHEMA,
+    ...(input.recovery ? { managed_missing_body: {
+      schema: "claude-review-router-managed-missing-body.v1",
+      runtime_root: input.managed_runtime_root!,
+      repo_id: input.request.repo_id,
+      task_id: input.request.task_id,
+      operation_id: input.request.operation_id,
+      recovery_sha256: canonicalSha256(input.recovery)
+    } } : {}),
     bundle_id: bundleId,
     packet: {
       byte_length: packetBytes.length,

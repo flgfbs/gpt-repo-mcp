@@ -19,6 +19,7 @@ import type {
 } from "./fable-launcher-port.js";
 
 const REQUEST_SCHEMA = "claude-review-router-typed-launch.v2" as const;
+const MANAGED_RECOVERY_REQUEST_SCHEMA = "claude-review-router-typed-launch.v7" as const;
 const INSTALLED_ROOT_PARTS = [".codex", "external-model-adapters", "claude-review-router"] as const;
 const TRANSPORT_ROOT_PARTS = ["private", "tmp", "codex-fable-review"] as const;
 const OWNER_DIRECTORY_MODE = 0o700;
@@ -37,13 +38,13 @@ const LAUNCH_TIMEOUT_MS = PRIMARY_PROVIDER_TIMEOUT_MS + ROUTE_QUEUE_ALLOWANCE_MS
 
 const PINNED_LAUNCHER = {
   name: "typed_fable_launcher.py",
-  byte_length: 89395,
-  sha256: "1721142dc01211a81a6014bbf52a8333b0ef635ae47fe751edd20c10b3a9bc94"
+  byte_length: 91921,
+  sha256: "c2bf8581695705aeb355c81ac32d59811dd976a0ee7dc0cd7dbef34783e415d8"
 } as const;
 const PINNED_ROUTER = {
   name: "claude_review_router.py",
-  byte_length: 427362,
-  sha256: "37c497ca87459268d49c9f90084e3df34acea3feb897305bfa7aec98740a6882"
+  byte_length: 434597,
+  sha256: "6f39cf431f4814097799b81566780746a14a3390b96f05011d53c46aab64fa20"
 } as const;
 
 type PreparedState = {
@@ -92,11 +93,12 @@ export class InstalledTypedFableLauncher implements FableLauncherPort {
     } catch {
       throw new Error("STOP_MANAGED_LAUNCHER_DESCRIBE_INVALID");
     }
-    validateDescribe(payload);
+    const managedRecovery = validateDescribe(payload);
     return {
       launcher_sha256: PINNED_LAUNCHER.sha256,
       router_sha256: PINNED_ROUTER.sha256,
       request_schema: REQUEST_SCHEMA,
+      ...(managedRecovery ? { managed_missing_body_request_schema: MANAGED_RECOVERY_REQUEST_SCHEMA } : {}),
       provider_contact_limit: 1,
       model_class: "FABLE",
       reasoning: "MAX"
@@ -197,7 +199,7 @@ export class InstalledTypedFableLauncher implements FableLauncherPort {
   }
 }
 
-function validateDescribe(value: unknown): void {
+function validateDescribe(value: unknown): boolean {
   const record = asRecord(value);
   const supportedSchemas = record.supported_request_schemas;
   const carrierValues = record.output_carriers;
@@ -225,6 +227,16 @@ function validateDescribe(value: unknown): void {
   ) {
     throw new Error("STOP_MANAGED_LAUNCHER_CONTRACT_MISMATCH");
   }
+  // A schema label alone is not proof of bounded recovery support. Require
+  // schema-specific contact and successor limits; generic v2 limits do not count.
+  const managedRecovery = supportedSchemas.includes(MANAGED_RECOVERY_REQUEST_SCHEMA);
+  if (managedRecovery && (
+    asRecord(maxValue)[MANAGED_RECOVERY_REQUEST_SCHEMA] !== 1
+    || asRecord(successorValue)[MANAGED_RECOVERY_REQUEST_SCHEMA] !== "DISABLED"
+  )) {
+    throw new Error("STOP_MANAGED_LAUNCHER_CONTRACT_MISMATCH");
+  }
+  return managedRecovery;
 }
 
 async function readSuccessReceipt(

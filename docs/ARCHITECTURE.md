@@ -354,22 +354,34 @@ review remain authoritative.
 
 ## Installed Fable static compatibility
 
-MCP の native receipt v3 / retention record v2 読戻しは、router ソース
-`b5a73e7cd37bf0d1524976b4dea783547f3213f0` の launcher と router、および
-閉じた五つの依存ファイルに明示的に固定します。依存は
-`task_prior_archive.py`、`review_response_retention_bootstrap.py`、
-`review_lineage_reconciliation.py`（各 0700）、`route-policy.json`（0600）、
-`resolver_registry.py`（既存 0644 を維持）です。
+MCP の native receipt v3 / retention record v2 読戻しと本文欠落回復の専用 v7 要求は、
+router ソース `b02fff27a71cd7b5c5803b7b22037fc898aa0488` の launcher と router、
+および閉じた六つの依存ファイルに明示的に固定します。依存は
+`managed_missing_body_admission.py`、`task_prior_archive.py`、
+`review_response_retention_bootstrap.py`、`review_lineage_reconciliation.py`
+（各 0700）、`route-policy.json`（0600）、`resolver_registry.py`
+（既存 0644 を維持）です。
 
-describe より先に、七つの固定パスについてサイズ、SHA-256、所有者、mode、
+describe より先に、八つの固定パスについてサイズ、SHA-256、所有者、mode、
 regular file、単一 link、非 symlink を検査します。一つの no-follow descriptor
 から上限付きで読み、読み前後および名前側の identity を照合します。
 これは preflight 時点の静的検査であり、継続的な installed-byte lock、
 provider attestation、runtime activation、任意の root / executable 選択ではありません。
 不一致は接触前に fail-closed となり、既存 installed bytes は書き換えません。
 
-このソース固定は v2–v6 の既存互換修正までです。v6 は完全な archive が存在する
-再審査専用であり、歴史的な欠落本文を回復しません。managed missing-body 専用 v7
-入口は未適用です。MCP 候補の activation と launcher / router pin の整合性は別の
-条件であり、activation 前に activation 後のツール公開を要求しません。
-ただし、現在の運用回復 gate は未実行可能のままです。
+通常の要求は v2 のままです。本文欠落回復だけが v7 と内部の固定 runtime/task/
+operation/evidence digest を使います。本番 describe で v7、v7 固有の接触上限1、
+successor無効を確認できなければ、回復の bundle 準備・接触より前に拒否します。
+v7 というラベルだけ、または v2 の汎用上限から対応を推定しません。
+v6 は完全な archive が存在する再審査専用のままで、欠落本文には使用しません。
+
+v7 の読取専用適格性確認は invocation 権限ではありません。実行には別途束縛された
+現行 operation の接触権限と、接触直前の永続的な predecessor-keyed 消費記録が必要です。
+過去の REVISE、接触 YES、managed PARTIAL、本文欠落、および再実行禁止を保持します。
+ソース検証成功は運用回復や独立レビュー成功ではありません。
+
+MCP 候補の activation と launcher / router pin の整合性は別条件であり、
+activation 前に activation 後のツール公開を要求しません。Plan B の恒久 router 候補は
+router 自身の正当な履歴に結合した独立 Fable/MAX レビューと明示的な promotion を要し、
+MCP の PASS を router の承認へ転用しません。既存 bootstrap v1/v2 で最終依存閉包と
+必要な review profile を扱えるとは未確認であり、現在の運用 gate は未実行可能です。
