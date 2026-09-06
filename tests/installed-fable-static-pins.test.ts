@@ -40,6 +40,7 @@ const actual = await vi.importActual<typeof import("../src/services/installed-fa
   "../src/services/installed-fable-static-pins.js"
 );
 const SUPPORT = [
+  "native_history_migration.py",
   "managed_missing_body_admission.py",
   "task_prior_archive.py",
   "review_response_retention_bootstrap.py",
@@ -74,7 +75,7 @@ async function fixture(): Promise<{ home: string; installed: string }> {
 }
 
 function described(): string {
-  const schemas = [2, 3, 4, 5, 6, 7].map(version => "claude-review-router-typed-launch.v" + version);
+  const schemas = [2, 3, 4, 5, 6, 7, 8, 9].map(version => "claude-review-router-typed-launch.v" + version);
   return JSON.stringify({
     supported_request_schemas: schemas,
     provider_contacts_per_launcher_invocation_max: Object.fromEntries(schemas.map(value =>
@@ -106,7 +107,7 @@ afterEach(async () => {
 });
 
 describe("closed installed Fable static support pins", () => {
-  test("has exactly six source-bound production dependencies", async () => {
+  test("has exactly seven source-bound production dependencies", async () => {
     expect(actual.FABLE_STATIC_DEPENDENCY_PINS.map(pin => pin.name)).toEqual(SUPPORT);
     for (const pin of actual.FABLE_STATIC_DEPENDENCY_PINS) {
       expect(pin.byte_length).toBeGreaterThan(0);
@@ -117,7 +118,7 @@ describe("closed installed Fable static support pins", () => {
     expect(runProcess).not.toHaveBeenCalled();
   });
 
-  test("checks all eight fixed files before the one describe process", async () => {
+  test("checks all nine fixed files before the one describe process", async () => {
     const f = await fixture();
     const before = new Map(await Promise.all([...EXECUTABLES, ...SUPPORT].map(async name =>
       [name, await readFile(join(f.installed, name))] as const)));
@@ -138,6 +139,24 @@ describe("closed installed Fable static support pins", () => {
       executable: join(f.installed, "typed_fable_launcher.py"), args: ["describe"], cwd: f.installed
     }));
     for (const [name, bytes] of before) expect(await readFile(join(f.installed, name))).toEqual(bytes);
+  });
+
+  test("binds the final source cohort without admitting native migration as MCP recovery", async () => {
+    await fixture();
+    const result = await new InstalledTypedFableLauncher().preflight();
+    expect(result).toMatchObject({
+      launcher_sha256: "aa1acc03957cfa36d7af9705fbc26b0d3864f930e75fa8012e5fe07cef914fa8",
+      router_sha256: "202f81322b6680310b374b0d0c5356bd68ae88e6145ad17e7ee589d14a8ee9ef",
+      request_schema: "claude-review-router-typed-launch.v2",
+      managed_missing_body_request_schema: "claude-review-router-typed-launch.v7"
+    });
+    expect(result).not.toHaveProperty("native_migration_request_schema");
+    expect(actual.FABLE_STATIC_DEPENDENCY_PINS.find(pin => pin.name === "native_history_migration.py"))
+      .toEqual({ name: "native_history_migration.py", byte_length: 66854,
+        sha256: "51f0749cd5b78c5ab0954beb74c16f3df78ba991000a1e227906e077d549f620", mode: 0o700 });
+    expect(actual.FABLE_STATIC_DEPENDENCY_PINS.find(pin => pin.name === "review_response_retention_bootstrap.py"))
+      .toEqual({ name: "review_response_retention_bootstrap.py", byte_length: 100305,
+        sha256: "c2b30ac802cb0160a282af8f23dbfbdc80ed62593cb5b67ecc5a4c945c759176", mode: 0o700 });
   });
 
   test("legacy describe never implies managed recovery capability", async () => {

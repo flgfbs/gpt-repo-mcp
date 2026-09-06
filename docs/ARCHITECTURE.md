@@ -355,14 +355,14 @@ review remain authoritative.
 ## Installed Fable static compatibility
 
 MCP の native receipt v3 / retention record v2 読戻しと本文欠落回復の専用 v7 要求は、
-router ソース `59255140880abf38176e4504271051bd00be4ff4` の launcher と router、
-および閉じた六つの依存ファイルに明示的に固定します。依存は
-`managed_missing_body_admission.py`、`task_prior_archive.py`、
+router ソース `3bbe642e0bb900c0056f177a39d8bf4c3f3be276` の launcher と router、
+および閉じた七つの依存ファイルに明示的に固定します。依存は
+`native_history_migration.py`、`managed_missing_body_admission.py`、`task_prior_archive.py`、
 `review_response_retention_bootstrap.py`、`review_lineage_reconciliation.py`
 （各 0700）、`route-policy.json`（0600）、`resolver_registry.py`
 （既存 0644 を維持）です。
 
-describe より先に、八つの固定パスについてサイズ、SHA-256、所有者、mode、
+describe より先に、九つの固定パスについてサイズ、SHA-256、所有者、mode、
 regular file、単一 link、非 symlink を検査します。一つの no-follow descriptor
 から上限付きで読み、読み前後および名前側の identity を照合します。
 これは preflight 時点の静的検査であり、継続的な installed-byte lock、
@@ -398,3 +398,11 @@ path を使います。prepare/activate/arm/claim の native history 再検査�
 history gate と claim を省略せず、archive descriptor のみから最新 leaf とは推定しません。
 現在の pin 更新はこのソース候補への明示的な互換期待値の更新であり、installed byte の
 変更、activation、独立レビュー PASS、promotion、operational recovery を意味しません。
+
+最終候補の native migration typed v8 / receipt・record と、migration parent を使う通常 focused v9 は、
+Router の明示した別契約です。この MCP adapter は引き続き通常 v2 と本文欠落回復 v7 のみを扱い、
+新しい operation、owner authority、migration contact を公開・許可しません。
+BootstrapV4 は V3 の七対象に native helper を加えた八対象、外部 controller は五依存となります。
+この追加依存も describe 前の固定検査に含め、欠落・drift・link・unsafe mode は接触前に拒否します。
+旧 V3 の契約と rollback history は保存し、V4 の source compatibility が installed activation、
+router qualification/promotion、AIOPS verdict、MCP recovery のいずれをも代用することはありません。
