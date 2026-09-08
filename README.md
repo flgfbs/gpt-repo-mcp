@@ -55,15 +55,22 @@ npm run list
 ```
 
 Project-root discovery is one directory deep and read-only. It ignores non-Git
-directories, symlinks, and `.git` indirection files used by linked worktrees or
-submodules. Exclusion names are matched case-insensitively. An explicit
+directories, symlinks, and unverified `.git` indirection files.
+Exclusion names are matched case-insensitively. An explicit
 repository entry remains the policy override for the same canonical child root;
 a project root itself cannot be equal to or nested inside an explicit
 repository. Register a repository explicitly with `write` or `ship` when it
 needs mutation, isolated task worktrees, or GitHub lifecycle authority.
 
 No MCP tool can add, remove, or widen a repository or project root.
-Registration is an owner CLI operation.
+Registration of new unrelated roots is an owner CLI operation.
+
+登録済みリポジトリに属する linked worktree は、`repo_list_roots` が Git の
+管理情報を確認して自動検出します。worktree ごとの登録コマンドやサーバー再起動は
+不要です。返された `root` と作業先を照合し、その `repo_id` を使用してください。
+一覧取得時に project root 直下の新規リポジトリも再検出します。自動検出した worktree
+は読み取り専用で、利用時に所属を再確認します。明示登録と MCP 管理タスクの権限は
+維持され、自動検出から書き込み・Git 操作・タスク実行の権限は継承しません。
 
 Start the loopback server:
 

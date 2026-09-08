@@ -25,7 +25,7 @@ expected/current object ids, safe counts, warning codes, or a recovery hint.
 
 | Code or category | Meaning |
 | --- | --- |
-| `UNKNOWN_REPO` | `repo_id` is not owner registered. |
+| `UNKNOWN_REPO` | ID が現在の登録・検出・管理タスクに存在しない。`repo_list_roots` を更新し、管理タスクは `repo_task_status` で確認する。 |
 | `ABSOLUTE_PATH_REJECTED` / `PATH_TRAVERSAL_REJECTED` | A path was not safe and repo-relative. |
 | `SYMLINK_ESCAPE_REJECTED` | Canonical resolution left the registered root. |
 | `SECRET_CANDIDATE_BLOCKED` | A path or content looked credential-sensitive. |

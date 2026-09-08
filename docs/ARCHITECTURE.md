@@ -100,12 +100,19 @@ remains no-replay.
 The root registry is the sole repository admission boundary. Explicit roots
 are canonicalized directly; owner-configured project roots expand read-only to
 their direct, real child directories that are exact standalone Git worktree
-roots. Linked worktree and submodule `.git` indirection files are not admitted.
+roots. Unverified `.git` indirection files are not admitted by directory scanning.
 Explicit repository entries override a discovered child root; a project root
 inside an explicit repository, an ambiguous id, or a project-root overlap fails
 closed. Sandboxed path
 resolution canonicalizes each target under its root, applies ignore and secret
 classification, rejects traversal and symlink escape, and enforces size limits.
+
+`repo_list_roots` は設定済み project root と Git 管理下の linked worktree を
+再検出する。worktree は既に認められたリポジトリの一覧から候補を得て、canonical root、
+共通 Git ディレクトリ、`.git` と管理領域の相互参照を確認する。設定ファイルは変更せず、
+自動検出の参照専用エントリを置き換える。利用前にも再確認し、削除・移動・所属変更した
+エントリを失効させる。明示登録とサーバー管理タスクは別に維持し、検出された worktree
+から lifecycle や書き込み権限を継承しない。
 
 Write policy, operations policy, validation profiles, expected file bytes,
 expected HEAD, exact staged paths, and review evidence are checked in services,

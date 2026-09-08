@@ -3,9 +3,11 @@ import { relative, resolve, sep } from "node:path";
 import type { z } from "zod";
 import {
   RepoReaderConfigSchema,
-  type ParsedRepoConfig
+  type ParsedRepoConfig,
+  type ParsedRepoReaderConfig
 } from "../config/schema.js";
 import { expandProjectRepositories } from "../config/project-root-discovery.js";
+import { discoverLinkedWorktrees, type DiscoveredWorktreeConfig } from "../config/linked-worktree-discovery.js";
 import { DEFAULT_LIMITS } from "../policies/limits.js";
 import { RepoReaderError } from "../runtime/errors.js";
 
@@ -31,6 +33,8 @@ type RepoReaderConfigInput = z.input<typeof RepoReaderConfigSchema>;
 export class RootRegistry {
   private readonly reposById: Map<string, RuntimeRepoConfig>;
   private readonly baseRepoIds: Set<string>;
+  private discoveredWorktrees = new Map<string, DiscoveredWorktreeConfig>();
+  private discoveryRefresh?: Promise<void>;
 
   private constructor(
     repos: RuntimeRepoConfig[],
@@ -40,7 +44,8 @@ export class RootRegistry {
       max_total_bytes: number;
     },
     readonly codeIntelligence: z.output<typeof RepoReaderConfigSchema>["code_intelligence"],
-    readonly runtimeRoot: string
+    readonly runtimeRoot: string,
+    private readonly discoveryConfig: ParsedRepoReaderConfig
   ) {
     this.reposById = new Map(repos.map((repo) => [repo.repo_id, repo]));
     this.baseRepoIds = new Set(repos.map((repo) => repo.repo_id));
@@ -53,7 +58,7 @@ export class RootRegistry {
       max_files: parsed.limits.max_files ?? DEFAULT_LIMITS.max_files,
       max_bytes_per_file: parsed.limits.max_bytes_per_file ?? DEFAULT_LIMITS.max_bytes_per_file,
       max_total_bytes: parsed.limits.max_total_bytes ?? DEFAULT_LIMITS.max_total_bytes
-    }, parsed.code_intelligence, resolve(parsed.runtime_root));
+    }, parsed.code_intelligence, resolve(parsed.runtime_root), parsed);
   }
 
   static async fromFile(configPath: string): Promise<RootRegistry> {
@@ -62,14 +67,70 @@ export class RootRegistry {
   }
 
   list(): Array<Pick<RuntimeRepoConfig, "repo_id" | "display_name" | "root">> {
-    return [...this.baseRepoIds].map((repoId) => {
-      const repo = this.reposById.get(repoId)!;
+    return [
+      ...[...this.baseRepoIds].map((repoId) => this.reposById.get(repoId)!),
+      ...this.discoveredWorktrees.values()
+    ].map((repo) => {
       return {
         repo_id: repo.repo_id,
         display_name: repo.display_name,
         root: repo.root
       };
     });
+  }
+
+  async refreshDiscovery(): Promise<void> {
+    if (this.discoveryRefresh) return this.discoveryRefresh;
+    const refresh = this.refreshDiscoveryUnchecked();
+    this.discoveryRefresh = refresh;
+    try {
+      await refresh;
+    } finally {
+      this.discoveryRefresh = undefined;
+    }
+  }
+
+  private async refreshDiscoveryUnchecked(): Promise<void> {
+    // Drop old automatic entries even when an owner disappears or discovery
+    // fails. Persistent config and server-owned task registrations are separate.
+    this.discoveredWorktrees = new Map();
+    const bases = await expandProjectRepositories(this.discoveryConfig);
+    const worktrees = await discoverLinkedWorktrees(bases, this.discoveryConfig.project_roots);
+    for (const base of bases) {
+      if (this.reposById.get(base.repo_id)?.task) {
+        throw new RepoReaderError("VALIDATION_ERROR", "Discovered repository id conflicts with a task repository.");
+      }
+    }
+    for (const repoId of this.baseRepoIds) this.reposById.delete(repoId);
+    this.baseRepoIds.clear();
+    for (const base of bases) {
+      this.reposById.set(base.repo_id, base);
+      this.baseRepoIds.add(base.repo_id);
+    }
+    const registeredRoots = new Set([...this.reposById.values()].map((repo) => repo.root));
+    this.discoveredWorktrees = new Map(worktrees
+      .filter((repo) => !registeredRoots.has(repo.root) && !this.reposById.has(repo.repo_id))
+      .map((repo) => [repo.repo_id, repo]));
+  }
+
+  async refreshForRepo(repoId: string): Promise<void> {
+    if (this.reposById.has(repoId)) return;
+    if (this.discoveryRefresh) await this.discoveryRefresh;
+    const discovered = this.discoveredWorktrees.get(repoId);
+    if (!discovered) {
+      await this.refreshDiscovery();
+      return;
+    }
+    const owner = this.reposById.get(discovered.discovery_base_repo_id);
+    try {
+      const current = owner ? await discoverLinkedWorktrees([owner], this.discoveryConfig.project_roots, discovered.root) : [];
+      if (!current.some((repo) => repo.repo_id === repoId && repo.root === discovered.root)) {
+        this.discoveredWorktrees.delete(repoId);
+      }
+    } catch (error) {
+      this.discoveredWorktrees.delete(repoId);
+      throw error;
+    }
   }
 
   listTaskRepos(): TaskRepoBinding[] {
@@ -79,7 +140,7 @@ export class RootRegistry {
   }
 
   get(repoId: string): RuntimeRepoConfig {
-    const repo = this.reposById.get(repoId);
+    const repo = this.reposById.get(repoId) ?? this.discoveredWorktrees.get(repoId);
     if (!repo) {
       throw new RepoReaderError("UNKNOWN_REPO", `Unknown repo_id: ${repoId}`);
     }
@@ -130,6 +191,9 @@ export class RootRegistry {
       task
     };
     this.reposById.set(repo.repo_id, repo);
+    for (const [repoId, discovered] of this.discoveredWorktrees) {
+      if (discovered.root === repo.root) this.discoveredWorktrees.delete(repoId);
+    }
     return repo;
   }
 
