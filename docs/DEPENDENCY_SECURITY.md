@@ -35,6 +35,19 @@ Windows 開発サーバーのパス探索問題（GHSA-g7r4-m6w7-qqqr）の修�
 Do not use `npm audit fix --force`; it can replace compatible protocol and
 transport dependencies with an older or breaking graph.
 
+## 合成テストのメール分類
+
+`tests/github-push-reconciliation.test.ts` は、資格情報付きのURLを拒否するために
+固定の架空文字列 `https://user:fixture@github.com/example/project.git` を使います。
+`fixture@github.com` はその拒否テストの一部であり、実アカウントや資格情報の発見ではありません。
+既存の `email.allowed_addresses` でこの一つだけを分類し、候補ソースと公開履歴の同じ文字列に適用します。
+
+`github.com` 全体、別のlocal part、plus suffix、subdomain、類似domainや無関係な
+privateアドレスは許可しません。Gitleaks、ライセンス、advisoryの分類・期限と、
+既存の公開履歴例外は変更しません。過去の未分類FAILはそのまま残し、
+変更後のclean exact HEADから新たな内容固定の検査を行います。
+回帰テストは正本policyを読み、当該一行を外すと候補・履歴の両方が未分類へ戻ることも検証します。
+
 ## Verification
 
 ```bash
