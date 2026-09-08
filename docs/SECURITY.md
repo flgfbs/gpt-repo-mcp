@@ -6,8 +6,8 @@ deployment administrator.
 
 ## Security Model At A Glance
 
-- Only owner-registered canonical repository roots and read-only exact Git
-  children of owner-registered project roots are visible.
+- 登録済みの canonical repository、承認済み project root の Git 子ディレクトリ、
+  それらへの所属を検証した参照専用 linked worktree を公開する。
 - Every repository has deny-first read, write, Git, validation, and cleanup
   policy.
 - Tools accept structured schemas, not arbitrary commands.
@@ -61,14 +61,25 @@ not receive, read, or return the credential material.
 
 ## Repository And Credential Boundaries
 
-No tool adds, removes, or widens repository or project roots. Only the owner
+No tool edits configured repository or project roots. Only the owner
 CLI edits the local registry. Project discovery is one directory deep,
-read-only, rejects symlink roots, skips `.git` indirection files, rejects
+read-only, rejects symlink roots, skips unverified `.git` indirection files, rejects
 ambiguous or overlong ids, and gives each discovered standalone Git worktree
 its own canonical sandbox. Exclusions are case-insensitive. Explicit child
 repositories may override discovered policy, but project roots inside explicit
 repositories fail closed. A task may narrow authority from repository policy;
 it cannot widen it.
+
+登録済みリポジトリに属する linked worktree は、Git の worktree 一覧と共通管理領域、
+相互参照を確認して参照専用で自動検出する。ディレクトリ除外を維持し、symlink、
+無効・削除済み・別リポジトリに差し替えられた候補は採用しない。一覧取得時と利用前に
+再確認し、前回の成功を根拠に古い worktree のアクセスを残さない。明示登録と管理タスクは
+優先され、自動検出から書き込み・Git 操作・lifecycle の権限を継承しない。
+
+既存の repository または管理タスクの内側・外側に重なる worktree は自動登録しない。
+Git 管理ファイルは symlink を追わず非ブロッキングで開き、開いた対象が通常ファイルで
+あることと読み取り上限を確認する。不明な ID による自動再走査には短い間隔制限を設ける。
+稼働中の検出元に異常がある場合はその検出元を除外して警告し、影響のない検出元は利用できる。
 
 No tool reads credential stores, access tokens, API keys, SSH keys, environment
 secret values, Git credential helpers, or `gh` authentication state. The GitHub

@@ -66,7 +66,8 @@ describe("versioned PUSH readback reconciliation", () => {
       original_push_outcome: "UNKNOWN", original_fence_preserved: true, push_replayed: false,
       dry_run: true, recorded: false, artifact: null, warnings: []
     }));
-    const server = createMcpServer({ registry: { taskBinding: () => undefined }, lifecycle: { reconcilePush } } as unknown as RuntimeContext);
+    const refreshForRepo = vi.fn().mockResolvedValue(undefined);
+    const server = createMcpServer({ registry: { taskBinding: () => undefined, refreshForRepo }, lifecycle: { reconcilePush } } as unknown as RuntimeContext);
     const client = new Client({ name: "reconciliation-wire-fixture", version: "1" });
     const pair = InMemoryTransport.createLinkedPair();
     await server.connect(pair[0]);
@@ -82,6 +83,7 @@ describe("versioned PUSH readback reconciliation", () => {
         expect(reconcilePush).not.toHaveBeenCalled();
       }
       await client.callTool({ name: listed.name, arguments: input });
+      expect(refreshForRepo).toHaveBeenCalledExactlyOnceWith(FIXED_TASK.repoId);
       expect(reconcilePush).toHaveBeenCalledExactlyOnceWith({ ...input, dry_run: true });
     } finally {
       await client.close();

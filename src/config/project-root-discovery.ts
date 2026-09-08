@@ -165,9 +165,9 @@ async function isExactGitRoot(root: string, projectRootId: string): Promise<bool
   }
 
   try {
-    const { stdout } = await execFileAsync("git", ["rev-parse", "--show-toplevel"], {
+    const { stdout } = await execFileAsync("git", ["-c", "core.fsmonitor=false", "rev-parse", "--show-toplevel"], {
       cwd: root,
-      env: { PATH: process.env.PATH ?? "" },
+      env: { PATH: process.env.PATH ?? "", GIT_OPTIONAL_LOCKS: "0" },
       timeout: 10_000,
       maxBuffer: 256 * 1_024,
       encoding: "utf8"
