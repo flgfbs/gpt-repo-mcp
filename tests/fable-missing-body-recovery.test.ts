@@ -279,6 +279,30 @@ describe("fixed-root historical receipt readback", { timeout: 30_000 }, () => {
     expect(Object.keys(result)).not.toContain("receipt_path");
   });
 
+  test.each(["transport_root", "bundle", "packet"] as const)(
+    "reports a missing %s without contact or rewriting historical evidence",
+    async missing => {
+      const x = await fixture();
+      const before = await x.f.bundle.tasks.states.readOperation(x.f.taskId, x.oldInput.operation_id);
+      const path = missing === "transport_root" ? x.roots.transport_root
+        : missing === "bundle" ? join(x.roots.transport_root, x.preparation.bundle_id) : x.packetPath;
+      await rm(path, { recursive: true });
+      await expect(readHistoricalFableReceipt(x.readback, x.roots))
+        .rejects.toThrow("STOP_MANAGED_RECOVERY_TRANSPORT_PACKET_UNAVAILABLE");
+      expect(await x.service.run(x.input)).toMatchObject({
+        review_state: "failed_precontact", provider_contact: "NO",
+        outcome_code: "STOP_MANAGED_RECOVERY_TRANSPORT_PACKET_UNAVAILABLE"
+      });
+      expect(x.launcher.invocationCount).toBe(0);
+      expect(await readFile(x.receiptPath, "utf8")).toBe(x.receiptBytes);
+      expect(await x.f.bundle.tasks.states.readOperation(x.f.taskId, x.oldInput.operation_id)).toEqual(before);
+      const artifact = await x.f.bundle.artifacts.read({
+        task_id: x.f.taskId, artifact_id: x.artifact.artifact_id, offset: 0, length: 65536
+      });
+      expect(Buffer.from(artifact.content_base64, "base64").toString()).toBe(canonicalJson(x.prior));
+    }
+  );
+
   test.each(["PASS", "BLOCK", "STOP_PROVIDER_FAILURE"])("rejects historical verdict %s", async verdict => {
     const x = await fixture();
     const bytes = canonicalJson({ ...x.receipt, RESULT: verdict });

@@ -5,6 +5,7 @@ import {
   RepoRunFableReviewResultSchema
 } from "../src/contracts/fable-review.contract.js";
 import { canonicalFableLauncherRequestBytes } from "../src/services/fable-launcher-port.js";
+import { canonicalFableScope, targetFromInput } from "../src/services/fable-review-packet.js";
 
 const HEAD = "1".repeat(40);
 const TREE = "2".repeat(40);
@@ -126,6 +127,31 @@ describe("managed Fable review public contract", () => {
         scope: { kind: "focused_paths", paths }
       }).success, paths.join(",")).toBe(false);
     }
+  });
+
+  test("binds mixed-case and non-ASCII paths to a locale-independent scope digest", () => {
+    const focused = {
+      ...initial,
+      review_kind: "focused_rereview",
+      prior_review_artifact_id: "artifact_1234567890abcdef",
+      scope: { kind: "focused_paths", paths: ["B.ts", "a.ts", "ä.ts"] }
+    };
+    const parsed = RepoRunFableReviewInputSchema.parse(focused);
+    expect(canonicalFableScope(parsed, targetFromInput(parsed))).toEqual({
+      kind: "focused_paths",
+      paths: ["B.ts", "a.ts", "ä.ts"],
+      sha256: "94cf01745b64e68be3075208bcab1bd680d93d7e92f051b83f9cf1fe9c52312f"
+    });
+    for (const paths of [["a.ts", "B.ts", "ä.ts"], ["ä.ts", "B.ts", "a.ts"]]) {
+      expect(RepoRunFableReviewInputSchema.safeParse({
+        ...focused, scope: { kind: "focused_paths", paths }
+      }).success).toBe(false);
+    }
+    // Historical evidence keeps its recorded order and digest; input validation
+    // must not rewrite or reject previously retained scope bytes.
+    expect(FableReviewEvidenceSchema.parse({
+      ...evidence, scope: { kind: "focused_paths", paths: ["a.ts", "B.ts"], sha256: SHA }
+    }).scope).toEqual({ kind: "focused_paths", paths: ["a.ts", "B.ts"], sha256: SHA });
   });
 
   test("requires all changes for initial and a retained prior artifact for focused rereview", () => {

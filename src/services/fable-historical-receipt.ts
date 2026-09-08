@@ -95,10 +95,18 @@ export async function readHistoricalFableReceipt(
   "STOP_MANAGED_RECOVERY_BODY_AVAILABILITY_UNKNOWN");
   await assertKnownRetentionAbsent(roots.installed_root, input.attempt_id, receipt.RESPONSE_SHA256 as string);
 
-  await privateDirectory(roots.transport_root);
-  const bundle = join(roots.transport_root, input.bundle_id);
-  await privateDirectory(bundle);
-  const packet = await privateFile(join(bundle, "packet.txt"), MAX_PACKET_BYTES);
+  let packet: Buffer;
+  try {
+    await privateDirectory(roots.transport_root);
+    const bundle = join(roots.transport_root, input.bundle_id);
+    await privateDirectory(bundle);
+    packet = await privateFile(join(bundle, "packet.txt"), MAX_PACKET_BYTES);
+  } catch (error) {
+    if (hasCode(error, "ENOENT")) {
+      throw new Error("STOP_MANAGED_RECOVERY_TRANSPORT_PACKET_UNAVAILABLE");
+    }
+    throw error;
+  }
   check(packet.length === prior.packet!.byte_length
     && sha256Hex(packet) === prior.packet!.sha256
     && prior.packet!.sha256 === prior.packet!.body_sha256,

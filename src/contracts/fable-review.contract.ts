@@ -37,7 +37,8 @@ export const FableReviewScopeInputSchema = z.discriminatedUnion("kind", [
     if (new Set(value.paths).size !== value.paths.length) {
       context.addIssue({ code: "custom", path: ["paths"], message: "Focused review paths must be unique." });
     }
-    if ([...value.paths].sort((left, right) => left.localeCompare(right)).some((path, index) => path !== value.paths[index])) {
+    // Match canonical JSON's locale-independent UTF-16 code unit ordering.
+    if ([...value.paths].sort().some((path, index) => path !== value.paths[index])) {
       context.addIssue({ code: "custom", path: ["paths"], message: "Focused review paths must be sorted canonically." });
     }
   })
