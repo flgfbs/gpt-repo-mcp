@@ -1,4 +1,6 @@
 import * as Lifecycle from "../contracts/lifecycle.contract.js";
+import { RepoWritePushReconciliationResultSchema } from "../contracts/push-reconciliation.contract.js";
+import type { GitHubPushReconciliationService } from "./github-push-reconciliation-service.js";
 import {
   GitHubBoundaryError,
   type GitHubOperationRecord,
@@ -18,6 +20,7 @@ type JsonRecord = { [key: string]: JsonValue };
 type GitHubEvidenceReader = Pick<TaskArtifactGitHubSink, "readArtifact">;
 
 export type GitHubLifecycleServices = {
+  reconciliation?: Pick<GitHubPushReconciliationService, "reconcilePush">;
   remote: {
     remoteStatus(input: Input<"remoteStatus">): Promise<ServiceResult>;
     writePush(input: Input<"writePush">): Promise<ServiceResult>;
@@ -113,6 +116,26 @@ export class GitHubLifecycleRuntime implements ExternalLifecycleRuntime {
         },
         artifact: loaded.artifact,
         warnings: []
+      });
+    });
+  }
+
+  async reconcilePush(input: Input<"reconcilePush">): Promise<Output<"reconcilePush">> {
+    return this.guard(async () => {
+      if (!this.services.reconciliation) throw new RepoReaderError("LIFECYCLE_POLICY_DENIED", "Push reconciliation is unavailable.");
+      const result = await this.services.reconciliation.reconcilePush(input);
+      const record = result.record;
+      const loaded = result.operation ? await this.load(input.task_id, {
+        disposition: result.stored ? "STORED" : "EXECUTED", operation: result.operation
+      }) : undefined;
+      return RepoWritePushReconciliationResultSchema.parse({
+        ok: true, schema: record.schema, operation_id: input.operation_id,
+        repo_id: record.repoId, task_id: record.taskId, head_sha: record.headSha, tree_sha: record.treeSha,
+        original_operation_id: record.originalOperationId, original_state_sha256: record.originalStateSha256,
+        observation_operation_id: record.observationOperationId, observation_state_sha256: record.observationStateSha256,
+        observation_evidence_sha256: record.observationEvidenceSha256, publication: record.publication,
+        original_push_outcome: record.originalPushOutcome, original_fence_preserved: true, push_replayed: false,
+        dry_run: input.dry_run, recorded: Boolean(loaded), artifact: loaded?.artifact ?? null, warnings: []
       });
     });
   }

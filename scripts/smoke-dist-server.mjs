@@ -55,8 +55,8 @@ try {
   }
   const listed = await client.listTools();
   const toolNames = listed.tools.map(({ name }) => name);
-  if (listed.tools.length !== 67 || new Set(toolNames).size !== 67) {
-    throw new Error(`Built server exposed ${listed.tools.length} tools instead of 67 unique tools.`);
+  if (listed.tools.length !== 68 || new Set(toolNames).size !== 68) {
+    throw new Error(`Built server exposed ${listed.tools.length} tools instead of 68 unique tools.`);
   }
   if (!toolNames.includes("repo_run_fable_review")) {
     throw new Error("Built server omitted repo_run_fable_review.");
@@ -82,7 +82,14 @@ try {
   ) {
     throw new Error("Built server exposed incorrect repo_run_fable_review annotations.");
   }
-  process.stdout.write("Built server passed health, MCP initialize, 67-tool discovery, Fable review annotations, and resource-purity smoke checks.\n");
+  const reconciliation = listed.tools.find(({ name }) => name === "repo_write_push_reconciliation");
+  if (reconciliation?.annotations?.readOnlyHint !== false || reconciliation.annotations.destructiveHint !== false
+    || reconciliation.annotations.openWorldHint !== true || reconciliation.annotations.idempotentHint !== true
+    || reconciliation.inputSchema.properties?.dry_run?.default !== true
+    || reconciliation.inputSchema.additionalProperties !== false) {
+    throw new Error("Built server exposed an unsafe or incomplete push reconciliation contract.");
+  }
+  process.stdout.write("Built server passed health, MCP initialize, 68-tool discovery, Fable review and reconciliation contracts, and resource-purity smoke checks.\n");
 } finally {
   if (client) {
     await client.close().catch(() => undefined);

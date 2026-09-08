@@ -1,8 +1,8 @@
 # Tool Surface
 
-Chat Pro Repository MCP publishes exactly 67 tools in the order below. The
+Chat Pro Repository MCP publishes exactly 68 tools in the order below. The
 first 47 are the preserved canonical local prefix, position 48 is managed-agent
-continuation, and the final 19 are the task and optional GitHub lifecycle
+continuation, and the final 20 are the task and optional GitHub lifecycle
 package. No aliases are registered.
 
 ## Tool Groups
@@ -14,6 +14,7 @@ package. No aliases are registered.
 - 41-47: validation, work sessions, direct writes, and handoff
 - 48: managed Codex App Server continuation
 - 49-67: task worktrees, exact-head Fable review, admission, and Git/GitHub/CI/review/merge lifecycle
+- 68: append-only PUSH publication reconciliation
 
 MCP annotations describe expected effects; they do not grant authority.
 External reads and writes have `openWorldHint: true`. Lifecycle mutations are
@@ -343,6 +344,16 @@ the bound manifest.
 binding, or conflicts with its requested-task state. Unrelated active tasks do
 not deny an exact match. It is closed-world, read-only, and accepts no operation
 id or mutation request.
+
+### `repo_write_push_reconciliation`
+
+68. 元の UNKNOWN push と後続の native remote-status observation を指定して、
+現在の exact HEAD/tree の公開を照合します。`dry_run` は既定で `true` です。
+追記には `expected_original_state_sha256` と `expected_observation_state_sha256` を
+明示し、元 operation・歴史的 HEAD/tree・後続 operation・artifact を結合します。
+公開の確認と元 push の成功を区別し、元 UNKNOWN/no-replay は変更しません。
+現在の登録済み GitHub `ship` task に限り、保存先・URL・branch・force の入力はありません。
+証拠は新しい opaque artifact として返し、merge や review resolution の他の条件を免除しません。
 
 ## Lifecycle Contract Pattern
 

@@ -3,6 +3,7 @@ import {
   type RepoTaskAdmissionInput,
   type RepoTaskAdmissionResult
 } from "../contracts/task-admission.contract.js";
+import type { RepoWritePushReconciliationInput, RepoWritePushReconciliationResult } from "../contracts/push-reconciliation.contract.js";
 import {
   RepoArtifactReadResultSchema,
   RepoTaskCleanupResultSchema,
@@ -60,6 +61,7 @@ import type { RootRegistry } from "./root-registry.js";
 export type ExternalLifecycleRuntime = Pick<LifecycleRuntime,
   | "remoteStatus"
   | "writePush"
+  | "reconcilePush"
   | "prCreateOrUpdate"
   | "prStatus"
   | "prReviewThreads"
@@ -284,6 +286,10 @@ export class RepositoryLifecycleRuntime implements LifecycleRuntime {
 
   async writePush(input: RepoWritePushInput): Promise<RepoWritePushResult> {
     return this.requireExternal(input.repo_id).writePush(input);
+  }
+
+  async reconcilePush(input: RepoWritePushReconciliationInput): Promise<RepoWritePushReconciliationResult> {
+    return this.requireExternal(input.repo_id).reconcilePush(input);
   }
 
   async prCreateOrUpdate(input: RepoPrCreateOrUpdateInput): Promise<RepoPrCreateOrUpdateResult> {

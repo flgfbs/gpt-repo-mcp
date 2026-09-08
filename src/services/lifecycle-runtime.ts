@@ -1,4 +1,5 @@
 import type { RepoTaskAdmissionInput, RepoTaskAdmissionResult } from "../contracts/task-admission.contract.js";
+import type { RepoWritePushReconciliationInput, RepoWritePushReconciliationResult } from "../contracts/push-reconciliation.contract.js";
 import type {
   RepoArtifactReadInput,
   RepoArtifactReadResult,
@@ -56,6 +57,7 @@ export interface LifecycleRuntime {
   artifactRead(input: RepoArtifactReadInput): Promise<RepoArtifactReadResult>;
   remoteStatus(input: RepoRemoteStatusInput): Promise<RepoRemoteStatusResult>;
   writePush(input: RepoWritePushInput): Promise<RepoWritePushResult>;
+  reconcilePush(input: RepoWritePushReconciliationInput): Promise<RepoWritePushReconciliationResult>;
   prCreateOrUpdate(input: RepoPrCreateOrUpdateInput): Promise<RepoPrCreateOrUpdateResult>;
   prStatus(input: RepoPrStatusInput): Promise<RepoPrStatusResult>;
   prReviewThreads(input: RepoPrReviewThreadsInput): Promise<RepoPrReviewThreadsResult>;

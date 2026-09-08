@@ -154,7 +154,8 @@ describe("tool catalog contracts", () => {
       "repo_merge_gate_prepare",
       "repo_write_merge",
       "repo_post_merge_readback",
-      "repo_task_admission"
+      "repo_task_admission",
+      "repo_write_push_reconciliation"
     ]);
 
     for (const tool of toolCatalog) {
@@ -190,7 +191,9 @@ describe("tool catalog contracts", () => {
 
     expect(instructionSourceBytes).toBeLessThan(6_000);
     expect(descriptionSourceBytes).toBeLessThan(11_750);
-    expect(descriptionPayloadBytes).toBeLessThan(9_500);
+    // Preserve the existing catalog budget; the one additive contract gets a bounded allowance.
+    expect(descriptionPayloadBytes).toBeLessThan(9_750);
+    expect(Buffer.byteLength(toolCatalog.find(tool => tool.name === "repo_write_push_reconciliation")!.description)).toBeLessThan(250);
     expect(instructionSourceBytes).toBeLessThan(Math.floor(15_644 * 0.4));
     expect(descriptionSourceBytes).toBeLessThan(Math.floor(16_819 * 0.7));
 
@@ -241,7 +244,8 @@ describe("tool catalog contracts", () => {
       "repo_write_pr_reply",
       "repo_write_pr_resolve_thread",
       "repo_write_ci_retry_failed",
-      "repo_write_merge"
+      "repo_write_merge",
+      "repo_write_push_reconciliation"
     ]);
     expect(MUTATING_TOOL_NAMES).toEqual(toolCatalog
       .filter((tool) => tool.annotations.readOnlyHint === false)
@@ -397,7 +401,7 @@ describe("tool catalog contracts", () => {
   test("internal registry composes exact packages without changing the canonical surface", () => {
     expect(toolRegistry).toBe(toolCatalog);
     expect(toolRegistry.map((tool) => tool.name)).toEqual(CANONICAL_TOOL_ORDER);
-    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(67);
+    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(68);
     expect([...CANONICAL_TOOL_ORDER].sort()).toEqual(Object.keys(toolContracts).sort());
 
     expect(toolsForPackage("developer").map((tool) => tool.name)).toEqual([
@@ -431,7 +435,7 @@ describe("tool catalog contracts", () => {
     expect(toolsForPackage("advanced_operations")).toHaveLength(6);
     expect(toolsForPackage("diagnostics_and_discovery")).toHaveLength(4);
     expect(toolsForPackage("code_index")).toHaveLength(1);
-    expect(toolsForPackage("lifecycle")).toHaveLength(19);
+    expect(toolsForPackage("lifecycle")).toHaveLength(20);
 
     for (const tool of toolRegistry) {
       expect(tool.tier).toBe(tool.package === "developer" ? "default" : "specialist");
@@ -2840,6 +2844,7 @@ describe("tool catalog contracts", () => {
       "writePrReplyHandler",
       "writePrResolveThreadHandler",
       "writePushHandler",
+      "writePushReconciliationHandler",
       "writeRecoverHandler",
       "writeStageCommitHandler",
       "writeStageHandler",

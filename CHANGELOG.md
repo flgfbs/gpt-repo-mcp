@@ -6,6 +6,11 @@ Notable public changes to Chat Pro Repository MCP are recorded here.
 
 ### Added
 
+- `repo_write_push_reconciliation` を位置68に追加。元の UNKNOWN push を変更・再送せず、
+  後続の native remote observation と現在の公開確認を追記型 v1 証拠へ結合します。
+  既定は検査のみ、追記は二つの state digest 必須です。merge/review resolution は
+  読戻し検証済みの証拠だけを参照し、他の条件や owner approval を免除しません。
+
 - Local-only lifecycle policy for isolated task worktrees, validation, reviewed
   local commits, close, and cleanup without any Git remote or GitHub authority.
 - Owner CLI `--local-only` registration with explicit conflict rejection for
@@ -19,8 +24,8 @@ Notable public changes to Chat Pro Repository MCP are recorded here.
 - Serialized turn-start barriers, sequential structured-question rounds,
   paused human-wait runtime accounting, and bounded same-notification terminal
   settlement retry.
-- Nineteen task and optional GitHub lifecycle tools follow the preserved
-  47-tool local prefix and the continuation tool, producing an exact 67-tool
+- Twenty task and optional GitHub lifecycle tools follow the preserved
+  47-tool local prefix and the continuation tool, producing an exact 68-tool
   surface with no aliases. The additive `repo_run_fable_review` action provides
   one exact-head, active-task-bound Fable/MAX review through the installed typed
   launcher without widening the generic runner filesystem surface.

@@ -55,6 +55,7 @@ export const descriptions = {
   repo_run_fable_review: "Use this when running one exact-head Fable/MAX review.",
   repo_remote_status: "Use this when contacting GitHub to compare the bound task HEAD and tree with its exact remote refs without mutation.",
   repo_write_push: "Use this when fast-forward pushing the exact server-owned task branch through the fixed Git boundary; it never forces.",
+  repo_write_push_reconciliation: "Use this when reconciling an unknown PUSH with a later native remote observation. Defaults to inspection; append requires both state digests. Never replays push or grants merge approval.",
   repo_pr_create_or_update: "Use this when creating or updating the Draft pull request derived from the exact task branch through GitHub.",
   repo_pr_status: "Use this when reading current GitHub pull-request state for the exact bound task branch.",
   repo_pr_review_threads: "Use this when reading bounded GitHub review threads for the pull request bound to the task.",

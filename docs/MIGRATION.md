@@ -2,7 +2,7 @@
 
 This release changes the public identity, connection path, and tool count while
 preserving the canonical 47-tool local prefix. Managed-agent continuation
-remains position 48; the lifecycle package now contains 19 tools.
+remains position 48; the lifecycle package now contains 20 tools.
 
 ## Before Updating
 
@@ -10,7 +10,7 @@ remains position 48; the lifecycle package now contains 19 tools.
 2. Preserve the local configuration and any needed task/artifact state.
 3. Update to a trusted revision and run `npm ci` and `npm run build`.
 4. Run `npm run check:config` and `npm run doctor`.
-5. Refresh the ChatGPT app so it receives the exact 67-tool schema.
+5. Refresh the ChatGPT app so it receives the exact 68-tool schema.
 
 ## Command And Connection Changes
 
@@ -51,7 +51,13 @@ names occupy positions 49–67:
 18. `repo_post_merge_readback`
 19. `repo_task_admission`
 
-The total is exactly 67. No old or alternate lifecycle names are accepted as
+位置 49–67 は変更せず、位置 68 に `repo_write_push_reconciliation` を追記します。
+合計は 68 です。元の UNKNOWN push、旧 receipt、旧 operation schema は書き換えません。
+新しい照合は `push-readback-reconciliation.v1` と別 operation に保存し、
+元 push の no-replay を維持します。新 semantic を解釈できない旧 runtime は安全側で停止し、
+履歴の削除や downgrade を rollback 手段にしません。導入と実際の追記は別の運用判断です。
+
+No old or alternate lifecycle names are accepted as
 aliases. `repo_task_admission` is read-only and adds no configuration,
 credential, task mutation, worker launch, or retry authority.
 
@@ -83,7 +89,7 @@ boundary from the installed runtime and accepts only exact task/Git/scope inputs
 
 The source checkout alone does not update a running MCP process. Build and install
 the trusted exact revision, reload the separately managed Repository MCP server,
-verify health and the 67-tool catalog, and then refresh the ChatGPT app metadata.
+verify health and the 68-tool catalog, and then refresh the ChatGPT app metadata.
 Do not reload the router, modify its static bytes, or alter credentials/accounts
 as part of this migration. Until Repository MCP itself is reloaded, the new
 action is unavailable and an exact-head Fable review must remain blocked rather
@@ -164,7 +170,7 @@ local-only entries should be created with:
 npm run add -- /path/to/your/repo --mode ship --local-only
 ```
 
-The public tool count, names, order, and payload schemas are exactly 67 in this release.
+The public tool count, names, order, and payload schemas are exactly 68 in this release.
 Local-only policy changes admission behavior, not the MCP tool catalog.
 
 ## Local Task-Only Operations Policy

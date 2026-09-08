@@ -1,8 +1,8 @@
 # Capability Guide
 
-Chat Pro Repository MCP exposes exactly 67 repository tools. The first 47 keep
+Chat Pro Repository MCP exposes exactly 68 repository tools. The first 47 keep
 their canonical local order and semantics; managed-agent continuation is next;
-19 task and optional GitHub lifecycle tools follow in one canonical order.
+20 task and optional GitHub lifecycle tools follow in one canonical order.
 There are no aliases.
 
 ## Everyday Repository Work
@@ -170,6 +170,7 @@ fake; implementation tests do not contact GitHub.
 For a `ship` task, the server can:
 
 - observe exact remote refs;
+- inspect or append versioned PUSH publication evidence without replaying the original unknown;
 - fast-forward push the exact server-owned task branch without force;
 - create or update its pull request while keeping it Draft;
 - read pull-request status and bounded review threads;

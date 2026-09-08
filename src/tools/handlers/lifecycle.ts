@@ -1,4 +1,5 @@
 import type { RepoTaskAdmissionInput } from "../../contracts/task-admission.contract.js";
+import type { RepoWritePushReconciliationInput } from "../../contracts/push-reconciliation.contract.js";
 import type { RepoRunFableReviewInput } from "../../contracts/fable-review.contract.js";
 import type {
   RepoArtifactReadInput,
@@ -114,6 +115,15 @@ export const writePushHandler: ToolHandler = async (input, context) => safeTool<
   const result = await context.lifecycle.writePush(args);
   audit({ tool: "repo_write_push", repo_id: args.repo_id, warnings: result.warnings });
   return createSuccessEnvelope(result, `Push effect is ${result.contact.effect_state}.`);
+});
+
+export const writePushReconciliationHandler: ToolHandler = async (input, context) => safeTool<RepoWritePushReconciliationInput>("repo_write_push_reconciliation", input, async (args) => {
+  assertLifecycleRuntime(context);
+  const result = await context.lifecycle.reconcilePush(args);
+  audit({ tool: "repo_write_push_reconciliation", repo_id: args.repo_id, warnings: result.warnings });
+  return createSuccessEnvelope(result, result.recorded
+    ? "Publication reconciliation recorded; original push remains unknown and must not be replayed."
+    : "Publication reconciliation inspected without recording or replaying a push.");
 });
 
 export const prCreateOrUpdateHandler: ToolHandler = async (input, context) => safeTool<RepoPrCreateOrUpdateInput>("repo_pr_create_or_update", input, async (args) => {

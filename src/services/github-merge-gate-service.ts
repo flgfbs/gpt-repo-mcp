@@ -6,6 +6,7 @@ import {
   type ExactTaskInput
 } from "../github/exact-task.js";
 import { GitHubOperationController } from "../github/operation-controller.js";
+import { hasUnresolvedUnknownEffects, type PushReconciliationVerifier } from "./github-push-reconciliation-service.js";
 import {
   GitHubBoundaryError,
   assertSafeBranch,
@@ -76,7 +77,8 @@ export class GitHubMergeGateService implements ExactMergeGateVerifier {
     private readonly artifacts: ContentAddressedArtifactSink,
     private readonly ledger: DurableOperationLedger,
     private readonly clock: Clock,
-    private readonly manifestTtlMs = 15 * 60 * 1000
+    private readonly manifestTtlMs = 15 * 60 * 1000,
+    private readonly pushReconciliation?: PushReconciliationVerifier
   ) {
     if (!Number.isSafeInteger(manifestTtlMs) || manifestTtlMs < 60_000 || manifestTtlMs > 60 * 60 * 1000) {
       throw new GitHubBoundaryError("INVALID_GATE_TTL", "Merge gate TTL must be between one minute and one hour.");
@@ -296,7 +298,7 @@ export class GitHubMergeGateService implements ExactMergeGateVerifier {
     const materialFindingCount = independentReview.materialFindingCount
       ?? (independentReviewRequired && independentReview.status !== "passed" ? 1 : 0);
     if (materialFindingCount !== 0) blockers.push(blocker("MATERIAL_REVIEW_FINDINGS_REMAIN", "Independent review reports material findings."));
-    if (operations.some((operation) => operation.phase === "UNKNOWN_AFTER_CONTACT")) {
+    if (await hasUnresolvedUnknownEffects(operations, task, expectedHeadSha, expectedTreeSha, this.pushReconciliation)) {
       blockers.push(blocker("UNKNOWN_EXTERNAL_EFFECT", "Task has an unresolved unknown external effect."));
     }
 

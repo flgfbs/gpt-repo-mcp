@@ -54,8 +54,8 @@ const REMOVED_SOURCE_FILES = [
 ] as const;
 
 describe("canonical workflow drift guards", () => {
-  test("locks the intentional 67-tool surface and removed public names", () => {
-    expect(toolCatalog).toHaveLength(67);
+  test("locks the intentional 68-tool surface and removed public names", () => {
+    expect(toolCatalog).toHaveLength(68);
     const names = toolCatalog.map(({ name }) => name);
     for (const removed of REMOVED_TOOLS) expect(names).not.toContain(removed);
   });

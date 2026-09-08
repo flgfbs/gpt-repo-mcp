@@ -1,7 +1,7 @@
 # Architecture
 
 Chat Pro Repository MCP is a contract-first, local-first MCP server. The public
-surface is a closed catalog of exactly 67 tools. Task/worktree lifecycle is
+surface is a closed catalog of exactly 68 tools. Task/worktree lifecycle is
 local; only the GitHub-enabled external subset is open-world because it
 contacts the configured Git remote and GitHub.
 
@@ -24,7 +24,7 @@ src/contracts/*.contract.ts
 - Package modules attach title, description, annotations, tier, capability, and
   thin handler.
 - `src/tools/registry.ts` rejects duplicates, missing definitions, and unknown
-  definitions, then constructs the canonical 67-tool order.
+  definitions, then constructs the canonical 68-tool order.
 - `src/register.ts` iterates that registry and registers each tool through
   `src/tools/define-tool.ts`.
 - Handlers parse, call one runtime/service boundary, audit safe metadata, and
@@ -32,7 +32,7 @@ src/contracts/*.contract.ts
 - Services own policy, state, Git, filesystem, artifacts, and external effects.
 
 The first 47 local names are preserved exactly. Managed-agent continuation is
-position 48, followed by the 19 lifecycle names listed in
+position 48, followed by the 20 lifecycle names listed in
 [Tool Surface](TOOL_SURFACE.md); compatibility aliases are not registered.
 
 ## Runtime Construction Seams
@@ -289,6 +289,28 @@ change, a confirmed effect, or a queryable/uncertain effect; it does not
 silently replay.
 
 ## Merge Approval Plane
+
+### PUSH の追記型公開照合
+
+`repo_write_push_reconciliation` は、元の `UNKNOWN_AFTER_CONTACT` と no-replay を
+変更せず、後続の成功した `repo_remote_status` による公開確認を別の v1 証拠へ追記します。
+元の push が成功した証明ではありません。元 operation の state/subject/binding digest、
+歴史的 HEAD/tree、後続 operation の state digest・実行時刻・CAS artifact の identity/hash、
+現在の task/root/branch/HEAD/tree と GitHub repository/ref を同時に照合します。
+時刻は artifact 名ではなく検証済み operation から取得し、子孫関係は local Git と
+GitHub compare の両方で確認します。外部読取り後にも task と履歴 state を再検査します。
+
+既定は記録を作らない検査です。追記は両 state digest を明示した要求だけを受理し、
+元と別の operation に immutable CAS evidence を保存・読み戻してから完了にします。
+中断・改変・古い対象・未対応 effect・読取不能は不適格のままであり、元 push の再送や
+成功への書換えはしません。記録の再読込みには同じ検証を行い、merge admission と
+review-thread resolution の UNKNOWN 判定だけが検証済み PUSH 照合を参照します。
+CI、独立レビュー、reply/validation、owner merge approval の条件は緩めません。
+
+新契約は source の追加であり、導入・履歴への実際の追記・provider 接触の権限ではありません。
+新ツールを含む source review に、当該ツール自体の事前 activation は要求しません。
+
+### Exact Owner Approval
 
 Merge preparation is read-only. It creates an expiring manifest binding the
 repository, task, pull request, base and task branches, exact HEAD and tree,

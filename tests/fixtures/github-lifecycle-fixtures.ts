@@ -78,6 +78,11 @@ export class MemoryOperationLedger implements DurableOperationLedger {
   readonly history: { operationId: string; phase: GitHubOperationRecord["phase"] }[] = [];
   private readonly subjectLocks = new Map<string, Promise<void>>();
 
+  async readExact(operationId: string) {
+    const record = this.records.get(operationId);
+    return record ? { record: structuredClone(record), stateSha256: sha256Json(record) } : undefined;
+  }
+
   async withSubjectLock<T>(input: {
     repoId: string;
     taskId: string;
@@ -155,6 +160,11 @@ export class MemoryOperationLedger implements DurableOperationLedger {
 
 export class MemoryArtifactSink implements ContentAddressedArtifactSink {
   readonly values = new Map<string, JsonValue>();
+
+  async getExactJson(input: { namespace: GitHubArtifactNamespace; digest: string }) {
+    const value = await this.getJson(input);
+    return value === undefined ? undefined : { artifactId: "artifact_" + input.digest.slice(0, 24), value };
+  }
 
   async putJson(input: {
     namespace: GitHubArtifactNamespace;

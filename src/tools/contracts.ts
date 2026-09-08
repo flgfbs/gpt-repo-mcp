@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { RepoWritePushReconciliationInputSchema, RepoWritePushReconciliationResultSchema } from "../contracts/push-reconciliation.contract.js";
 import { RepoTaskAdmissionInputSchema, RepoTaskAdmissionResultSchema } from "../contracts/task-admission.contract.js";
 import { AgentRunsInputSchema, AgentRunsResultSchema } from "../contracts/agent-runs.contract.js";
 import { AgentReplyInputSchema, AgentReplyResultSchema } from "../contracts/agent-reply.contract.js";
@@ -325,6 +326,10 @@ export const toolContracts = {
   repo_write_push: {
     input: RepoWritePushInputSchema,
     output: RepoWritePushResultSchema
+  },
+  repo_write_push_reconciliation: {
+    input: RepoWritePushReconciliationInputSchema,
+    output: RepoWritePushReconciliationResultSchema
   },
   repo_pr_create_or_update: {
     input: RepoPrCreateOrUpdateInputSchema,

@@ -93,7 +93,8 @@ const LIFECYCLE_TOOL_ORDER = [
   "repo_merge_gate_prepare",
   "repo_write_merge",
   "repo_post_merge_readback",
-  "repo_task_admission"
+  "repo_task_admission",
+  "repo_write_push_reconciliation"
 ] as const satisfies readonly ToolName[];
 
 const HEAD_SHA = "1".repeat(40);
@@ -139,6 +140,10 @@ const validInputs = {
   },
   repo_remote_status: taskState,
   repo_write_push: taskState,
+  repo_write_push_reconciliation: {
+    ...taskState, original_operation_id: "original-push", original_head_sha: HEAD_SHA,
+    original_tree_sha: TREE_SHA, observation_operation_id: "remote-observation", dry_run: true
+  },
   repo_pr_create_or_update: { ...taskState, title: "Exact lifecycle task", body: "Bound PR body.", draft: true },
   repo_pr_status: taskState,
   repo_pr_review_threads: { ...taskState, limit: 50 },
@@ -171,12 +176,12 @@ const validInputs = {
 } as const satisfies Record<(typeof LIFECYCLE_TOOL_ORDER)[number], Record<string, unknown>>;
 
 describe("lifecycle tool contracts", () => {
-  test("preserves the local prefix and appends exactly 19 canonical lifecycle names without aliases", () => {
-    expect(CANONICAL_TOOL_ORDER).toHaveLength(67);
+  test("preserves the existing prefix and appends exactly 20 canonical lifecycle names without aliases", () => {
+    expect(CANONICAL_TOOL_ORDER).toHaveLength(68);
     expect(CANONICAL_TOOL_ORDER.slice(0, 48)).toEqual(INHERITED_TOOL_ORDER);
     expect(CANONICAL_TOOL_ORDER.slice(48)).toEqual(LIFECYCLE_TOOL_ORDER);
-    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(67);
-    expect(Object.keys(toolContracts)).toHaveLength(67);
+    expect(new Set(CANONICAL_TOOL_ORDER).size).toBe(68);
+    expect(Object.keys(toolContracts)).toHaveLength(68);
     expect([...CANONICAL_TOOL_ORDER].sort()).toEqual(Object.keys(toolContracts).sort());
     expect(toolRegistry.map(({ name }) => name)).toEqual(CANONICAL_TOOL_ORDER);
     expect(toolsForPackage("lifecycle").map(({ name }) => name)).toEqual(LIFECYCLE_TOOL_ORDER);
@@ -336,6 +341,7 @@ describe("lifecycle tool contracts", () => {
       ["repo_run_fable_review", openWorldOneShotMutationAnnotations],
       ["repo_remote_status", openWorldReadOnlyAnnotations],
       ["repo_write_push", openWorldMutationAnnotations],
+      ["repo_write_push_reconciliation", openWorldNonDestructiveMutationAnnotations],
       ["repo_pr_create_or_update", openWorldMutationAnnotations],
       ["repo_pr_status", openWorldReadOnlyAnnotations],
       ["repo_pr_review_threads", openWorldReadOnlyAnnotations],
@@ -367,6 +373,7 @@ describe("lifecycle tool contracts", () => {
       "artifactRead",
       "remoteStatus",
       "writePush",
+      "reconcilePush",
       "prCreateOrUpdate",
       "prStatus",
       "prReviewThreads",

@@ -6,7 +6,7 @@ operation.
 
 ## Contract And Documentation
 
-- Confirm the public registry contains exactly 67 canonical names in order and
+- Confirm the public registry contains exactly 68 canonical names in order and
   no aliases.
 - Confirm strict schemas, descriptions, annotations, handlers, and runtime
   capabilities agree.
@@ -68,7 +68,7 @@ test.
 - Install the packed archive in a temporary test directory and verify build,
   CLI help, config validation, doctor, server start, and health.
 - After installing the exact trusted build, reload the separately managed MCP
-  server, verify health and exactly 67 tools, and refresh ChatGPT app metadata.
+  server, verify health and exactly 68 tools, and refresh ChatGPT app metadata.
   Do not reload or mutate the router runtime as part of this step.
 - Create tags, releases, registries, signatures, or deployments only under a
   separate explicit owner decision.

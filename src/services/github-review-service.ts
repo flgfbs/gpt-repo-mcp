@@ -7,6 +7,7 @@ import {
   type ExactTaskInput
 } from "../github/exact-task.js";
 import { GitHubOperationController } from "../github/operation-controller.js";
+import { hasUnresolvedUnknownEffects, type PushReconciliationVerifier } from "./github-push-reconciliation-service.js";
 import { assertWritablePublicationTarget } from "./publication-target-guard.js";
 import {
   GitHubBoundaryError,
@@ -80,7 +81,8 @@ export class GitHubReviewService {
     private readonly evidenceProvider: MergeEvidenceProvider,
     private readonly artifacts: ContentAddressedArtifactSink,
     private readonly ledger: DurableOperationLedger,
-    private readonly clock: Clock
+    private readonly clock: Clock,
+    private readonly pushReconciliation?: PushReconciliationVerifier
   ) {
     this.operations = new GitHubOperationController(ledger, clock);
   }
@@ -418,7 +420,7 @@ export class GitHubReviewService {
     ) {
       throw new GitHubBoundaryError("REVIEW_RESOLUTION_VALIDATION_MISSING", "Review resolution requires passed validation on the exact current head and tree.");
     }
-    if (operations.some((operation) => operation.phase === "UNKNOWN_AFTER_CONTACT")) {
+    if (await hasUnresolvedUnknownEffects(operations, task, expectedHeadSha, expectedTreeSha, this.pushReconciliation)) {
       throw new GitHubBoundaryError("UNKNOWN_EXTERNAL_EFFECT", "Review resolution is blocked by an unresolved unknown external effect.");
     }
     const snapshots = operations

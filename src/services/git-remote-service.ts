@@ -567,7 +567,7 @@ function assertRepositoryIdentity(task: ServerOwnedTask, actual: string): void {
   }
 }
 
-function assertSafeGitHubRemoteUrl(
+export function assertSafeGitHubRemoteUrl(
   value: string,
   expectedIdentity: string,
   repository: ServerOwnedTask["repository"]
