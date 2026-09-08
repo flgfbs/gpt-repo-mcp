@@ -66,7 +66,8 @@ type GitDiffInput = RepoInput & {
 export const listRootsHandler: ToolHandler = async (input, context) => safeTool("repo_list_roots", input, async () => {
   await context.registry.refreshDiscovery();
   const repos = context.registry.list();
-  return createSuccessEnvelope({ repos }, `${repos.length} approved repositories available.`);
+  const warnings = context.registry.discoveryWarnings();
+  return createSuccessEnvelope({ repos }, `${repos.length} approved repositories available.${warnings.length ? ` Discovery warnings: ${warnings.join("; ")}` : ""}`);
 });
 
 export const policyExplainHandler: ToolHandler = async (input, context) => safeTool<PolicyExplainInput>("repo_policy_explain", input, async (args) => {

@@ -114,6 +114,11 @@ classification, rejects traversal and symlink escape, and enforces size limits.
 エントリを失効させる。明示登録とサーバー管理タスクは別に維持し、検出された worktree
 から lifecycle や書き込み権限を継承しない。
 
+起動時に設定パスを canonical path に固定する。稼働中の更新は検出元ごとに失敗を
+切り分け、無効な検出元の古いエントリを削除し、警告とともに他の検出元を返す。
+不明な ID の全件再検出は自動 ID の形式に限定し、2 秒間隔で抑制する。
+登録済み repository・管理タスクと包含関係がある worktree は自動登録しない。
+
 Write policy, operations policy, validation profiles, expected file bytes,
 expected HEAD, exact staged paths, and review evidence are checked in services,
 not trusted from host confirmation or model reasoning.

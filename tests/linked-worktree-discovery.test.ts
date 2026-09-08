@@ -1,21 +1,122 @@
 import { execFile } from "node:child_process";
+import { constants } from "node:fs";
+import * as filesystem from "node:fs/promises";
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { RootRegistry } from "../src/services/root-registry.js";
 import { createMcpServer } from "../src/register.js";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, open: vi.fn(actual.open) };
+});
 
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("automatic linked worktrees", () => {
+  test("rejects a nested worktree that would bypass an existing repository boundary", async () => {
+    const fixture = await createFixture();
+    await addWorktree(fixture, "owner/nested");
+    const registry = await registryFor(fixture);
+    await registry.refreshDiscovery();
+    expect(registry.list().map((repo) => repo.root)).toEqual([fixture.owner]);
+  });
+
+  test("rejects a worktree that contains another explicitly registered repository", async () => {
+    const fixture = await createFixture();
+    const linked = await addWorktree(fixture, "outer");
+    const inner = join(linked, "inner");
+    await initializeRepo(inner);
+    const registry = await RootRegistry.fromConfig({ repos: [
+      { repo_id: "owner", display_name: "Owner", root: fixture.owner },
+      { repo_id: "inner", display_name: "Inner", root: inner }
+    ] });
+    await registry.refreshDiscovery();
+    expect(registry.list().map((repo) => repo.root)).toEqual([fixture.owner, inner]);
+  });
+
+  test("typoed ids do not rescan and repeated unknown worktree ids share a short refresh interval", async () => {
+    const registry = await RootRegistry.fromConfig({ repos: [] });
+    const refresh = vi.spyOn(registry, "refreshDiscovery");
+    await registry.refreshForRepo("typo");
+    expect(refresh).not.toHaveBeenCalled();
+    await registry.refreshForRepo(`owner--worktree-missing-${"a".repeat(20)}`);
+    await registry.refreshForRepo(`owner--worktree-missing-${"b".repeat(20)}`);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  test("checks the opened metadata object with nonblocking no-follow flags and closes rejected handles", async () => {
+    const fixture = await createFixture();
+    await addWorktree(fixture, "linked");
+    const registry = await registryFor(fixture);
+    const originalOpen = (await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")).open;
+    let closed = false;
+    const opening = vi.mocked(filesystem.open).mockImplementationOnce(async (path, flags, mode) => {
+      expect(Number(flags) & constants.O_NOFOLLOW).not.toBe(0);
+      expect(Number(flags) & constants.O_NONBLOCK).not.toBe(0);
+      const handle = await originalOpen(path, flags, mode);
+      const metadata = await handle.stat();
+      // Model a regular path being swapped to a special file at open time.
+      vi.spyOn(handle, "stat").mockResolvedValue(Object.assign(metadata, { isFile: () => false }));
+      const originalClose = handle.close.bind(handle);
+      vi.spyOn(handle, "close").mockImplementation(async () => { closed = true; await originalClose(); });
+      return handle;
+    });
+    await registry.refreshDiscovery();
+    expect(opening).toHaveBeenCalledOnce();
+    expect(closed).toBe(true);
+    expect(registry.list()).toHaveLength(1);
+  });
+
+  test("a new project collision reports a warning while unaffected explicit repositories and worktrees remain available", async () => {
+    const fixture = await createFixture();
+    const linked = await addWorktree(fixture, "linked");
+    const projects = join(fixture.root, "projects");
+    const child = join(projects, "child");
+    await initializeRepo(child);
+    const registry = await RootRegistry.fromConfig({
+      repos: [{ repo_id: "owner", display_name: "Owner", root: fixture.owner }],
+      project_roots: [{ project_root_id: "projects", root: projects }]
+    });
+    await registry.refreshDiscovery();
+    expect(registry.getBase("child").root).toBe(child);
+    await initializeRepo(join(projects, "owner"));
+    await registry.refreshDiscovery();
+    expect(registry.list().map((repo) => repo.root)).toEqual([fixture.owner, linked]);
+    expect(() => registry.get("child")).toThrow("Unknown repo_id");
+    expect(registry.discoveryWarnings()).toContain("project projects: PROJECT_REPO_ID_COLLISION");
+  });
+
+  test("a missing project source does not prevent unrelated worktree revalidation", async () => {
+    const fixture = await createFixture();
+    const linked = await addWorktree(fixture, "linked");
+    const projects = join(fixture.root, "projects");
+    await mkdir(projects);
+    const registry = await RootRegistry.fromConfig({
+      repos: [{ repo_id: "owner", display_name: "Owner", root: fixture.owner }],
+      project_roots: [{ project_root_id: "projects", root: projects }]
+    });
+    await registry.refreshDiscovery();
+    const id = registry.list().find((repo) => repo.root === linked)!.repo_id;
+    await rm(projects, { recursive: true });
+    await registry.refreshForRepo(id);
+    expect(registry.get(id).root).toBe(linked);
+    await registry.refreshDiscovery();
+    expect(registry.discoveryWarnings()).toContain("project projects: DISCOVERY_SOURCE_UNAVAILABLE");
+    expect(registry.get(id).root).toBe(linked);
+  });
+
   test("finds externally created worktrees after startup without changing configuration or inheriting writes", async () => {
     const fixture = await createFixture();
     const config = { repos: [{ repo_id: "owner", display_name: "Owner", root: fixture.owner, writes: { enabled: true } }], limits: {} };

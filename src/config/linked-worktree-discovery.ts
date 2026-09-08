@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, readFile, realpath } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { RepoConfigSchema, type ParsedProjectRootConfig, type ParsedRepoConfig } from "./schema.js";
@@ -14,11 +15,12 @@ export type DiscoveredWorktreeConfig = ParsedRepoConfig & { discovery_base_repo_
 export async function discoverLinkedWorktrees(
   bases: ParsedRepoConfig[],
   projectRoots: ParsedProjectRootConfig[],
-  targetRoot?: string
+  targetRoot?: string,
+  occupiedRoots: string[] = bases.map((repo) => repo.root)
 ): Promise<DiscoveredWorktreeConfig[]> {
-  const exclusions = await Promise.all(projectRoots.map(async (project) => ({
-    ...project, root: await realpath(project.root)
-  })));
+  // RootRegistry pins project-root canonical paths at startup. Exclusions must
+  // still apply when a source is temporarily unavailable.
+  const exclusions = projectRoots;
   const roots = new Set(bases.map((repo) => repo.root));
   const ids = new Set(bases.map((repo) => repo.repo_id));
   const commonDirs = new Set<string>();
@@ -45,7 +47,9 @@ export async function discoverLinkedWorktrees(
     }
 
     for (const root of candidates) {
-      if ((targetRoot !== undefined && root !== targetRoot) || roots.has(root) || exclusions.some((project) => {
+      if ((targetRoot !== undefined && root !== targetRoot) || roots.has(root)
+        || occupiedRoots.some((registered) => pathsOverlap(registered, root))
+        || discovered.some((repo) => pathsOverlap(repo.root, root)) || exclusions.some((project) => {
         const directChild = relative(project.root, root).split(sep)[0] ?? "";
         return project.exclude_directories.some((name) => name.normalize("NFC").toLowerCase() === directChild.normalize("NFC").toLowerCase());
       })) continue;
@@ -103,11 +107,33 @@ async function assertDirectory(path: string): Promise<void> {
 }
 
 async function readRegularFile(path: string): Promise<string> {
-  const info = await lstat(path);
-  if (!info.isFile() || info.isSymbolicLink() || info.size > 16_384) {
-    throw new Error("Worktree metadata must be a bounded regular file.");
+  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const before = await file.stat();
+    if (!before.isFile() || before.size > 16_384) throw new Error("Unsafe worktree metadata.");
+    const buffer = Buffer.alloc(16_385);
+    let total = 0;
+    while (total < buffer.length) {
+      const { bytesRead } = await file.read(buffer, total, buffer.length - total, total);
+      if (bytesRead === 0) break;
+      total += bytesRead;
+    }
+    const after = await file.stat();
+    if (total > 16_384 || total !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
+      throw new Error("Worktree metadata changed during bounded read.");
+    }
+    return buffer.subarray(0, total).toString("utf8");
+  } finally {
+    await file.close();
   }
-  return readFile(path, "utf8");
+}
+
+function pathsOverlap(left: string, right: string): boolean {
+  const within = (root: string, candidate: string) => {
+    const path = relative(root, candidate);
+    return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
+  };
+  return within(left, right) || within(right, left);
 }
 
 async function gitPath(root: string, option: string): Promise<string> {

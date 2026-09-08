@@ -73,6 +73,11 @@ it cannot widen it.
 再確認し、前回の成功を根拠に古い worktree のアクセスを残さない。明示登録と管理タスクは
 優先され、自動検出から書き込み・Git 操作・lifecycle の権限を継承しない。
 
+既存の repository または管理タスクの内側・外側に重なる worktree は自動登録しない。
+Git 管理ファイルは symlink を追わず非ブロッキングで開き、開いた対象が通常ファイルで
+あることと読み取り上限を確認する。不明な ID による自動再走査には短い間隔制限を設ける。
+稼働中の検出元に異常がある場合はその検出元を除外して警告し、影響のない検出元は利用できる。
+
 No tool reads credential stores, access tokens, API keys, SSH keys, environment
 secret values, Git credential helpers, or `gh` authentication state. The GitHub
 adapter invokes an already installed and authenticated `gh` with fixed

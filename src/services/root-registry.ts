@@ -6,7 +6,7 @@ import {
   type ParsedRepoConfig,
   type ParsedRepoReaderConfig
 } from "../config/schema.js";
-import { expandProjectRepositories } from "../config/project-root-discovery.js";
+import { expandProjectRepositories, ProjectRootDiscoveryError } from "../config/project-root-discovery.js";
 import { discoverLinkedWorktrees, type DiscoveredWorktreeConfig } from "../config/linked-worktree-discovery.js";
 import { DEFAULT_LIMITS } from "../policies/limits.js";
 import { RepoReaderError } from "../runtime/errors.js";
@@ -35,6 +35,8 @@ export class RootRegistry {
   private readonly baseRepoIds: Set<string>;
   private discoveredWorktrees = new Map<string, DiscoveredWorktreeConfig>();
   private discoveryRefresh?: Promise<void>;
+  private lastDiscoveryAt = 0;
+  private warnings: string[] = [];
 
   private constructor(
     repos: RuntimeRepoConfig[],
@@ -54,11 +56,16 @@ export class RootRegistry {
   static async fromConfig(config: RepoReaderConfigInput): Promise<RootRegistry> {
     const parsed = RepoReaderConfigSchema.parse(config);
     const repos: RuntimeRepoConfig[] = await expandProjectRepositories(parsed);
+    const discoveryConfig = {
+      ...parsed,
+      repos: parsed.repos.map((repo) => ({ ...repo, root: repos.find((entry) => entry.repo_id === repo.repo_id)!.root })),
+      project_roots: await Promise.all(parsed.project_roots.map(async (project) => ({ ...project, root: await realpath(project.root) })))
+    };
     return new RootRegistry(repos, {
       max_files: parsed.limits.max_files ?? DEFAULT_LIMITS.max_files,
       max_bytes_per_file: parsed.limits.max_bytes_per_file ?? DEFAULT_LIMITS.max_bytes_per_file,
       max_total_bytes: parsed.limits.max_total_bytes ?? DEFAULT_LIMITS.max_total_bytes
-    }, parsed.code_intelligence, resolve(parsed.runtime_root), parsed);
+    }, parsed.code_intelligence, resolve(parsed.runtime_root), discoveryConfig);
   }
 
   static async fromFile(configPath: string): Promise<RootRegistry> {
@@ -86,6 +93,7 @@ export class RootRegistry {
     try {
       await refresh;
     } finally {
+      this.lastDiscoveryAt = Date.now();
       this.discoveryRefresh = undefined;
     }
   }
@@ -94,13 +102,12 @@ export class RootRegistry {
     // Drop old automatic entries even when an owner disappears or discovery
     // fails. Persistent config and server-owned task registrations are separate.
     this.discoveredWorktrees = new Map();
-    const bases = await expandProjectRepositories(this.discoveryConfig);
-    const worktrees = await discoverLinkedWorktrees(bases, this.discoveryConfig.project_roots);
-    for (const base of bases) {
-      if (this.reposById.get(base.repo_id)?.task) {
-        throw new RepoReaderError("VALIDATION_ERROR", "Discovered repository id conflicts with a task repository.");
-      }
-    }
+    this.warnings = [];
+    const bases = await this.refreshBaseSources();
+    const taskRoots = this.listTaskRepos().map((task) => task.worktree);
+    const worktrees = await discoverLinkedWorktrees(bases, this.discoveryConfig.project_roots, undefined, [
+      ...bases.map((repo) => repo.root), ...taskRoots
+    ]);
     for (const repoId of this.baseRepoIds) this.reposById.delete(repoId);
     this.baseRepoIds.clear();
     for (const base of bases) {
@@ -113,17 +120,64 @@ export class RootRegistry {
       .map((repo) => [repo.repo_id, repo]));
   }
 
+  discoveryWarnings(): string[] {
+    return [...this.warnings];
+  }
+
+  private async refreshBaseSources(): Promise<ParsedRepoConfig[]> {
+    const explicit: ParsedRepoConfig[] = [];
+    const warn = (source: string, error: unknown) => this.warnings.push(
+      `${source}: ${error instanceof ProjectRootDiscoveryError ? error.code : "DISCOVERY_SOURCE_UNAVAILABLE"}`
+    );
+    for (const repo of this.discoveryConfig.repos) {
+      try {
+        if (await realpath(repo.root) !== repo.root) throw new Error("Configured root changed.");
+        explicit.push(...await expandProjectRepositories({ ...this.discoveryConfig, repos: [repo], project_roots: [] }));
+      } catch (error) {
+        warn(`repository ${repo.repo_id}`, error);
+      }
+    }
+    const explicitRoots = new Set(explicit.map((repo) => repo.root));
+    const discovered = new Map<string, ParsedRepoConfig>();
+    const blockedIds = new Set(this.listTaskRepos().map((task) => task.task_repo_id));
+    for (const project of this.discoveryConfig.project_roots) {
+      try {
+        if (await realpath(project.root) !== project.root) throw new Error("Configured project root changed.");
+        const entries = await expandProjectRepositories({ ...this.discoveryConfig, repos: explicit, project_roots: [project] });
+        for (const entry of entries) {
+          if (explicitRoots.has(entry.root)) continue;
+          const previous = discovered.get(entry.repo_id);
+          if (blockedIds.has(entry.repo_id) || (previous && previous.root !== entry.root)) {
+            discovered.delete(entry.repo_id);
+            blockedIds.add(entry.repo_id);
+            this.warnings.push(`project ${project.project_root_id}: PROJECT_REPO_ID_COLLISION`);
+          } else {
+            discovered.set(entry.repo_id, entry);
+          }
+        }
+      } catch (error) {
+        warn(`project ${project.project_root_id}`, error);
+      }
+    }
+    return [...explicit, ...discovered.values()];
+  }
+
   async refreshForRepo(repoId: string): Promise<void> {
     if (this.reposById.has(repoId)) return;
     if (this.discoveryRefresh) await this.discoveryRefresh;
     const discovered = this.discoveredWorktrees.get(repoId);
     if (!discovered) {
-      await this.refreshDiscovery();
+      // Lists explicitly refresh. Typoed ids never launch Git, and repeated
+      // stale automatic ids cannot trigger a full rescan on every request.
+      if (/--worktree-[a-z0-9-]+-[0-9a-f]{20}$/.test(repoId) && Date.now() - this.lastDiscoveryAt >= 2_000) {
+        await this.refreshDiscovery();
+      }
       return;
     }
     const owner = this.reposById.get(discovered.discovery_base_repo_id);
     try {
-      const current = owner ? await discoverLinkedWorktrees([owner], this.discoveryConfig.project_roots, discovered.root) : [];
+      const current = owner ? await discoverLinkedWorktrees([owner], this.discoveryConfig.project_roots, discovered.root,
+        [...this.reposById.values()].map((repo) => repo.root)) : [];
       if (!current.some((repo) => repo.repo_id === repoId && repo.root === discovered.root)) {
         this.discoveredWorktrees.delete(repoId);
       }
