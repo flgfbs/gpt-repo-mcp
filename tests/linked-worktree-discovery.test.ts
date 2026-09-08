@@ -98,6 +98,32 @@ describe("automatic linked worktrees", () => {
     expect(registry.discoveryWarnings()).toContain("project projects: PROJECT_REPO_ID_COLLISION");
   });
 
+  test("an unavailable explicit repository keeps its id reserved against same-named project children", async () => {
+    const fixture = await createFixture();
+    const linked = await addWorktree(fixture, "linked");
+    const projects = join(fixture.root, "projects");
+    await mkdir(projects);
+    const registry = await RootRegistry.fromConfig({
+      repos: [{ repo_id: "owner", display_name: "Owner", root: fixture.owner }],
+      project_roots: [{ project_root_id: "projects", root: projects }]
+    });
+    await registry.refreshDiscovery();
+    const originalId = registry.list().find((repo) => repo.root === linked)!.repo_id;
+    await rename(fixture.owner, `${fixture.owner}-offline`);
+    const substitute = join(projects, "owner");
+    await initializeRepo(substitute);
+    await addWorktree({ root: fixture.root, owner: substitute }, "substitute-linked");
+    await registry.refreshDiscovery();
+    expect(registry.list()).toEqual([]);
+    expect(() => registry.get("owner")).toThrow("Unknown repo_id");
+    expect(() => registry.get(originalId)).toThrow("Unknown repo_id");
+    expect(registry.discoveryWarnings()).toContain("project projects: EXPLICIT_REPO_ID_RESERVED");
+    await rename(`${fixture.owner}-offline`, fixture.owner);
+    await registry.refreshDiscovery();
+    expect(registry.getBase("owner").root).toBe(fixture.owner);
+    expect(registry.get(originalId).root).toBe(linked);
+  });
+
   test("a missing project source does not prevent unrelated worktree revalidation", async () => {
     const fixture = await createFixture();
     const linked = await addWorktree(fixture, "linked");
@@ -235,6 +261,26 @@ describe("automatic linked worktrees", () => {
     expect(registry.list()).toHaveLength(1);
     expect(registry.get("task-repo")).toMatchObject({ root: linked, writes: { enabled: true }, task: { task_id: "task" } });
     expect(registry.listTaskRepos()).toHaveLength(1);
+  });
+
+  test("targeted revalidation rejects overlap with a task registered after discovery", async () => {
+    const fixture = await createFixture();
+    const taskRoot = join(fixture.root, "tasks");
+    await mkdir(taskRoot);
+    const linked = await addWorktree(fixture, "tasks/linked");
+    const registry = await RootRegistry.fromConfig({ repos: [{
+      repo_id: "owner", display_name: "Owner", root: fixture.owner,
+      lifecycle: { kind: "local", authority: "write", allowed_base_branches: ["main"], worktree_root: taskRoot }
+    }] });
+    await registry.refreshDiscovery();
+    const id = registry.list().find((repo) => repo.root === linked)!.repo_id;
+    const nestedTask = join(linked, "nested-task");
+    await mkdir(nestedTask);
+    await registry.registerTaskRepo({ task_id: "task", task_repo_id: "task-repo", base_repo_id: "owner", authority: "inspect", branch: "main", worktree: nestedTask });
+    await registry.refreshForRepo(id);
+    expect(() => registry.get(id)).toThrow("Unknown repo_id");
+    expect(registry.get("task-repo").root).toBe(nestedTask);
+    expect(registry.listTaskRepos()[0]!.worktree).toBe(nestedTask);
   });
 
   test("discovers new project children and their worktrees while retaining directory exclusions", async () => {

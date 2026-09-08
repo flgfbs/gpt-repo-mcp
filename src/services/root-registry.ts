@@ -138,6 +138,7 @@ export class RootRegistry {
       }
     }
     const explicitRoots = new Set(explicit.map((repo) => repo.root));
+    const explicitIds = new Set(this.discoveryConfig.repos.map((repo) => repo.repo_id));
     const discovered = new Map<string, ParsedRepoConfig>();
     const blockedIds = new Set(this.listTaskRepos().map((task) => task.task_repo_id));
     for (const project of this.discoveryConfig.project_roots) {
@@ -146,6 +147,10 @@ export class RootRegistry {
         const entries = await expandProjectRepositories({ ...this.discoveryConfig, repos: explicit, project_roots: [project] });
         for (const entry of entries) {
           if (explicitRoots.has(entry.root)) continue;
+          if (explicitIds.has(entry.repo_id)) {
+            this.warnings.push(`project ${project.project_root_id}: EXPLICIT_REPO_ID_RESERVED`);
+            continue;
+          }
           const previous = discovered.get(entry.repo_id);
           if (blockedIds.has(entry.repo_id) || (previous && previous.root !== entry.root)) {
             discovered.delete(entry.repo_id);
