@@ -1,6 +1,7 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { URL } from "node:url";
 import { describe, expect, test } from "vitest";
 import {
   classifyAudit,
@@ -83,6 +84,62 @@ describe("OSS security scan policy", () => {
       ]
     });
     expect(JSON.stringify(result)).not.toContain(privateFixture);
+  });
+
+  test("classifies the exact synthetic push fixture in candidate and public history", async () => {
+    const { email: policy } = JSON.parse(await readFile(
+      new URL("../security/oss-security-policy.json", import.meta.url), "utf8"
+    ));
+    const address = ["fixture", "@", "github.com"].join("");
+    const locations = [
+      { source: "candidate", path: "tests/github-push-reconciliation.test.ts", line: 200 },
+      { source: "public_git_blob", blob: "a".repeat(40), line: 200 }
+    ];
+    const occurrences = locations.map((location) => ({ address, location }));
+
+    expect(policy.allowed_addresses).toContain(address);
+    expect(policy.allowed_domains).not.toContain("github.com");
+    expect(classifyEmailOccurrences(occurrences, policy)).toEqual({
+      occurrence_count: 2,
+      allowed_count: 2,
+      reviewed_history_count: 0,
+      unclassified: []
+    });
+    expect(classifyEmailOccurrences(occurrences, {
+      ...policy,
+      allowed_addresses: policy.allowed_addresses.filter((value) => value !== address)
+    })).toEqual({
+      occurrence_count: 2,
+      allowed_count: 0,
+      reviewed_history_count: 0,
+      unclassified: locations
+    });
+  });
+
+  test("does not extend the synthetic fixture classification to lookalikes", async () => {
+    const { email: policy } = JSON.parse(await readFile(
+      new URL("../security/oss-security-policy.json", import.meta.url), "utf8"
+    ));
+    const addresses = [
+      ["another", "github.com"],
+      ["fixture+alias", "github.com"],
+      ["fixture", "sub.github.com"],
+      ["fixture", "github.com.invalid"],
+      ["private", "personal.invalid"]
+    ].map((parts) => parts.join("@"));
+    const occurrences = addresses.map((address, index) => ({
+      address,
+      location: { source: "candidate", path: "synthetic.txt", line: index + 1 }
+    }));
+    const result = classifyEmailOccurrences(occurrences, policy);
+
+    expect(result).toEqual({
+      occurrence_count: 5,
+      allowed_count: 0,
+      reviewed_history_count: 0,
+      unclassified: occurrences.map(({ location }) => location)
+    });
+    for (const address of addresses) expect(JSON.stringify(result)).not.toContain(address);
   });
 
   test("classifies every installed package license", () => {

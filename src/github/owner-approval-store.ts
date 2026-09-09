@@ -16,7 +16,7 @@ export type OwnerMergeApproval = {
   gateId: string;
   gateSha256: string;
   issuedAt: string;
-  expiresAt: string;
+  expiresAt: string | null;
   consumed: boolean;
   consumedAt?: string;
   consumedByOperationId?: string;
@@ -28,7 +28,7 @@ export interface OwnerApprovalVerifier {
 }
 
 export interface OwnerApprovalIssuer {
-  create(input: { gateId: string; gateSha256: string; ttlMs?: number }): Promise<OwnerMergeApproval>;
+  create(input: { gateId: string; gateSha256: string; ttlMs?: number | null }): Promise<OwnerMergeApproval>;
 }
 
 export interface ApprovalIdFactory {
@@ -49,11 +49,11 @@ export class OwnerApprovalStore implements OwnerApprovalVerifier, OwnerApprovalI
     assertTtl(defaultTtlMs);
   }
 
-  async create(input: { gateId: string; gateSha256: string; ttlMs?: number }): Promise<OwnerMergeApproval> {
+  async create(input: { gateId: string; gateSha256: string; ttlMs?: number | null }): Promise<OwnerMergeApproval> {
     const gateId = assertGateId(input.gateId, input.gateSha256);
     const gateSha256 = assertDigest(input.gateSha256);
-    const ttlMs = input.ttlMs ?? this.defaultTtlMs;
-    assertTtl(ttlMs);
+    const ttlMs = input.ttlMs === undefined ? this.defaultTtlMs : input.ttlMs;
+    if (ttlMs !== null) assertTtl(ttlMs);
     const approvalId = `merge_approval_${this.idFactory.createOpaqueId()}`;
     assertApprovalId(approvalId);
     const issuedAt = this.clock.now();
@@ -62,7 +62,7 @@ export class OwnerApprovalStore implements OwnerApprovalVerifier, OwnerApprovalI
       gateId,
       gateSha256,
       issuedAt: issuedAt.toISOString(),
-      expiresAt: new Date(issuedAt.getTime() + ttlMs).toISOString(),
+      expiresAt: ttlMs === null ? null : new Date(issuedAt.getTime() + ttlMs).toISOString(),
       consumed: false
     };
     const directory = await this.approvalDirectory();
@@ -99,7 +99,7 @@ export class OwnerApprovalStore implements OwnerApprovalVerifier, OwnerApprovalI
       consumedAt: claim.consumedAt,
       consumedByOperationId: claim.operationId
     };
-    if (Date.parse(record.expiresAt) <= this.clock.now().getTime()) {
+    if (record.expiresAt !== null && Date.parse(record.expiresAt) <= this.clock.now().getTime()) {
       throw new GitHubBoundaryError("APPROVAL_EXPIRED", "Owner approval has expired.");
     }
     return record;
@@ -249,7 +249,7 @@ function parseApprovalRecord(value: unknown): OwnerMergeApproval {
     || typeof value.gateId !== "string"
     || typeof value.gateSha256 !== "string"
     || typeof value.issuedAt !== "string"
-    || typeof value.expiresAt !== "string"
+    || (value.expiresAt !== null && typeof value.expiresAt !== "string")
     || value.consumed !== false
     || Object.keys(value).sort().join(",") !== "approvalId,consumed,expiresAt,gateId,gateSha256,issuedAt"
   ) {
@@ -260,7 +260,7 @@ function parseApprovalRecord(value: unknown): OwnerMergeApproval {
     gateId: assertGateId(value.gateId, value.gateSha256),
     gateSha256: assertDigest(value.gateSha256),
     issuedAt: assertTimestamp(value.issuedAt),
-    expiresAt: assertTimestamp(value.expiresAt),
+    expiresAt: value.expiresAt === null ? null : assertTimestamp(value.expiresAt),
     consumed: false
   };
 }

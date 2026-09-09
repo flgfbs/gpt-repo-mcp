@@ -62,6 +62,7 @@ export const OSS_TOOL_ORDER = [
   "repo_task_close",
   "repo_task_cleanup",
   "repo_artifact_read",
+  "repo_run_fable_review",
   "repo_remote_status",
   "repo_write_push",
   "repo_pr_create_or_update",
@@ -74,5 +75,6 @@ export const OSS_TOOL_ORDER = [
   "repo_merge_gate_prepare",
   "repo_write_merge",
   "repo_post_merge_readback",
-  "repo_task_admission"
+  "repo_task_admission",
+  "repo_write_push_reconciliation"
 ] as const satisfies readonly ToolName[];

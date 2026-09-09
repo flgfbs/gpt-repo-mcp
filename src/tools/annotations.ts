@@ -53,3 +53,10 @@ export const openWorldNonDestructiveMutationAnnotations = {
   openWorldHint: true,
   idempotentHint: true
 } as const;
+
+export const openWorldOneShotMutationAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  openWorldHint: true,
+  idempotentHint: false
+} as const;

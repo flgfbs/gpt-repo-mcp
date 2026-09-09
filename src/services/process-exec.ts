@@ -14,6 +14,10 @@ export type ProcessTailResult = {
     stdout: string;
     stderr: string;
     truncated: boolean;
+    // Present only for independently bounded stdout/stderr capture.
+    stdout_truncated?: boolean;
+    stderr_truncated?: boolean;
+    stdout_utf8_valid?: boolean;
   };
 };
 
@@ -25,6 +29,9 @@ export async function runProcessWithTail(input: {
   timeout_ms: number;
   tail_bytes: number;
   capture_bytes?: number;
+  // Opt in to a separate stderr budget; capture_bytes then bounds stdout.
+  // Omission preserves the existing shared full-log capture contract.
+  stderr_capture_bytes?: number;
 }): Promise<ProcessTailResult> {
   const started = Date.now();
   return new Promise((resolve) => {
@@ -40,16 +47,27 @@ export async function runProcessWithTail(input: {
     let capturedStderr = Buffer.alloc(0);
     let capturedBytes = 0;
     let captureTruncated = false;
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
     const append = (current: Buffer, chunk: Buffer) => {
       const combined = Buffer.concat([current, chunk]);
       return combined.length > input.tail_bytes ? combined.subarray(combined.length - input.tail_bytes) : combined;
     };
     const capture = (stream: "stdout" | "stderr", chunk: Buffer): void => {
       if (input.capture_bytes === undefined) return;
-      const remaining = Math.max(0, input.capture_bytes - capturedBytes);
+      const separate = input.stderr_capture_bytes !== undefined;
+      const budget = separate && stream === "stderr" ? input.stderr_capture_bytes! : input.capture_bytes;
+      const used = separate
+        ? (stream === "stdout" ? capturedStdout.length : capturedStderr.length)
+        : capturedBytes;
+      const remaining = Math.max(0, budget - used);
       const selected = chunk.subarray(0, remaining);
       capturedBytes += selected.length;
-      if (selected.length < chunk.length) captureTruncated = true;
+      if (selected.length < chunk.length) {
+        captureTruncated = true;
+        if (stream === "stdout") stdoutTruncated = true;
+        else stderrTruncated = true;
+      }
       if (stream === "stdout") capturedStdout = Buffer.concat([capturedStdout, selected]);
       else capturedStderr = Buffer.concat([capturedStderr, selected]);
     };
@@ -92,7 +110,12 @@ export async function runProcessWithTail(input: {
           captured_output: {
             stdout: capturedStdout.toString("utf8"),
             stderr: capturedStderr.toString("utf8"),
-            truncated: captureTruncated
+            truncated: captureTruncated,
+            ...(input.stderr_capture_bytes === undefined ? {} : {
+              stdout_truncated: stdoutTruncated,
+              stderr_truncated: stderrTruncated,
+              stdout_utf8_valid: Buffer.from(capturedStdout.toString("utf8"), "utf8").equals(capturedStdout)
+            })
           }
         })
       });

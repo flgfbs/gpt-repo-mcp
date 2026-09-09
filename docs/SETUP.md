@@ -113,12 +113,18 @@ npm run check:config
 ```
 
 Discovery is read-only and limited to direct, real child directories that are
-exact standalone Git worktree roots. Non-Git directories, symlinks, `.git`
-indirection files used by linked worktrees or submodules, and deeper nested
+exact standalone Git worktree roots. Non-Git directories, symlinks, unverified `.git`
+indirection files, and deeper nested
 repositories are not admitted. Repeatable `--exclude <directory-name>` values
 are matched case-insensitively. Use `--repo-id-prefix <prefix>` if several
 project roots could produce the same repository id; the resulting repository id
 must not exceed 200 characters.
+
+通常の linked worktree は個別登録不要です。`repo_list_roots` を呼ぶと、
+登録済みリポジトリの Git 管理情報から所属を検証して参照専用で検出します。
+返された `root` と作業場所を照合して `repo_id` を選んでください。新規 worktree と
+project root 直下の新規リポジトリは、サーバーを再起動せず次の一覧取得で反映されます。
+MCP 管理タスクは既存の task ID と権限を維持するため、`repo_task_status` を使います。
 
 Register a repository explicitly with `write` or `ship` when it needs file
 mutation or task worktrees. Use `--local-only` when those tasks must remain
@@ -253,7 +259,9 @@ Do not use `npm audit fix --force`. See
 
 - Health fails: confirm the server is running and port `8789` is free.
 - Tools are absent in ChatGPT: confirm the Tunnel ID and refresh app metadata.
-- `UNKNOWN_REPO`: run `npm run list`; only the owner CLI can register the root.
+- `UNKNOWN_REPO`: まず `repo_list_roots` で一覧を更新し、`root` が一致する ID を使います。
+  管理タスクなら `repo_task_status` で ID を確認します。worktree ごとのターミナル登録は不要です。
+  登録済みリポジトリに属さず、承認済み project root にも含まれない場所は、所有者による初回登録が必要です。
 - `LIFECYCLE_POLICY_DENIED`: confirm whether the repository is read-only,
   local-only, or GitHub-backed. Do not add a remote merely to bypass this
   policy; use `--local-only` for isolated local tasks.

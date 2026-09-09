@@ -5,6 +5,7 @@ import { redactSecretValues } from "../policies/secret-patterns.js";
 export const GITHUB_PUBLIC_SEMANTICS = [
   "repo_remote_status",
   "repo_write_push",
+  "repo_write_push_reconciliation",
   "repo_pr_create_or_update",
   "repo_pr_status",
   "repo_pr_review_threads",
@@ -62,6 +63,7 @@ export type ServerOwnedTask = {
   requiredChecks: RequiredCheck[];
   transientCiConclusions: TransientCiConclusion[];
   independentReviewRequired?: boolean;
+  mergeApprovalExpiration?: "time_limited" | "until_state_changes";
 };
 
 export interface TaskLookup {
@@ -95,6 +97,8 @@ export type GitHubOperationRecord = {
 };
 
 export interface DurableOperationLedger {
+  /** Verified immutable disk-state binding. Older adapters fail closed without this capability. */
+  readExact?(operationId: string): Promise<{ record: GitHubOperationRecord; stateSha256: string } | undefined>;
   withSubjectLock<T>(input: {
     repoId: string;
     taskId: string;
@@ -121,6 +125,8 @@ export interface DurableOperationLedger {
 }
 
 export interface ContentAddressedArtifactSink {
+  getExactJson?(input: { namespace: GitHubArtifactNamespace; digest: string }):
+    Promise<{ artifactId: string; value: JsonValue } | undefined>;
   putJson(input: {
     namespace: GitHubArtifactNamespace;
     digest: string;
@@ -445,7 +451,7 @@ export type MergeGateManifestCore = {
     verifyBaseContainsHead: true;
   };
   preparedAt: string;
-  expiresAt: string;
+  expiresAt: string | null;
 };
 
 export type MergeGateManifest = MergeGateManifestCore & {

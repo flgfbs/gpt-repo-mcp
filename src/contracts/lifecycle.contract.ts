@@ -514,7 +514,7 @@ export const LifecycleMergeManifestSchema = z.object({
     verify_base_contains_head: z.literal(true)
   }).strict(),
   prepared_at: TimestampSchema,
-  expires_at: TimestampSchema
+  expires_at: TimestampSchema.nullable().describe("Null disables time expiry under owner policy; exact state revalidation still applies.")
 }).strict().describe("Exact read-only merge manifest eligible for owner CLI approval.");
 
 export const RepoMergeGatePrepareInputSchema = z.object(OperationTaskStateShape).strict()

@@ -54,8 +54,12 @@ try {
     throw new Error("Built server must advertise tools without a repository resource-discovery surface.");
   }
   const listed = await client.listTools();
-  if (listed.tools.length !== 66 || new Set(listed.tools.map(({ name }) => name)).size !== 66) {
-    throw new Error(`Built server exposed ${listed.tools.length} tools instead of 66 unique tools.`);
+  const toolNames = listed.tools.map(({ name }) => name);
+  if (listed.tools.length !== 68 || new Set(toolNames).size !== 68) {
+    throw new Error(`Built server exposed ${listed.tools.length} tools instead of 68 unique tools.`);
+  }
+  if (!toolNames.includes("repo_run_fable_review")) {
+    throw new Error("Built server omitted repo_run_fable_review.");
   }
   if (!listed.tools.every(({ annotations }) =>
     typeof annotations?.readOnlyHint === "boolean" &&
@@ -69,7 +73,23 @@ try {
       !listed.tools.some(({ annotations }) => annotations?.readOnlyHint === false)) {
     throw new Error("Built server did not expose both read-only and mutating tool annotations.");
   }
-  process.stdout.write("Built server passed health, MCP initialize, 66-tool discovery, annotations, and resource-purity smoke checks.\n");
+  const fableReview = listed.tools.find(({ name }) => name === "repo_run_fable_review");
+  if (
+    fableReview?.annotations?.readOnlyHint !== false ||
+    fableReview.annotations.destructiveHint !== false ||
+    fableReview.annotations.openWorldHint !== true ||
+    fableReview.annotations.idempotentHint !== false
+  ) {
+    throw new Error("Built server exposed incorrect repo_run_fable_review annotations.");
+  }
+  const reconciliation = listed.tools.find(({ name }) => name === "repo_write_push_reconciliation");
+  if (reconciliation?.annotations?.readOnlyHint !== false || reconciliation.annotations.destructiveHint !== false
+    || reconciliation.annotations.openWorldHint !== true || reconciliation.annotations.idempotentHint !== true
+    || reconciliation.inputSchema.properties?.dry_run?.default !== true
+    || reconciliation.inputSchema.additionalProperties !== false) {
+    throw new Error("Built server exposed an unsafe or incomplete push reconciliation contract.");
+  }
+  process.stdout.write("Built server passed health, MCP initialize, 68-tool discovery, Fable review and reconciliation contracts, and resource-purity smoke checks.\n");
 } finally {
   if (client) {
     await client.close().catch(() => undefined);

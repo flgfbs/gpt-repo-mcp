@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { RepoWritePushReconciliationInputSchema, RepoWritePushReconciliationResultSchema } from "../contracts/push-reconciliation.contract.js";
 import { RepoTaskAdmissionInputSchema, RepoTaskAdmissionResultSchema } from "../contracts/task-admission.contract.js";
 import { AgentRunsInputSchema, AgentRunsResultSchema } from "../contracts/agent-runs.contract.js";
 import { AgentReplyInputSchema, AgentReplyResultSchema } from "../contracts/agent-reply.contract.js";
@@ -19,6 +20,10 @@ import { ContextMapInputSchema, ContextMapResultSchema } from "../contracts/cont
 import { DecisionLogInputSchema, DecisionLogResultSchema } from "../contracts/decision.contract.js";
 import { FetchFileInputSchema, FileContentSchema, ReadManyInputSchema, ReadManyResultSchema } from "../contracts/file.contract.js";
 import { FailureDiagnoseInputSchema, FailureDiagnoseResultSchema } from "../contracts/failure-diagnose.contract.js";
+import {
+  RepoRunFableReviewInputSchema,
+  RepoRunFableReviewResultSchema
+} from "../contracts/fable-review.contract.js";
 import { GitCommitInputSchema, GitCommitResultSchema, GitRecoverInputSchema, GitRecoverResultSchema, GitRestorePathsInputSchema, GitRestorePathsResultSchema, GitStageCommitInputSchema, GitStageCommitResultSchema, GitStageInputSchema, GitStageResultSchema, GitUnstageInputSchema, GitUnstageResultSchema } from "../contracts/git-operations.contract.js";
 import { GitDiffInputSchema, GitDiffResultSchema, GitStatusInputSchema, GitStatusResultSchema } from "../contracts/git.contract.js";
 import { GitReviewInputSchema, GitReviewResultSchema } from "../contracts/git-review.contract.js";
@@ -310,6 +315,10 @@ export const toolContracts = {
     input: RepoArtifactReadInputSchema,
     output: RepoArtifactReadResultSchema
   },
+  repo_run_fable_review: {
+    input: RepoRunFableReviewInputSchema,
+    output: RepoRunFableReviewResultSchema
+  },
   repo_remote_status: {
     input: RepoRemoteStatusInputSchema,
     output: RepoRemoteStatusResultSchema
@@ -317,6 +326,10 @@ export const toolContracts = {
   repo_write_push: {
     input: RepoWritePushInputSchema,
     output: RepoWritePushResultSchema
+  },
+  repo_write_push_reconciliation: {
+    input: RepoWritePushReconciliationInputSchema,
+    output: RepoWritePushReconciliationResultSchema
   },
   repo_pr_create_or_update: {
     input: RepoPrCreateOrUpdateInputSchema,
@@ -357,8 +370,7 @@ export const toolContracts = {
   repo_post_merge_readback: {
     input: RepoPostMergeReadbackInputSchema,
     output: RepoPostMergeReadbackResultSchema
-  }
-,
+  },
   repo_task_admission: {
     input: RepoTaskAdmissionInputSchema,
     output: RepoTaskAdmissionResultSchema

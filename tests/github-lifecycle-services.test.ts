@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { GitHubBoundaryError, sha256Json, type JsonValue, type WorkflowRun } from "../src/github/types.js";
 import { OwnerApprovalStore } from "../src/github/owner-approval-store.js";
+import { DurableOwnerApprovalCliStore } from "../src/cli/durable-owner-approval-store.js";
 import { GitHubCiService } from "../src/services/github-ci-service.js";
 import { GitHubMergeGateService } from "../src/services/github-merge-gate-service.js";
 import { GitHubMergeService } from "../src/services/github-merge-service.js";
@@ -38,6 +39,56 @@ const exactInput = (operationId: string) => ({
 });
 
 describe("GitHub lifecycle services", () => {
+  it.each(["unchanged", "head", "base", "ci", "policy"] as const)(
+    "revalidates a no-expiry gate after a year: %s", async (change) => {
+      const fixture = await createLifecycleFixture("squash", "until_state_changes");
+      const prepared = await fixture.gate.mergeGatePrepare(exactInput("no-expiry-gate"));
+      if (prepared.disposition !== "EXECUTED" || !prepared.eligible) throw new Error("gate unexpectedly blocked");
+      expect(prepared.manifest.expiresAt).toBeNull();
+      const store = new DurableOwnerApprovalCliStore({
+        gates: fixture.gate, approvals: fixture.approvals, githubArtifacts: fixture.artifacts
+      } as unknown as ConstructorParameters<typeof DurableOwnerApprovalCliStore>[0], () => fixture.clock.now());
+      fixture.clock.advance(366 * 24 * 60 * 60 * 1000);
+      const approval = await store.createApproval({
+        gateId: prepared.manifest.manifestId, gateSha256: prepared.manifest.manifestSha256
+      });
+      expect(approval.expires_at).toBeNull();
+      fixture.clock.advance(366 * 24 * 60 * 60 * 1000);
+      if (change === "head") fixture.github.refs.set(`refs/heads/${FIXED_TASK.branch}`, "e".repeat(40));
+      if (change === "base") fixture.github.refs.set(`refs/heads/${FIXED_TASK.baseBranch}`, "e".repeat(40));
+      if (change === "ci") fixture.github.checkRuns.checkRuns[0]!.conclusion = "failure";
+      if (change === "policy") fixture.tasks.task.mergeApprovalExpiration = "time_limited";
+      const merge = fixture.merge.writeMerge({
+        ...exactInput("no-expiry-merge"), manifest_id: prepared.manifest.manifestId,
+        manifest_sha256: prepared.manifest.manifestSha256, approval_id: approval.approval_id
+      });
+      if (change === "unchanged") {
+        expect(await merge).toMatchObject({ approvalConsumed: true, mergedHeadSha: HEAD_SHA });
+        expect(fixture.github.calls.filter(x => x === "mergePullRequest")).toHaveLength(1);
+      } else {
+        await expect(merge).rejects.toMatchObject({ code: "MERGE_GATE_DRIFT" });
+        expect(fixture.github.calls).not.toContain("markPullRequestReady");
+        expect(await fixture.approvals.inspect({
+          approvalId: approval.approval_id, gateId: prepared.manifest.manifestId,
+          gateSha256: prepared.manifest.manifestSha256
+        })).toMatchObject({ consumed: false });
+        await expect(store.resolveGate(prepared.manifest.manifestId)).rejects.toMatchObject({ code: "MERGE_GATE_DRIFT" });
+      }
+    }
+  );
+
+  it("preserves expired legacy gates when the owner later disables time expiry", async () => {
+    const fixture = await createLifecycleFixture();
+    const prepared = await fixture.gate.mergeGatePrepare(exactInput("legacy-gate"));
+    if (prepared.disposition !== "EXECUTED" || !prepared.eligible) throw new Error("gate unexpectedly blocked");
+    expect(prepared.manifest.expiresAt).not.toBeNull();
+    fixture.clock.advance(16 * 60 * 1000);
+    fixture.tasks.task.mergeApprovalExpiration = "until_state_changes";
+    await expect(fixture.gate.loadAndRevalidateExactManifest({
+      manifestId: prepared.manifest.manifestId, manifestSha256: prepared.manifest.manifestSha256
+    })).rejects.toMatchObject({ code: "MERGE_MANIFEST_EXPIRED" });
+  });
+
   it("aggregates equivalent required check runs from multiple GitHub Actions suites", async () => {
     const fixture = await createLifecycleFixture();
     const first = fixture.github.checkRuns.checkRuns[0]!;
@@ -479,10 +530,12 @@ describe("GitHub lifecycle services", () => {
   });
 });
 
-async function createLifecycleFixture(mergeMethod: "merge" | "squash" | "rebase" = "squash") {
+async function createLifecycleFixture(mergeMethod: "merge" | "squash" | "rebase" = "squash",
+  mergeApprovalExpiration?: "time_limited" | "until_state_changes") {
   const runtimeRoot = await mkdtemp(join(tmpdir(), "github-lifecycle-"));
   temporaryRoots.push(runtimeRoot);
-  const tasks = new FixedTaskLookup({ ...FIXED_TASK, mergeMethod });
+  const tasks = new FixedTaskLookup({ ...FIXED_TASK, mergeMethod,
+    ...(mergeApprovalExpiration ? { mergeApprovalExpiration } : {}) });
   const git = new FakeGitBoundary();
   const github = new FakeGitHubAdapter();
   const artifacts = new MemoryArtifactSink();

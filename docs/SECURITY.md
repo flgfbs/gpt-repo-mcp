@@ -6,8 +6,8 @@ deployment administrator.
 
 ## Security Model At A Glance
 
-- Only owner-registered canonical repository roots and read-only exact Git
-  children of owner-registered project roots are visible.
+- 登録済みの canonical repository、承認済み project root の Git 子ディレクトリ、
+  それらへの所属を検証した参照専用 linked worktree を公開する。
 - Every repository has deny-first read, write, Git, validation, and cleanup
   policy.
 - Tools accept structured schemas, not arbitrary commands.
@@ -48,6 +48,9 @@ not receive, read, or return the credential material.
 | Arbitrary local execution | No shell or arbitrary process/Git command schema exists; validation uses allowlisted profiles. |
 | Stale mutation | Expected bytes, HEAD, tree, staged paths, thread version, CI snapshot, and gate digest are checked where applicable. |
 | Replay after crash | `operation_id` plus durable operation/contact records distinguish replay from a new effect. |
+| Generic runner gains installed-runtime write authority | Fable review uses one fixed task-bound launcher adapter and append-only exact evidence; no public path, root, command, environment, or generic filesystem capability is exposed. |
+| Review contact is falsely reset | Contacted, unknown, and orphaned lineage claims are no-replay. Only a proved `provider_contact=NO` precontact outcome leaves the allowance unused. |
+| Provider model, credential, prompt, or raw stream leaks | Inputs contain no provider slug or credential field; outputs are reconstructed from an allowlist of sanitized result, receipt digest, contact/effect, FABLE/MAX, packet/target/scope, and lineage fields. |
 | App Server thread or authority substitution | Initial execution is a separate owner-local process that accepts only an exact admitted task/run, creates one canonical-root workspace-write, network-disabled, never-approve thread, and persists the returned model/provider. Continuation resolves only that private session, verifies the same-user owner-only socket plus repository/provider identity, sends no overrides, and can only cancel/abort approvals or grant the empty permission subset. |
 | Force push or wrong branch | Push receives only the server-owned task branch and cannot enable force. |
 | Arbitrary GitHub access | The strict adapter derives repository, branch, PR, run, and thread targets from task state. |
@@ -58,14 +61,25 @@ not receive, read, or return the credential material.
 
 ## Repository And Credential Boundaries
 
-No tool adds, removes, or widens repository or project roots. Only the owner
+No tool edits configured repository or project roots. Only the owner
 CLI edits the local registry. Project discovery is one directory deep,
-read-only, rejects symlink roots, skips `.git` indirection files, rejects
+read-only, rejects symlink roots, skips unverified `.git` indirection files, rejects
 ambiguous or overlong ids, and gives each discovered standalone Git worktree
 its own canonical sandbox. Exclusions are case-insensitive. Explicit child
 repositories may override discovered policy, but project roots inside explicit
 repositories fail closed. A task may narrow authority from repository policy;
 it cannot widen it.
+
+登録済みリポジトリに属する linked worktree は、Git の worktree 一覧と共通管理領域、
+相互参照を確認して参照専用で自動検出する。ディレクトリ除外を維持し、symlink、
+無効・削除済み・別リポジトリに差し替えられた候補は採用しない。一覧取得時と利用前に
+再確認し、前回の成功を根拠に古い worktree のアクセスを残さない。明示登録と管理タスクは
+優先され、自動検出から書き込み・Git 操作・lifecycle の権限を継承しない。
+
+既存の repository または管理タスクの内側・外側に重なる worktree は自動登録しない。
+Git 管理ファイルは symlink を追わず非ブロッキングで開き、開いた対象が通常ファイルで
+あることと読み取り上限を確認する。不明な ID による自動再走査には短い間隔制限を設ける。
+稼働中の検出元に異常がある場合はその検出元を除外して警告し、影響のない検出元は利用できる。
 
 No tool reads credential stores, access tokens, API keys, SSH keys, environment
 secret values, Git credential helpers, or `gh` authentication state. The GitHub
@@ -125,6 +139,31 @@ questions can use the existing `repo_write_agent_reply` path; unsafe or
 unanswerable questions receive an empty answer map. Sequential question rounds
 use distinct private hash-bound reply artifacts while the public operation
 remains the same.
+
+## Managed Fable Review Boundary
+
+The exact-head review action requires an active task repository with `implement`
+or `ship` authority and exact base commit/tree plus current HEAD/tree. It rejects
+dirty or stale worktrees before launcher invocation. The server constructs the
+canonical review packet from the committed diff, secret-scans it, pins the
+installed launcher and router bytes, verifies the launcher `describe` contract,
+and writes one fresh owner-only transport bundle with no-overwrite and exact
+read-back semantics before entering the contact boundary.
+
+The launcher route is primary capability class `FABLE` at `MAX`; no concrete
+provider-model slug is authoritative. Retry, fallback, reroute, reserve
+substitution, tools, MCP, plugins, subagents, session reuse, and continuation are
+disabled and attested. Existing installed static bytes and runtime evidence are
+read-only to Repository MCP except for the exact fresh per-attempt files that the
+installed launcher itself creates. The adapter never edits, chmods, replaces,
+cleans, or deletes pre-existing evidence.
+
+Public evidence excludes packet contents, prompts, credentials, raw provider
+streams, route internals, resolved concrete models, absolute installed paths, and
+unrelated runtime data. A receipt/read-back or attestation failure after known
+contact is `contacted_incomplete`; an ambiguous process effect is
+`unknown_effect`. Neither may be relabeled provider-origin or restarted as a
+fresh initial review.
 
 ## External And Merge Boundaries
 

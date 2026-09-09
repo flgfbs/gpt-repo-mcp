@@ -190,6 +190,19 @@ If the response is interrupted, do not repeat with a new operation id. Resume
 with the same task and inspect its receipt/remote state so the original effect
 can be classified.
 
+### 確認済み公開を UNKNOWN push と照合する
+
+元の push が `UNKNOWN_AFTER_CONTACT` のまま、後続の native `repo_remote_status` が
+同じ task branch の公開を確認した場合は、`repo_write_push_reconciliation` で検査できます。
+元 push の operation id と歴史的 HEAD/tree、後続 observation の operation id、
+現在の exact HEAD/tree を指定します。既定の `dry_run: true` は記録も再送もしません。
+後続の時刻・artifact digest・repository identity と現在の GitHub ref が検証できなければ拒否します。
+
+実際の追記が承認されている場合だけ、検査結果の二つの state digest を同じ要求へ束縛して
+`dry_run: false` とします。新 record の保存・読戻し後も元 push は UNKNOWN/no-replay のままです。
+成功した照合は公開を確認する証拠に限られ、元 push 成功の証明でも、CI/独立レビューや
+owner approval の免除でもありません。対象や証拠が変わった場合は記録を再利用しません。
+
 ## 7. Create Or Update The Draft Pull Request
 
 Call `repo_pr_create_or_update` with the exact task state, title, body, and the
@@ -232,8 +245,18 @@ review, CI, and merge-gate evidence.
 
 Call `repo_merge_gate_prepare` with the expected task HEAD/tree. The server
 binds the configured merge method (`merge`, `squash`, or `rebase`) and mandatory
-remote task-branch retention. It is read-only and returns blockers or an
-expiring manifest.
+remote task-branch retention. It is read-only and returns blockers or a
+manifest. Time-limited gates remain the default.
+
+An owner can set `lifecycle.merge_approval_expiration` to
+`"until_state_changes"` for one GitHub repository. New gates and their owner
+approvals then have `expires_at: null`, displayed as `expires_at=none` by the CLI.
+Neither the owner interaction nor the subsequent merge has a time deadline.
+The exact PR, head/tree, base, checks, review, validation, publication and owner
+policy are still revalidated before merge, and approval remains single-use.
+Switching the policy back to `"time_limited"` invalidates outstanding gates
+without time expiry. Existing time-limited records keep their original expiry;
+this option never rewrites or revives a historical gate or consumed approval.
 
 When eligible, it prints exactly:
 
@@ -246,7 +269,7 @@ content-addressed gate, displays its exact repository/task/PR/HEAD/tree/method/
 CI/review/expiry binding, asks for confirmation, and writes one mode-0600
 approval.
 
-Merge requires one exact, unexpired, one-time owner approval.
+Merge requires one exact, valid, one-time owner approval.
 
 ChatGPT cannot mint this approval. **Allow all actions** does not substitute for
 it.
@@ -254,7 +277,7 @@ it.
 ## 11. Merge And Read Back
 
 `repo_write_merge` receives the original operation/task state plus manifest id,
-manifest digest, and owner approval id. It revalidates the unexpired exact
+manifest digest, and owner approval id. It revalidates the current exact
 binding and consumes the approval once. Its effect is `merged` or a verified
 `already_merged` result for the same binding.
 

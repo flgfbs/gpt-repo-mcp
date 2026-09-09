@@ -12,6 +12,26 @@ afterEach(async () => {
 });
 
 describe("OwnerApprovalStore", () => {
+  it("keeps an explicit no-expiry approval single-use across reconstruction and a long delay", async () => {
+    const root = await mkdtemp(join(tmpdir(), "github-owner-no-expiry-"));
+    roots.push(root);
+    const clock = new FixedClock();
+    const store = new OwnerApprovalStore({ getRuntimeRoot: async () => root }, clock);
+    const digest = "c".repeat(64);
+    const gateId = `merge_manifest_${digest}`;
+    const created = await store.create({ gateId, gateSha256: digest, ttlMs: null });
+    expect(created.expiresAt).toBeNull();
+    clock.advance(366 * 24 * 60 * 60 * 1000);
+    const restarted = new OwnerApprovalStore({ getRuntimeRoot: async () => root }, clock);
+    const binding = { approvalId: created.approvalId, gateId, gateSha256: digest };
+    expect(await restarted.inspect(binding)).toMatchObject({ consumed: false, expiresAt: null });
+    await expect(restarted.inspect({ ...binding, gateId: `merge_manifest_${"d".repeat(64)}`, gateSha256: "d".repeat(64) }))
+      .rejects.toMatchObject({ code: "APPROVAL_BINDING_MISMATCH" });
+    await restarted.claim({ ...binding, operationId: "merge-once" });
+    await expect(store.claim({ ...binding, operationId: "merge-twice" }))
+      .rejects.toMatchObject({ code: "APPROVAL_CONSUMED" });
+  });
+
   it("creates mode-0600 expiring approval and atomically claims it once", async () => {
     const root = await mkdtemp(join(tmpdir(), "github-owner-approval-"));
     roots.push(root);

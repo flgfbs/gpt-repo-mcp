@@ -34,6 +34,7 @@
       "users.noreply.github.com"
     ],
     "allowed_addresses": [
+      "fixture@github.com",
       "git@github.com",
       "noreply@github.com",
       "secret@github.com"

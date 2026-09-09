@@ -29,6 +29,9 @@ export class DurableOwnerApprovalCliStore implements OwnerApprovalCliStore {
       });
       if (value === undefined) throw new OwnerCliError("GATE_NOT_FOUND", "Exact merge gate is unavailable.");
       const core = parseMergeGateManifestCore(value);
+      if (core.expiresAt === null) {
+        await this.github.gates.loadAndRevalidateExactManifest({ manifestId: gateId, manifestSha256: digest });
+      }
       if (core.unresolvedThreadIds.length !== 0 || core.materialFindingCount !== 0) {
         throw new OwnerCliError("GATE_INVALID", "Stored merge gate contains unresolved material blockers.");
       }
@@ -58,7 +61,9 @@ export class DurableOwnerApprovalCliStore implements OwnerApprovalCliStore {
         material_findings: 0,
         unknown_external_effects: 0,
         risks: [
-          "Approval is bound to this exact manifest and expires with the gate.",
+          core.expiresAt === null
+            ? "No time expiry. Approval is single-use; exact state and owner policy are revalidated before merge."
+            : "Approval is bound to this exact manifest and expires with the gate.",
           "Merge changes Draft to Ready immediately before the exact-head merge.",
           "The remote task branch is retained after merge."
         ],
@@ -74,6 +79,11 @@ export class DurableOwnerApprovalCliStore implements OwnerApprovalCliStore {
         throw new OwnerCliError("GATE_BINDING_MISMATCH", "gateId is not bound to gateSha256.");
       }
       const gate = await this.resolveGate(input.gateId);
+      if (gate.expires_at === null) {
+        return approvalView(await this.github.approvals.create({
+          gateId: input.gateId, gateSha256: input.gateSha256, ttlMs: null
+        }));
+      }
       const remainingMs = Date.parse(gate.expires_at) - this.now().getTime() - 1_000;
       if (remainingMs < 1_000) throw new OwnerCliError("GATE_EXPIRED", "Merge gate has no safe approval lifetime remaining.");
       return approvalView(await this.github.approvals.create({

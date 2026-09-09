@@ -6,6 +6,7 @@ import {
   type ExactTaskInput
 } from "../github/exact-task.js";
 import { GitHubOperationController } from "../github/operation-controller.js";
+import { hasUnresolvedUnknownEffects, type PushReconciliationVerifier } from "./github-push-reconciliation-service.js";
 import {
   GitHubBoundaryError,
   assertSafeBranch,
@@ -76,7 +77,8 @@ export class GitHubMergeGateService implements ExactMergeGateVerifier {
     private readonly artifacts: ContentAddressedArtifactSink,
     private readonly ledger: DurableOperationLedger,
     private readonly clock: Clock,
-    private readonly manifestTtlMs = 15 * 60 * 1000
+    private readonly manifestTtlMs = 15 * 60 * 1000,
+    private readonly pushReconciliation?: PushReconciliationVerifier
   ) {
     if (!Number.isSafeInteger(manifestTtlMs) || manifestTtlMs < 60_000 || manifestTtlMs > 60 * 60 * 1000) {
       throw new GitHubBoundaryError("INVALID_GATE_TTL", "Merge gate TTL must be between one minute and one hour.");
@@ -208,11 +210,14 @@ export class GitHubMergeGateService implements ExactMergeGateVerifier {
       throw new GitHubBoundaryError("MERGE_MANIFEST_NOT_FOUND", "The exact content-addressed merge manifest is unavailable.");
     }
     const core = parseMergeGateManifestCore(stored);
-    if (Date.parse(core.expiresAt) <= this.clock.now().getTime()) {
+    if (core.expiresAt !== null && Date.parse(core.expiresAt) <= this.clock.now().getTime()) {
       throw new GitHubBoundaryError("MERGE_MANIFEST_EXPIRED", "Merge manifest approval window has expired.");
     }
     const task = await this.tasks.getServerOwnedTask(core.repoId);
     if (task.taskId !== core.taskId) throw new GitHubBoundaryError("MERGE_MANIFEST_TASK_MISMATCH", "Merge manifest task binding is no longer current.");
+    if ((core.expiresAt === null) !== (task.mergeApprovalExpiration === "until_state_changes")) {
+      throw new GitHubBoundaryError("MERGE_GATE_DRIFT", "Owner merge expiration policy no longer matches the manifest.");
+    }
     const current = await this.evaluate(task, core.headSha, core.treeSha, {
       ciStatusId: core.ciStatusId,
       preparedAt: core.preparedAt,
@@ -232,7 +237,7 @@ export class GitHubMergeGateService implements ExactMergeGateVerifier {
     task: ServerOwnedTask,
     expectedHeadSha: string,
     expectedTreeSha: string,
-    fixed?: { ciStatusId: string; preparedAt: string; expiresAt: string }
+    fixed?: { ciStatusId: string; preparedAt: string; expiresAt: string | null }
   ): Promise<GateEvaluation> {
     await bindExactTask({
       tasks: this.tasks,
@@ -296,7 +301,7 @@ export class GitHubMergeGateService implements ExactMergeGateVerifier {
     const materialFindingCount = independentReview.materialFindingCount
       ?? (independentReviewRequired && independentReview.status !== "passed" ? 1 : 0);
     if (materialFindingCount !== 0) blockers.push(blocker("MATERIAL_REVIEW_FINDINGS_REMAIN", "Independent review reports material findings."));
-    if (operations.some((operation) => operation.phase === "UNKNOWN_AFTER_CONTACT")) {
+    if (await hasUnresolvedUnknownEffects(operations, task, expectedHeadSha, expectedTreeSha, this.pushReconciliation)) {
       blockers.push(blocker("UNKNOWN_EXTERNAL_EFFECT", "Task has an unresolved unknown external effect."));
     }
 
@@ -308,7 +313,8 @@ export class GitHubMergeGateService implements ExactMergeGateVerifier {
     }
 
     const preparedAt = fixed?.preparedAt ?? this.clock.now().toISOString();
-    const expiresAt = fixed?.expiresAt ?? new Date(Date.parse(preparedAt) + this.manifestTtlMs).toISOString();
+    const expiresAt = fixed ? fixed.expiresAt : task.mergeApprovalExpiration === "until_state_changes"
+      ? null : new Date(Date.parse(preparedAt) + this.manifestTtlMs).toISOString();
     const core: MergeGateManifestCore = {
       repoId: task.repoId,
       taskId: task.taskId,
@@ -431,7 +437,7 @@ export function parseMergeGateManifestCore(value: JsonValue): MergeGateManifestC
       verifyBaseContainsHead: true
     },
     preparedAt: assertTimestamp(stringField("preparedAt"), "prepared_at"),
-    expiresAt: assertTimestamp(stringField("expiresAt"), "expires_at")
+    expiresAt: value.expiresAt === null ? null : assertTimestamp(stringField("expiresAt"), "expires_at")
   };
 }
 

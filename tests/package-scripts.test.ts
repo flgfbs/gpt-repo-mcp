@@ -96,7 +96,7 @@ describe("package and public documentation", () => {
     const connection = await readFile("docs/CHATGPT_CONNECT.md", "utf8");
     expect(connection).toContain("OpenAI Secure MCP Tunnel");
     expect(connection).toContain("http://127.0.0.1:8789/mcp");
-    expect(connection).toContain("Confirm that exactly 66 tools are listed.");
+    expect(connection).toContain("Confirm that exactly 68 tools are listed.");
   });
 
   test("documents installation, registration, operations, and uninstall", async () => {
@@ -128,7 +128,9 @@ describe("package and public documentation", () => {
     expect(security).toContain("No tool reads credential stores");
     expect(workflows).toContain("chat-pro-repo approve-merge --gate-id <opaque-id>");
     expect(workflows).toContain("mode-0600");
-    expect(workflows).toContain("one exact, unexpired, one-time owner approval");
+    expect(workflows).toContain("one exact, valid, one-time owner approval");
+    expect(workflows).toContain("lifecycle.merge_approval_expiration");
+    expect(workflows).toContain("Existing time-limited records keep their original expiry");
     expect(workflows).toContain("does not authorize release");
   });
 

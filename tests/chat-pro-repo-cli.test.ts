@@ -358,7 +358,7 @@ describe("chat-pro-repo owner CLI", () => {
     });
   });
 
-  test("shows the exact merge binding and creates approval only after exact confirmation", async () => {
+  test.each([false, true])("shows the exact binding and requires confirmation with no time expiry=%s", async (noExpiry) => {
     const fixture = await cliFixture();
     const digest = "a".repeat(64);
     const gateId = `merge_manifest_${digest}`;
@@ -385,14 +385,14 @@ describe("chat-pro-repo owner CLI", () => {
       unknown_external_effects: 0,
       risks: ["The approval expires with this exact gate."],
       prepared_at: "2026-08-23T01:00:00.000Z",
-      expires_at: "2026-08-23T01:15:00.000Z"
+      expires_at: noExpiry ? null : "2026-08-23T01:15:00.000Z"
     };
     const approval: OwnerMergeApprovalView = {
       approval_id: `merge_approval_${"X".repeat(24)}`,
       gate_id: gateId,
       gate_sha256: digest,
       issued_at: "2026-08-23T01:01:00.000Z",
-      expires_at: "2026-08-23T01:10:00.000Z",
+      expires_at: noExpiry ? null : "2026-08-23T01:10:00.000Z",
       consumed: false
     };
     const store: OwnerApprovalCliStore = {
@@ -419,6 +419,7 @@ describe("chat-pro-repo owner CLI", () => {
     );
     expect(approved.code).toBe(0);
     expect(approved.stdout).toContain(`approval_id=${approval.approval_id}`);
+    expect(approved.stdout).toContain(`expires_at=${approval.expires_at ?? "none"}`);
     expect(store.createApproval).toHaveBeenCalledWith({ gateId, gateSha256: digest });
 
     const inspected = await fixture.run([

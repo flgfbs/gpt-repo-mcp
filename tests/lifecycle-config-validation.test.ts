@@ -5,10 +5,23 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, test } from "vitest";
 import { validateConfigDocument } from "../src/config/validation.js";
+import { LifecyclePolicyConfigSchema } from "../src/config/schema.js";
 
 const execFileAsync = promisify(execFile);
 
 describe("lifecycle repository config validation", () => {
+  test("accepts explicit state-bound expiration only for a GitHub lifecycle", async () => {
+    const fixture = await lifecycleFixture();
+    const policy = documentFor(fixture).repos[0]!.lifecycle;
+    expect(LifecyclePolicyConfigSchema.parse(policy)).not.toHaveProperty("merge_approval_expiration");
+    expect(LifecyclePolicyConfigSchema.parse({ ...policy, merge_approval_expiration: "until_state_changes" }))
+      .toMatchObject({ merge_approval_expiration: "until_state_changes" });
+    expect(LifecyclePolicyConfigSchema.safeParse({ ...policy, merge_approval_expiration: "forever" }).success).toBe(false);
+    expect(LifecyclePolicyConfigSchema.safeParse({
+      ...localDocumentFor(fixture).repos[0]!.lifecycle, merge_approval_expiration: "until_state_changes"
+    }).success).toBe(false);
+  });
+
   test("binds the exact Git root, local branch, remote identity, and worktree root", async () => {
     const fixture = await lifecycleFixture();
     const result = await validateConfigDocument(documentFor(fixture));

@@ -1,10 +1,16 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
-import { sha256Json, type GitHubOperationRecord } from "../src/github/types.js";
+import { sha256, sha256Json, type GitHubOperationRecord } from "../src/github/types.js";
+import type { RuntimeContext } from "../src/runtime/context.js";
+import { GitRemoteService, InstalledGitRunner, ProductionExactGitBoundary } from "../src/services/git-remote-service.js";
+import { GitHubPushReconciliationService } from "../src/services/github-push-reconciliation-service.js";
+import { GitHubLifecycleRuntime } from "../src/services/github-lifecycle-runtime.js";
+import { RepositoryLifecycleRuntime } from "../src/services/repository-lifecycle-runtime.js";
+import { writePushReconciliationHandler } from "../src/tools/handlers/lifecycle.js";
 import { createLifecycleRuntimeBundle } from "../src/services/lifecycle-factory.js";
 import {
   DurableGitHubOperationLedger,
@@ -14,7 +20,7 @@ import {
 } from "../src/services/github-runtime-adapters.js";
 import { RootRegistry } from "../src/services/root-registry.js";
 import { canonicalJson } from "../src/task-runtime/index.js";
-import { FakeGitBoundary, FakeGitHubAdapter } from "./fixtures/github-lifecycle-fixtures.js";
+import { BASE_SHA, BASE_TREE_SHA, FakeGitBoundary, FakeGitHubAdapter, FixedClock } from "./fixtures/github-lifecycle-fixtures.js";
 
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
@@ -24,6 +30,87 @@ afterEach(async () => {
 });
 
 describe("production GitHub runtime adapters", () => {
+  test.each(["digest", "symlink"])("native reconciliation survives reconstruction, preserves source operations and rejects %s tampering", async tamper => {
+    const fixture = await setup();
+    await git(fixture.task.root, "remote", "add", "origin", "https://github.com/example/fixture.git");
+    const lookup = new RegistryTaskLookup(fixture.registry, fixture.bundle.tasks);
+    const ledger = new DurableGitHubOperationLedger(fixture.bundle.tasks.fs, fixture.bundle.tasks.locks);
+    const sink = new TaskArtifactGitHubSink(lookup, fixture.bundle.artifacts, fixture.bundle.tasks.fs, fixture.bundle.tasks.locks);
+    const boundary = new FakeGitBoundary();
+    boundary.snapshot = { branch: fixture.task.branch, headSha: fixture.head, treeSha: fixture.tree,
+      clean: true, pushUrls: ["https://github.com/example/fixture.git"] };
+    const github = new FakeGitHubAdapter();
+    github.repository.nameWithOwner = "example/fixture";
+    const ref = "refs/heads/" + fixture.task.branch;
+    github.refs.set(ref, BASE_SHA);
+    github.refTrees.set(ref, BASE_TREE_SHA);
+    const clock = new FixedClock();
+    const remote = new GitRemoteService(lookup, boundary, github, sink, ledger, clock);
+    const exact = { repo_id: fixture.task.repoId, task_id: fixture.task.taskId,
+      expected_head_sha: fixture.head, expected_tree_sha: fixture.tree };
+    await expect(remote.writePush({ ...exact, operation_id: "durable-unknown-push" })).rejects.toMatchObject({ code: "PUSH_READBACK_MISMATCH" });
+    clock.advance(1000);
+    github.refs.set(ref, fixture.head);
+    github.refTrees.set(ref, fixture.tree);
+    await remote.remoteStatus({ ...exact, operation_id: "durable-remote-observation" });
+    clock.advance(1000);
+    const original = (await ledger.readExact("durable-unknown-push"))!;
+    const observation = (await ledger.readExact("durable-remote-observation"))!;
+    const operationFile = (id: string) => join(fixture.runtimeRoot, "github-operations", sha256("github-operation\0" + id) + ".json");
+    const originalBytes = await readFile(operationFile(original.record.operationId));
+    const observationBytes = await readFile(operationFile(observation.record.operationId));
+    expect(JSON.parse(originalBytes.toString()).state_sha256).toBe(original.stateSha256);
+    // The native handler/runtime path uses real task lookup, local Git, durable ledger and CAS.
+    // Only the external GitHub endpoint and the original fixture push are fake.
+    const productionGit = new ProductionExactGitBoundary(new InstalledGitRunner(process.env));
+    const service = new GitHubPushReconciliationService(lookup, productionGit, github, sink, ledger, clock);
+    const unused = async (): Promise<never> => { throw new Error("Unexpected fixture lifecycle call"); };
+    const external = new GitHubLifecycleRuntime(lookup, sink, {
+      reconciliation: service, remote,
+      pullRequests: { prCreateOrUpdate: unused, prStatus: unused },
+      reviews: { prReviewThreads: unused, writePrReply: unused, writePrResolveThread: unused },
+      ci: { ciStatus: unused, writeCiRetryFailed: unused }, gates: { mergeGatePrepare: unused },
+      merge: { writeMerge: unused }, postMerge: { postMergeReadback: unused }
+    });
+    const lifecycle = new RepositoryLifecycleRuntime(fixture.registry, fixture.bundle.tasks, fixture.bundle.artifacts, external);
+    const context = { lifecycle } as unknown as RuntimeContext;
+    const input = { ...exact, operation_id: "durable-reconciliation",
+      original_operation_id: original.record.operationId, original_head_sha: fixture.head, original_tree_sha: fixture.tree,
+      observation_operation_id: observation.record.operationId };
+    const preview = await writePushReconciliationHandler(input, context);
+    expect(preview.structuredContent).toMatchObject({ ok: true, dry_run: true, recorded: false, artifact: null });
+    expect(await ledger.readExact(input.operation_id)).toBeUndefined();
+    const append = { ...input, dry_run: false, expected_original_state_sha256: original.stateSha256,
+      expected_observation_state_sha256: observation.stateSha256 };
+    const recorded = await writePushReconciliationHandler(append, context);
+    expect(recorded.structuredContent).toMatchObject({ ok: true, dry_run: false, recorded: true,
+      original_push_outcome: "UNKNOWN", original_fence_preserved: true, push_replayed: false,
+      artifact: { kind: "push_receipt" } });
+    expect((await writePushReconciliationHandler(append, context)).structuredContent).toEqual(recorded.structuredContent);
+    expect(await readFile(operationFile(original.record.operationId))).toEqual(originalBytes);
+    expect(await readFile(operationFile(observation.record.operationId))).toEqual(observationBytes);
+    expect(boundary.pushCalls).toBe(1);
+    expect(JSON.stringify(recorded)).not.toContain(fixture.parent);
+    const restartedLedger = new DurableGitHubOperationLedger(fixture.bundle.tasks.fs, fixture.bundle.tasks.locks);
+    const restartedSink = new TaskArtifactGitHubSink(lookup, fixture.bundle.artifacts, fixture.bundle.tasks.fs, fixture.bundle.tasks.locks);
+    const restarted = new GitHubPushReconciliationService(lookup, productionGit, github, restartedSink, restartedLedger, clock);
+    expect(await restarted.resolves(fixture.task, original.record, fixture.head, fixture.tree)).toBe(true);
+    const path = operationFile(observation.record.operationId);
+    if (tamper === "digest") {
+      const changed = JSON.parse(observationBytes.toString());
+      changed.updatedAt = clock.now().toISOString();
+      await writeFile(path, JSON.stringify(changed));
+    } else {
+      const target = join(fixture.parent, "displaced-observation.json");
+      await rename(path, target);
+      await symlink(target, path);
+    }
+    expect(await restarted.resolves(fixture.task, original.record, fixture.head, fixture.tree)).toBe(false);
+    expect((await writePushReconciliationHandler(append, context)).isError).toBe(true);
+    expect(await readFile(operationFile(original.record.operationId))).toEqual(originalBytes);
+    expect(boundary.pushCalls).toBe(1);
+  });
+
   test("persists compare-and-set operation state across adapter reconstruction", async () => {
     const fixture = await setup();
     const ledger = new DurableGitHubOperationLedger(fixture.bundle.tasks.fs, fixture.bundle.tasks.locks);
@@ -187,7 +274,7 @@ async function setup() {
       lifecycle: {
         authority: "ship",
         remote_name: "origin",
-        expected_remote_identity: "https://github.com/example/fixture.git",
+        expected_remote_identity: "github.com/example/fixture",
         allowed_base_branches: ["main"],
         worktree_root: worktreeRoot,
         github_repository: "example/fixture",

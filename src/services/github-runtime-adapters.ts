@@ -66,6 +66,11 @@ export class DurableGitHubOperationLedger implements DurableOperationLedger {
     await this.fs.ensureDirectory("github-operations");
   }
 
+  async readExact(operationId: string): Promise<{ record: GitHubOperationRecord; stateSha256: string } | undefined> {
+    const stored = await this.read(operationId);
+    return stored ? { record: diskRecord(stored), stateSha256: stored.state_sha256 } : undefined;
+  }
+
   async withSubjectLock<T>(input: {
     repoId: string;
     taskId: string;
@@ -268,13 +273,17 @@ export class TaskArtifactGitHubSink implements ContentAddressedArtifactSink {
   }
 
   async getJson(input: { namespace: GitHubArtifactNamespace; digest: string }): Promise<JsonValue | undefined> {
+    return (await this.getExactJson(input))?.value;
+  }
+
+  async getExactJson(input: { namespace: GitHubArtifactNamespace; digest: string }): Promise<{ artifactId: string; value: JsonValue } | undefined> {
     const index = await this.readIndex(input.namespace, input.digest);
     if (!index) return undefined;
     const loaded = await this.readArtifact(index.task_id, index.artifact_id);
     if (loaded.metadata.content_sha256 !== index.content_sha256 || sha256Json(loaded.value) !== input.digest) {
       throw githubStateTampered();
     }
-    return loaded.value;
+    return { artifactId: index.artifact_id, value: loaded.value };
   }
 
   async reference(taskId: string, artifactId: string): Promise<TaskArtifactMetadata> {
@@ -362,7 +371,9 @@ export class RegistryTaskLookup implements TaskLookup {
       mergeMethod: base.lifecycle.merge_method,
       requiredChecks: base.lifecycle.required_checks.map(requiredCheck),
       transientCiConclusions: base.lifecycle.transient_ci_conclusions,
-      independentReviewRequired: base.lifecycle.independent_review_required
+      independentReviewRequired: base.lifecycle.independent_review_required,
+      ...(base.lifecycle.merge_approval_expiration !== undefined
+        ? { mergeApprovalExpiration: base.lifecycle.merge_approval_expiration } : {})
     };
   }
 }

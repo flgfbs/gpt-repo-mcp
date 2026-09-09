@@ -17,6 +17,7 @@ import { GitHubMergeGateService } from "./github-merge-gate-service.js";
 import { GitHubMergeService } from "./github-merge-service.js";
 import { GitHubPostMergeService } from "./github-post-merge-service.js";
 import { GitHubPrService } from "./github-pr-service.js";
+import { GitHubPushReconciliationService } from "./github-push-reconciliation-service.js";
 import { GitHubReviewService } from "./github-review-service.js";
 import {
   DurableGitHubOperationLedger,
@@ -26,6 +27,11 @@ import {
 } from "./github-runtime-adapters.js";
 import { RepositoryLifecycleRuntime } from "./repository-lifecycle-runtime.js";
 import { DelegationExecutionRuntime } from "./delegation-execution-runtime.js";
+import { InstalledTypedFableLauncher } from "./installed-fable-launcher.js";
+import {
+  ManagedFableReviewService,
+  type ManagedFableReviewRuntime
+} from "./managed-fable-review-service.js";
 import type { RootRegistry } from "./root-registry.js";
 
 export type LifecycleRuntimeBundle = {
@@ -34,6 +40,7 @@ export type LifecycleRuntimeBundle = {
   artifacts: TaskArtifactStore;
   taskMutations: DurableTaskMutationRuntime;
   executionRuntime: DelegationExecutionRuntime;
+  fableReviews: ManagedFableReviewRuntime;
   github?: ProductionGitHubRuntimeBundle;
 };
 
@@ -90,6 +97,12 @@ export async function createLifecycleRuntimeBundle(
   await tasks.initialize();
   await tasks.rehydrateOpenTaskRepositories({ limit: 10_000 });
   const executionRuntime = new DelegationExecutionRuntime(registry, tasks);
+  const fableReviews = new ManagedFableReviewService(
+    registry,
+    tasks,
+    artifacts,
+    new InstalledTypedFableLauncher()
+  );
   const production = external
     ? undefined
     : await createProductionGitHubRuntimeBundle(registry, tasks, artifacts);
@@ -99,6 +112,7 @@ export async function createLifecycleRuntimeBundle(
     artifacts,
     taskMutations: new DurableTaskMutationRuntime(registry, tasks, artifacts),
     executionRuntime,
+    fableReviews,
     lifecycle: new RepositoryLifecycleRuntime(registry, tasks, artifacts, externalRuntime),
     ...(production ? { github: production } : {})
   };
@@ -119,7 +133,8 @@ export async function createProductionGitHubRuntimeBundle(
   const pullRequests = new GitHubPrService(taskLookup, git, github, githubArtifacts, ledger, systemClock);
   const ci = new GitHubCiService(taskLookup, git, github, githubArtifacts, ledger, systemClock);
   const evidence = new TaskArtifactMergeEvidenceProvider(artifacts, git, github, githubArtifacts);
-  const reviews = new GitHubReviewService(taskLookup, git, github, evidence, githubArtifacts, ledger, systemClock);
+  const reconciliation = new GitHubPushReconciliationService(taskLookup, git, github, githubArtifacts, ledger, systemClock);
+  const reviews = new GitHubReviewService(taskLookup, git, github, evidence, githubArtifacts, ledger, systemClock, reconciliation);
   const gates = new GitHubMergeGateService(
     taskLookup,
     git,
@@ -128,7 +143,9 @@ export async function createProductionGitHubRuntimeBundle(
     evidence,
     githubArtifacts,
     ledger,
-    systemClock
+    systemClock,
+    undefined,
+    reconciliation
   );
   const approvals = new OwnerApprovalStore(
     { getRuntimeRoot: async () => registry.runtimeRoot },
@@ -160,6 +177,7 @@ export async function createProductionGitHubRuntimeBundle(
     approvals,
     gates,
     external: new GitHubLifecycleRuntime(taskLookup, githubArtifacts, {
+      reconciliation,
       remote,
       pullRequests,
       reviews,

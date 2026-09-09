@@ -124,6 +124,7 @@ export const LifecyclePolicyConfigSchema = z.object({
   required_checks: z.array(RequiredCheckConfigSchema).max(64).optional(),
   transient_ci_conclusions: z.array(TransientCiConclusionSchema).max(3).optional(),
   independent_review_required: z.boolean().optional(),
+  merge_approval_expiration: z.enum(["time_limited", "until_state_changes"]).optional(),
   require_clean_base: z.boolean().default(true),
   max_concurrent_tasks: PositiveIntSchema.max(64).default(8),
   cleanup: z.object({
@@ -144,7 +145,8 @@ export const LifecyclePolicyConfigSchema = z.object({
       "merge_method",
       "required_checks",
       "transient_ci_conclusions",
-      "independent_review_required"
+      "independent_review_required",
+      "merge_approval_expiration"
     ] as const) {
       if (value[field] !== undefined) {
         context.addIssue({
@@ -194,7 +196,9 @@ export const LifecyclePolicyConfigSchema = z.object({
     merge_method: value.merge_method!,
     required_checks: value.required_checks ?? [],
     transient_ci_conclusions: value.transient_ci_conclusions ?? ["timed_out", "startup_failure", "stale"],
-    independent_review_required: value.independent_review_required ?? false
+    independent_review_required: value.independent_review_required ?? false,
+    ...(value.merge_approval_expiration !== undefined
+      ? { merge_approval_expiration: value.merge_approval_expiration } : {})
   };
 });
 
