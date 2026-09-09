@@ -32,12 +32,12 @@ export const OwnerMergeGateViewSchema = z.object({
   unknown_external_effects: z.literal(0),
   risks: z.array(z.string().min(1).max(500)).max(32),
   prepared_at: z.string().datetime(),
-  expires_at: z.string().datetime()
+  expires_at: z.string().datetime().nullable()
 }).strict().superRefine((value, context) => {
   if (value.gate_id !== `merge_manifest_${value.gate_sha256}`) {
     context.addIssue({ code: "custom", path: ["gate_id"], message: "gate_id is not bound to gate_sha256." });
   }
-  if (Date.parse(value.expires_at) <= Date.parse(value.prepared_at)) {
+  if (value.expires_at !== null && Date.parse(value.expires_at) <= Date.parse(value.prepared_at)) {
     context.addIssue({ code: "custom", path: ["expires_at"], message: "Gate expiry must be after preparation." });
   }
 });
@@ -47,7 +47,7 @@ export const OwnerMergeApprovalViewSchema = z.object({
   gate_id: GateIdSchema,
   gate_sha256: Sha256Schema,
   issued_at: z.string().datetime(),
-  expires_at: z.string().datetime(),
+  expires_at: z.string().datetime().nullable(),
   consumed: z.boolean(),
   consumed_at: z.string().datetime().optional(),
   consumed_by_operation_id: z.string().min(1).max(200).optional()
@@ -61,7 +61,7 @@ export const OwnerMergeApprovalViewSchema = z.object({
   if (value.consumed !== (value.consumed_by_operation_id !== undefined)) {
     context.addIssue({ code: "custom", path: ["consumed_by_operation_id"], message: "Consumed approval operation binding is inconsistent." });
   }
-  if (Date.parse(value.expires_at) <= Date.parse(value.issued_at)) {
+  if (value.expires_at !== null && Date.parse(value.expires_at) <= Date.parse(value.issued_at)) {
     context.addIssue({ code: "custom", path: ["expires_at"], message: "Approval expiry must be after issuance." });
   }
 });
@@ -97,7 +97,7 @@ export async function approveMerge(
   if (gate.gate_id !== gateId) {
     throw new OwnerCliError("GATE_BINDING_MISMATCH", "Resolved merge gate does not match --gate-id.");
   }
-  if (Date.parse(gate.expires_at) <= now().getTime()) {
+  if (gate.expires_at !== null && Date.parse(gate.expires_at) <= now().getTime()) {
     throw new OwnerCliError("GATE_EXPIRED", "Merge gate has expired; prepare a fresh exact gate.");
   }
 
@@ -118,10 +118,11 @@ export async function approveMerge(
   if (approval.consumed) {
     throw new OwnerCliError("APPROVAL_STATE_INVALID", "A newly created approval cannot already be consumed.");
   }
-  if (Date.parse(approval.expires_at) > Date.parse(gate.expires_at)) {
+  if (gate.expires_at !== null
+    && (approval.expires_at === null || Date.parse(approval.expires_at) > Date.parse(gate.expires_at))) {
     throw new OwnerCliError("APPROVAL_EXPIRY_INVALID", "Approval expiry exceeds the exact gate expiry.");
   }
-  if (Date.parse(approval.expires_at) <= now().getTime()) {
+  if (approval.expires_at !== null && Date.parse(approval.expires_at) <= now().getTime()) {
     throw new OwnerCliError("APPROVAL_EXPIRY_INVALID", "Created approval is not currently usable.");
   }
 
@@ -129,7 +130,7 @@ export async function approveMerge(
   io.stdout(`gate_id=${approval.gate_id}`);
   io.stdout(`gate_sha256=${approval.gate_sha256}`);
   io.stdout(`issued_at=${approval.issued_at}`);
-  io.stdout(`expires_at=${approval.expires_at}`);
+  io.stdout(`expires_at=${approval.expires_at ?? "none"}`);
   io.stdout("consumed=false");
   return 0;
 }
@@ -170,12 +171,12 @@ function renderGate(gate: OwnerMergeGateView, io: OwnerCliIo): void {
   io.stdout(`merge_method=${gate.merge_method}`);
   io.stdout(`gate_sha256=${gate.gate_sha256}`);
   io.stdout(`prepared_at=${gate.prepared_at}`);
-  io.stdout(`expires_at=${gate.expires_at}`);
+  io.stdout(`expires_at=${gate.expires_at ?? "none"}`);
   io.stdout("required_checks:");
   if (gate.required_checks.length === 0) io.stdout("- none configured");
   for (const check of gate.required_checks) io.stdout(`- ${check.name}: ${check.status}`);
   io.stdout("risks:");
-  if (gate.risks.length === 0) io.stdout("- exact gate drift or expiry will invalidate this approval");
+  if (gate.risks.length === 0) io.stdout("- exact gate state changes invalidate this approval; time expiry applies only when configured");
   for (const risk of gate.risks) io.stdout(`- ${risk}`);
 }
 

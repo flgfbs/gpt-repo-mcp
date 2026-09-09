@@ -246,7 +246,17 @@ review, CI, and merge-gate evidence.
 Call `repo_merge_gate_prepare` with the expected task HEAD/tree. The server
 binds the configured merge method (`merge`, `squash`, or `rebase`) and mandatory
 remote task-branch retention. It is read-only and returns blockers or an
-expiring manifest.
+manifest. Time-limited gates remain the default.
+
+An owner can set `lifecycle.merge_approval_expiration` to
+`"until_state_changes"` for one GitHub repository. New gates and their owner
+approvals then have `expires_at: null`, displayed as `expires_at=none` by the CLI.
+Neither the owner interaction nor the subsequent merge has a time deadline.
+The exact PR, head/tree, base, checks, review, validation, publication and owner
+policy are still revalidated before merge, and approval remains single-use.
+Switching the policy back to `"time_limited"` invalidates outstanding gates
+without time expiry. Existing time-limited records keep their original expiry;
+this option never rewrites or revives a historical gate or consumed approval.
 
 When eligible, it prints exactly:
 
@@ -259,7 +269,7 @@ content-addressed gate, displays its exact repository/task/PR/HEAD/tree/method/
 CI/review/expiry binding, asks for confirmation, and writes one mode-0600
 approval.
 
-Merge requires one exact, unexpired, one-time owner approval.
+Merge requires one exact, valid, one-time owner approval.
 
 ChatGPT cannot mint this approval. **Allow all actions** does not substitute for
 it.

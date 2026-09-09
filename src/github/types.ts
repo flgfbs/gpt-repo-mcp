@@ -63,6 +63,7 @@ export type ServerOwnedTask = {
   requiredChecks: RequiredCheck[];
   transientCiConclusions: TransientCiConclusion[];
   independentReviewRequired?: boolean;
+  mergeApprovalExpiration?: "time_limited" | "until_state_changes";
 };
 
 export interface TaskLookup {
@@ -450,7 +451,7 @@ export type MergeGateManifestCore = {
     verifyBaseContainsHead: true;
   };
   preparedAt: string;
-  expiresAt: string;
+  expiresAt: string | null;
 };
 
 export type MergeGateManifest = MergeGateManifestCore & {

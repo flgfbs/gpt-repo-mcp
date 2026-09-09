@@ -371,7 +371,9 @@ export class RegistryTaskLookup implements TaskLookup {
       mergeMethod: base.lifecycle.merge_method,
       requiredChecks: base.lifecycle.required_checks.map(requiredCheck),
       transientCiConclusions: base.lifecycle.transient_ci_conclusions,
-      independentReviewRequired: base.lifecycle.independent_review_required
+      independentReviewRequired: base.lifecycle.independent_review_required,
+      ...(base.lifecycle.merge_approval_expiration !== undefined
+        ? { mergeApprovalExpiration: base.lifecycle.merge_approval_expiration } : {})
     };
   }
 }
