@@ -75,12 +75,13 @@ async function fixture(): Promise<{ home: string; installed: string }> {
 }
 
 function described(): string {
-  const schemas = [2, 3, 4, 5, 6, 7, 8, 9].map(version => "claude-review-router-typed-launch.v" + version);
+  const schemas = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(version => "claude-review-router-typed-launch.v" + version);
+  const boundedSchemas = schemas.filter(schema => !schema.endsWith(".v8") && !schema.endsWith(".v9"));
   return JSON.stringify({
     supported_request_schemas: schemas,
-    provider_contacts_per_launcher_invocation_max: Object.fromEntries(schemas.map(value =>
+    provider_contacts_per_launcher_invocation_max: Object.fromEntries(boundedSchemas.map(value =>
       [value, value.endsWith(".v3") ? 2 : 1])),
-    automatic_successor_per_launcher_invocation: Object.fromEntries(schemas.map(value =>
+    automatic_successor_per_launcher_invocation: Object.fromEntries(boundedSchemas.map(value =>
       [value, value.endsWith(".v3") ? "PRE_MODEL_HTTP_529_ONCE" : "DISABLED"])),
     automatic_fallback: "DISABLED", automatic_retry: "DISABLED",
     credential_mutation: "PROHIBITED", provider_contacts_per_attempt: 1,
@@ -141,22 +142,23 @@ describe("closed installed Fable static support pins", () => {
     for (const [name, bytes] of before) expect(await readFile(join(f.installed, name))).toEqual(bytes);
   });
 
-  test("binds the final source cohort without admitting native migration as MCP recovery", async () => {
+  test("binds the guarded source cohort while retaining only managed v2 and v7", async () => {
     await fixture();
     const result = await new InstalledTypedFableLauncher().preflight();
-    expect(result).toMatchObject({
-      launcher_sha256: "aa1acc03957cfa36d7af9705fbc26b0d3864f930e75fa8012e5fe07cef914fa8",
-      router_sha256: "202f81322b6680310b374b0d0c5356bd68ae88e6145ad17e7ee589d14a8ee9ef",
+    expect(result).toEqual({
+      launcher_sha256: "345c3508dc8cfdcf9af741c7a3917c920d1a18462e13d11c8544c745331da902",
+      router_sha256: "1ad06682f51e6b476d872f377d78dd65360a1590421092cc3d85c2db87ef21fd",
       request_schema: "claude-review-router-typed-launch.v2",
-      managed_missing_body_request_schema: "claude-review-router-typed-launch.v7"
+      managed_missing_body_request_schema: "claude-review-router-typed-launch.v7",
+      provider_contact_limit: 1, model_class: "FABLE", reasoning: "MAX"
     });
     expect(result).not.toHaveProperty("native_migration_request_schema");
     expect(actual.FABLE_STATIC_DEPENDENCY_PINS.find(pin => pin.name === "native_history_migration.py"))
       .toEqual({ name: "native_history_migration.py", byte_length: 66854,
         sha256: "51f0749cd5b78c5ab0954beb74c16f3df78ba991000a1e227906e077d549f620", mode: 0o700 });
     expect(actual.FABLE_STATIC_DEPENDENCY_PINS.find(pin => pin.name === "review_response_retention_bootstrap.py"))
-      .toEqual({ name: "review_response_retention_bootstrap.py", byte_length: 100305,
-        sha256: "c2b30ac802cb0160a282af8f23dbfbdc80ed62593cb5b67ecc5a4c945c759176", mode: 0o700 });
+      .toEqual({ name: "review_response_retention_bootstrap.py", byte_length: 140764,
+        sha256: "fc235cb55230e0055b2be3ff8790bc12742d3f04d681b83fc0b95284d9fae958", mode: 0o700 });
   });
 
   test("legacy describe never implies managed recovery capability", async () => {

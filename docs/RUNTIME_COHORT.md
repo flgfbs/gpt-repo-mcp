@@ -70,3 +70,13 @@ drift、symlink、未知 member、保存側欠落、排他、非変更を確認�
 独立した drift テストと実 Node restart の end-to-end テストで維持し、ファイル交換・journal・
 hardlink・回復処理は全ケースで本番実装を通します。
 これらは source 検証であり、実 installed recovery、独立 Fable review、運用完了ではありません。
+
+## 管理レビューのルーター互換性
+
+管理アダプターの固定9ファイルは router commit `3d6eab9e322f0414e0cb88925380f132e692df30`
+に対応します。旧版の launcher/router、retention bootstrap、route policy のままでは
+`STOP_MANAGED_INSTALLED_BYTES_MISMATCH` で停止します。ルーター自身の初回 ingress 登録と
+レビュー済み cohort の有効化は別途必要で、MCP のファイル指紋更新だけでは実行されません。
+
+MCP の管理要求は引き続き v2 と v7 です。新版が公開する v10/v11/v12 の存在は、MCP が
+その経路や待機契約を選択する権限・能力を意味しません。v2 の実行時間上限も維持します。
