@@ -146,8 +146,8 @@ describe("closed installed Fable static support pins", () => {
     await fixture();
     const result = await new InstalledTypedFableLauncher().preflight();
     expect(result).toEqual({
-      launcher_sha256: "345c3508dc8cfdcf9af741c7a3917c920d1a18462e13d11c8544c745331da902",
-      router_sha256: "1ad06682f51e6b476d872f377d78dd65360a1590421092cc3d85c2db87ef21fd",
+      launcher_sha256: "cae77c2f6cd946dd22a076d54a51ca31500366e460a3ee8ff7efff45f3fe3ff9",
+      router_sha256: "5ec182c23b0e4d733c449d360e1dd878366e6a103301e9494f8c15d560d05703",
       request_schema: "claude-review-router-typed-launch.v2",
       managed_missing_body_request_schema: "claude-review-router-typed-launch.v7",
       provider_contact_limit: 1, model_class: "FABLE", reasoning: "MAX"
@@ -159,6 +159,19 @@ describe("closed installed Fable static support pins", () => {
     expect(actual.FABLE_STATIC_DEPENDENCY_PINS.find(pin => pin.name === "review_response_retention_bootstrap.py"))
       .toEqual({ name: "review_response_retention_bootstrap.py", byte_length: 140764,
         sha256: "fc235cb55230e0055b2be3ff8790bc12742d3f04d681b83fc0b95284d9fae958", mode: 0o700 });
+  });
+
+  test.each(["CLOSED", "REVIEW_ONLY"])("rejects %s ingress without a second launcher call", async mode => {
+    await fixture();
+    runProcess.mockResolvedValueOnce({
+      exit_code: 1, timed_out: false, duration_ms: 0, stdout_tail: "",
+      stderr_tail: "STOP_COHORT_" + mode,
+      captured_output: { stdout: "", stderr: "STOP_COHORT_" + mode, truncated: false }
+    });
+    await expect(new InstalledTypedFableLauncher().preflight())
+      .rejects.toThrow("STOP_MANAGED_LAUNCHER_DESCRIBE_FAILED");
+    expect(state.checked).toHaveLength(9);
+    expect(runProcess).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ args: ["describe"] }));
   });
 
   test("legacy describe never implies managed recovery capability", async () => {

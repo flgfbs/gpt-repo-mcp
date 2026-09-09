@@ -73,10 +73,13 @@ hardlink・回復処理は全ケースで本番実装を通します。
 
 ## 管理レビューのルーター互換性
 
-管理アダプターの固定9ファイルは router commit `3d6eab9e322f0414e0cb88925380f132e692df30`
+管理アダプターの固定9ファイルは router commit `cc261f62e3bec4d5d82d3333af7bd1afcd0063c3`
 に対応します。旧版の launcher/router、retention bootstrap、route policy のままでは
 `STOP_MANAGED_INSTALLED_BYTES_MISMATCH` で停止します。ルーター自身の初回 ingress 登録と
 レビュー済み cohort の有効化は別途必要で、MCP のファイル指紋更新だけでは実行されません。
+初回切替の `CLOSED` / `REVIEW_ONLY` 中は通常の `describe` も拒否されるため、MCP の
+管理レビューは開始しません。指定された自己レビューの完了と通常公開を経てから再開します。
+MCP は REVIEW_ONLY 用の要求や追加の起動経路を生成しません。
 
 MCP の管理要求は引き続き v2 と v7 です。新版が公開する v10/v11/v12 の存在は、MCP が
 その経路や待機契約を選択する権限・能力を意味しません。v2 の実行時間上限も維持します。

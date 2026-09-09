@@ -10,7 +10,7 @@ export type InstalledStaticPin = {
 };
 
 // Closed production support closure. These are not caller-selectable paths.
-// Source cohort: router 3d6eab9e322f0414e0cb88925380f132e692df30.
+// Source cohort: router cc261f62e3bec4d5d82d3333af7bd1afcd0063c3.
 // Resolver mode 0644 is preserved; the remaining modes are activation targets.
 // This binds source expectations only. It never installs or rewrites bytes.
 export const FABLE_STATIC_DEPENDENCY_PINS = [
