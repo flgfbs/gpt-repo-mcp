@@ -128,7 +128,9 @@ describe("package and public documentation", () => {
     expect(security).toContain("No tool reads credential stores");
     expect(workflows).toContain("chat-pro-repo approve-merge --gate-id <opaque-id>");
     expect(workflows).toContain("mode-0600");
-    expect(workflows).toContain("one exact, unexpired, one-time owner approval");
+    expect(workflows).toContain("one exact, valid, one-time owner approval");
+    expect(workflows).toContain("lifecycle.merge_approval_expiration");
+    expect(workflows).toContain("Existing time-limited records keep their original expiry");
     expect(workflows).toContain("does not authorize release");
   });
 

@@ -245,7 +245,7 @@ review, CI, and merge-gate evidence.
 
 Call `repo_merge_gate_prepare` with the expected task HEAD/tree. The server
 binds the configured merge method (`merge`, `squash`, or `rebase`) and mandatory
-remote task-branch retention. It is read-only and returns blockers or an
+remote task-branch retention. It is read-only and returns blockers or a
 manifest. Time-limited gates remain the default.
 
 An owner can set `lifecycle.merge_approval_expiration` to
@@ -277,7 +277,7 @@ it.
 ## 11. Merge And Read Back
 
 `repo_write_merge` receives the original operation/task state plus manifest id,
-manifest digest, and owner approval id. It revalidates the unexpired exact
+manifest digest, and owner approval id. It revalidates the current exact
 binding and consumes the approval once. Its effect is `merged` or a verified
 `already_merged` result for the same binding.
 
